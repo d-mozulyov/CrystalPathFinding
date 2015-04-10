@@ -33,8 +33,8 @@ unit CrystalPathFinding;
 
 
 {.$define CPFLOG}
-{.$define CPFAPI}
-{.$define CPFLIB}
+{$define CPFAPI}
+{$define CPFLIB}
 
 {$ifdef CPFLIB}
   {$define CPFAPI}  
@@ -107,6 +107,20 @@ type
   TExtended80Rec = Extended;
   PExtended80Rec = ^TExtended80Rec;
   {$ifend}
+
+  // exception class
+  {$ifNdef CPFLIB}
+  ECrystalPathFinding = class(Exception)
+  {$ifdef KOL}
+    constructor Create(const Msg: string);
+    constructor CreateFmt(const Msg: string; const Args: array of const);
+    constructor CreateRes(Ident: NativeUInt); overload;
+    constructor CreateRes(ResStringRec: PResStringRec); overload;
+    constructor CreateResFmt(Ident: NativeUInt; const Args: array of const); overload;
+    constructor CreateResFmt(ResStringRec: PResStringRec; const Args: array of const); overload;
+  {$endif}
+  end;
+  {$endif}
 
   // map tile
   TPathMapTile = type byte;
@@ -241,10 +255,417 @@ type
 
   end;
 
+
+{$ifdef CPFAPI}
+type
+  PCPFHandle = ^TCPFHandle;
+  TCPFHandle = type NativeUInt;
+
+  {$ifdef CPFLIB}
+  TCPFAlloc = function(Size: NativeUInt): Pointer; cdecl;
+  TCPFFree = procedure(P: Pointer); cdecl;
+  TCPFRealloc = function(P: Pointer; Size: NativeUInt): Pointer; cdecl;
+  TCPFException = procedure(Message: PWideChar; Address: Pointer); cdecl;
+  TCPFCallbacks = packed record
+    Alloc: TCPFAlloc;
+    Free: TCPFFree;
+    Realloc: TCPFRealloc;
+    Exception: TCPFException;
+  end;
+  procedure cpfInitialize(const Callbacks: TCPFCallbacks); cdecl;
+  {$endif}
+
+  function  cpfCreateWeights(HighTile: Byte): TCPFHandle; cdecl;
+  procedure cpfDestroyWeights(var HWeights: TCPFHandle); cdecl;
+  function  cpfWeightGet(HWeights: TCPFHandle; Tile: Byte): Single; cdecl;
+  procedure cpfWeightSet(HWeights: TCPFHandle; Tile: Byte; Value: Single); cdecl;
+  function  cpfCreateMap(Width, Height: Word; Kind: TPathMapKind = mkSimple; HighTile: Byte = 0): TCPFHandle; cdecl;
+  procedure cpfDestroyMap(var HMap: TCPFHandle); cdecl;
+  procedure cpfMapClear(HMap: TCPFHandle); cdecl;
+  procedure cpfMapUpdate(HMap: TCPFHandle; Tiles: PByte; X, Y, Width, Height: Word; Pitch: NativeInt = 0); cdecl;
+  function  cpfMapGetTile(HMap: TCPFHandle; X, Y: Word): Byte; cdecl;
+  procedure cpfMapSetTile(HMap: TCPFHandle; X, Y: Word; Value: Byte);
+  function  cpfFindPath(HMap: TCPFHandle; Start, Finish: TPoint; HWeights: TCPFHandle = 0; ExcludePoints: PPoint = nil; ExcludePointsCount: NativeUInt = 0; SectorTest: Boolean = True; UseCache: Boolean = True): PPathMapResult; cdecl;
+{$endif}
+
 implementation
+{$ifNdef CPFLIB}
+  {$ifNdef KOL}uses SysConst{$endif};
+
+var
+  // todo FPC
+  MemoryManager: {$if CompilerVersion < 18}TMemoryManager{$else}TMemoryManagerEx{$ifend};
+{$endif}
+
+
+{ ECrystalPathFinding }
+
+{$if Defined(KOL) and (not Defined(CPFLIB)))}
+constructor ECrystalPathFinding.Create(const Msg: string);
+begin
+  inherited Create(e_Custom, Msg);
+end;
+
+constructor ECrystalPathFinding.CreateFmt(const Msg: string;
+  const Args: array of const);
+begin
+  inherited CreateFmt(e_Custom, Msg, Args);
+end;
 
 type
-  TPathMapPtr = {$ifNdef CPFLIB}^TPathMap{$else}TPathMap{$endif};
+  PStrData = ^TStrData;
+  TStrData = record
+    Ident: Integer;
+    Str: string;
+  end;
+
+function EnumStringModules(Instance: NativeInt; Data: Pointer): Boolean;
+var
+  Buffer: array [0..1023] of Char;
+begin
+  with PStrData(Data)^ do
+  begin
+    SetString(Str, Buffer, Windows.LoadString(Instance, Ident, Buffer, sizeof(Buffer)));
+    Result := Str = '';
+  end;
+end;
+
+function FindStringResource(Ident: Integer): string;
+var
+  StrData: TStrData;
+  Func: TEnumModuleFunc;
+begin
+  StrData.Ident := Ident;
+  StrData.Str := '';
+  Pointer(@Func) := @EnumStringModules;
+  EnumResourceModules(Func, @StrData);
+  Result := StrData.Str;
+end;
+
+function LoadStr(Ident: Integer): string;
+begin
+  Result := FindStringResource(Ident);
+end;
+
+constructor ECrystalPathFinding.CreateRes(Ident: NativeUInt);
+begin
+  inherited Create(e_Custom, LoadStr(Ident));
+end;
+
+constructor ECrystalPathFinding.CreateRes(ResStringRec: PResStringRec);
+begin
+  inherited Create(e_Custom, System.LoadResString(ResStringRec));
+end;
+
+constructor ECrystalPathFinding.CreateResFmt(Ident: NativeUInt;
+  const Args: array of const);
+begin
+  inherited CreateFmt(e_Custom, LoadStr(Ident), Args);
+end;
+
+constructor ECrystalPathFinding.CreateResFmt(ResStringRec: PResStringRec;
+  const Args: array of const);
+begin
+  inherited CreateFmt(e_Custom, System.LoadResString(ResStringRec), Args);
+end;
+{$ifend}
+
+
+{$if (not Defined(FPC)) and (CompilerVersion < 21)}
+function ReturnAddress: Pointer;
+asm
+  mov eax, [ebp+4]
+end;
+{$ifend}
+
+
+{$ifdef CPFLIB}
+var
+  CPFCallbacks: TCPFCallbacks;
+{$endif}
+
+type
+  TPathMapWeightsPtr = {$ifdef CPFLIB}^{$endif}TPathMapWeights;
+  TPathMapPtr = {$ifdef CPFLIB}^{$endif}TPathMap;
+  TExceptionString = {$ifdef CPFLIB}PWideChar{$else}string{$endif};
+
+procedure CPFException(const Message: TExceptionString; const Address: Pointer);
+begin
+  {$ifdef CPFLIB}
+    if Assigned(CPFCallbacks.Exception) then
+      CPFCallbacks.Exception(Message, Address);
+
+     // todo Assert?
+  {$else}
+     raise ECrystalPathFinding.Create(Message) at Address;
+  {$endif}
+end;
+
+{$ifdef CPFLIB}
+procedure CPFExceptionFmt(const Fmt: PWideChar; const Args: array of Integer;
+   const Address: Pointer);
+var
+  TextBuffer: array[0..2048 - 1] of WideChar;
+  Dest, Src: PWideChar;
+  X: Cardinal;
+  Arg: Integer;
+  L, R: PWideChar;
+  C: WideChar;
+begin
+  Dest := @TextBuffer[0];
+  Src := Fmt;
+  Arg := 0;
+
+  if (Src <> nil) then
+  while (Src^ <> #0) do
+  begin
+    if (Src^ = '%') then
+    begin
+      if (Word(Src[1]) or $20 = Word('d')) and (Arg <= High(Args)) then
+      begin
+        Inc(Src, 2);
+        X := Args[Arg];
+        Inc(Arg);
+
+        // sign
+        if (Integer(X) < 0) then
+        begin
+          Dest^ := '-';
+          Inc(Dest);
+          X := Cardinal(-Integer(X));
+        end;
+
+        // fill inverted
+        L := Dest;
+        repeat
+          PWord(Dest)^ := Word('0') + X mod 10;
+          Inc(Dest);
+          X := X div 10;
+        until (X = 0);
+
+        // invert
+        R := Dest;
+        Dec(R);
+        while (NativeUInt(L) < NativeUInt(R)) do
+        begin
+          C := R^;
+          R^ := L^;
+          L^ := C;
+
+          Inc(L);
+          Dec(R);
+        end;
+
+        // scan next
+        Continue;
+      end;
+    end;
+
+    Dest^ := Src^;
+    Inc(Src);
+    Inc(Dest);
+  end;
+
+  Dest^ := #0;
+  CPFException(@TextBuffer[0], Address);
+end;
+{$else !CPFLIB}
+procedure CPFExceptionFmt(const Fmt: string; const Args: array of const;
+   const Address: Pointer);
+begin
+  CPFException(Format(Fmt, Args), Address);
+end;
+{$endif}
+
+{$ifdef CPFLIB}
+procedure RaiseCallbacks(const Address: Pointer);
+begin
+  CPFException('Callbacks not defined', Address);
+end;
+{$endif}
+
+procedure RaiseOutOfMemory(const Address: Pointer);
+begin
+{$ifdef CPFLIB}
+  CPFException('Out of memory', Address);
+{$else}
+  {$ifdef KOL}
+    raise Exception.Create(e_OutOfMem, SOutOfMemory) at Address;
+  {$else}
+    raise EOutOfMemory.Create(SOutOfMemory) at Address;
+  {$endif}
+{$endif}
+end;
+
+procedure RaiseInvalidPointer(const Address: Pointer);
+begin
+{$ifdef CPFLIB}
+  CPFException('Invalid pointer operation', Address);
+{$else}
+  {$ifdef KOL}
+    raise Exception.Create(e_InvalidPointer, SInvalidPointer) at Address;
+  {$else}
+    raise EInvalidPointer.Create(SInvalidPointer) at Address;
+  {$endif}
+{$endif}
+end;
+
+function CPFAlloc(const Size: NativeUInt; const Address: Pointer): Pointer;
+begin
+  if (Size = 0) then
+  begin
+    Result := nil;
+    Exit;
+  end;
+
+  {$ifdef CPFLIB}
+    if not Assigned(CPFCallbacks.Alloc) then
+      RaiseCallbacks(Address);
+
+    Result := CPFCallbacks.Alloc(Size);
+  {$else}
+    Result := MemoryManager.GetMem(Size);
+  {$endif}
+
+  if (Result = nil) then
+    RaiseOutOfMemory(Address);
+end;
+
+procedure CPFFree(const P: Pointer; const Address: Pointer);
+begin
+  if (P <> nil) then
+  begin
+  {$ifdef CPFLIB}
+    if not Assigned(CPFCallbacks.Free) then
+      RaiseCallbacks(Address);
+
+    CPFCallbacks.Free(P);
+  {$else}
+    if (MemoryManager.FreeMem(P) <> 0) then
+      RaiseInvalidPointer(Address);
+  {$endif}
+  end;
+end;
+
+function CPFRealloc(const P: Pointer; const Size: NativeUInt; const Address: Pointer): Pointer;
+begin
+  if (P = nil) then
+  begin
+    Result := CPFAlloc(Size, Address);
+  end else
+  if (Size = 0) then
+  begin
+    CPFFree(P, Address);
+    Result := nil;
+  end else
+  begin
+    {$ifdef CPFLIB}
+      if not Assigned(CPFCallbacks.Realloc) then
+        RaiseCallbacks(Address);
+
+      Result := CPFCallbacks.Realloc(P, Size);
+    {$else}
+      Result := MemoryManager.ReallocMem(P, Size);
+    {$endif}
+
+    if (Result = nil) then
+      RaiseOutOfMemory(Address);
+  end;
+end;
+
+
+{$ifdef CPFLIB}
+procedure cpfInitialize(const Callbacks: TCPFCallbacks); cdecl;
+var
+  Address: Pointer;
+  Done: Boolean;
+begin
+  Address := ReturnAddress;
+
+  with Callbacks do
+  Done := Assigned(Alloc) and Assigned(Free) and Assigned(Realloc) and (Assigned(Exception));
+
+  if (not Done) then
+  begin
+    if (not Assigned(CPFCallbacks.Exception)) then
+      CPFCallbacks.Exception := Callbacks.Exception;
+
+    RaiseCallbacks(Address);
+  end;
+
+  CPFCallbacks := Callbacks;
+end;
+{$endif .CPFLIB}
+
+
+{$ifdef CPFAPI}
+function  cpfCreateWeights(HighTile: Byte): TCPFHandle; cdecl;
+begin
+  // todo
+  Result := 0;
+end;
+
+procedure cpfDestroyWeights(var HWeights: TCPFHandle); cdecl;
+begin
+  // todo
+
+  HWeights := 0;
+end;
+
+function  cpfWeightGet(HWeights: TCPFHandle; Tile: Byte): Single; cdecl;
+begin
+  // todo
+  Result := 0;
+end;
+
+procedure cpfWeightSet(HWeights: TCPFHandle; Tile: Byte; Value: Single); cdecl;
+begin
+  // todo
+end;
+
+function  cpfCreateMap(Width, Height: Word; Kind: TPathMapKind = mkSimple; HighTile: Byte = 0): TCPFHandle; cdecl;
+begin
+  // todo
+  Result := 0;
+end;
+
+procedure cpfDestroyMap(var HMap: TCPFHandle); cdecl;
+begin
+  // todo
+
+  HMap := 0;
+end;
+
+procedure cpfMapClear(HMap: TCPFHandle); cdecl;
+begin
+  // todo
+end;
+
+procedure cpfMapUpdate(HMap: TCPFHandle; Tiles: PByte; X, Y, Width, Height: Word; Pitch: NativeInt = 0); cdecl;
+begin
+  // todo
+end;
+
+function  cpfMapGetTile(HMap: TCPFHandle; X, Y: Word): Byte; cdecl;
+begin
+  // todo
+  Result := 0;
+end;
+
+procedure cpfMapSetTile(HMap: TCPFHandle; X, Y: Word; Value: Byte);
+begin
+  // todo
+end;
+
+function  cpfFindPath(HMap: TCPFHandle; Start, Finish: TPoint; HWeights: TCPFHandle = 0; ExcludePoints: PPoint = nil; ExcludePointsCount: NativeUInt = 0; SectorTest: Boolean = True; UseCache: Boolean = True): PPathMapResult; cdecl;
+begin
+  // todo
+  Result := nil;
+end;
+{$endif .CPFAPI}
+
+
+
 
 
 const
@@ -426,98 +847,7 @@ begin
 
       end;
 
-
-<<<<<<< HEAD
       if (Path < ChildNode.Path) then
-=======
-// самая главная функция TPathMap - поиск пути
-// по сути заполняет данные и производит небольшие расчёты
-// а основная поисковая функция - это конечно PathMap_FIND_PATH
-function TPathMap.FindPath(const Start, Finish: TPoint; const Weights: TPathMapWeights;
-         const ExcludePoints: PPoint; const ExcludePointsCount: integer;
-         const SectorTest: boolean): PPathMapResult;
-label
-  exit_proc;
-type
-  TDwordArray = array[0..1] of dword;
-var
-  i: integer;
-  Stack: PPathMapStack;
-  WasPathFinding: boolean;
-  PointInExcluded: boolean;
-  StartNumber, FinishNumber: dword;
-  CellStart, CellFinish: PPathMapCell;
-  CurrentPoint: PPoint;
-  MapWidth, MapHeight: dword;
-  WorkWeights: TPathMapWeights;
-  DwordWeights: ^TDwordArray;
-  zero_tiles, one_weight: boolean;
-
-  procedure assert_point(const P: TPoint; const id: string);
-  begin
-    EWrongParameter.Assert('Wrong ' + id + ' point (%d, %d). Map size = %dx%d', [P.X, P.Y, Self.Width, Self.Height]);
-  end;
-begin
-  Result := nil;
-  Stack := FStack;
-  WasPathFinding := false;
-
-  // проверки
-  MapWidth := Self.Width;
-  MapHeight := Self.Height;
-  PointInExcluded := false;
-  if (dword(Start.X) >= MapWidth) or (dword(Start.Y) >= MapHeight) then assert_point(Start, 'start');
-  if (dword(Finish.X) >= MapWidth) or (dword(Finish.Y) >= MapHeight) then assert_point(Finish, 'finish');
-  if (ExcludePoints <> nil) then
-  begin
-    if (ExcludePointsCount < 0) then
-    EWrongParameter.Assert('Wrong exclude points count = %d', [ExcludePointsCount]);
-
-    CurrentPoint := pointer(ExcludePoints);
-    for i := 0 to ExcludePointsCount-1 do
-    begin
-      if (dword(CurrentPoint.X) >= MapWidth) or (dword(CurrentPoint.Y) >= MapHeight) then assert_point(CurrentPoint^, 'exclude');
-
-      if (not PointInExcluded) then
-      if ((CurrentPoint.X=Start.X)and(CurrentPoint.Y=Start.Y)) or
-         ((CurrentPoint.X=Finish.X)and(CurrentPoint.Y=Finish.Y)) then PointInExcluded := true;
-
-      inc(CurrentPoint);
-    end;
-  end;
-  if (Weights = nil) then WorkWeights := FDefaultWeights
-  else WorkWeights := Weights;
-  DwordWeights := pointer(WorkWeights.Prepare(Self, zero_tiles, one_weight));
-
-
-  // проверки на быстрое попадание/непопадание
-  begin
-    if (PointInExcluded) then goto exit_proc;
-    StartNumber := dword(Start.Y*integer(MapWidth) + Start.X);
-    CellStart := @Stack.Map[StartNumber];
-    if (CellStart.Tile = $FF) or (CellStart.Mask = 0) then goto exit_proc;
-    FinishNumber := dword(Finish.Y*integer(MapWidth) + Finish.X);
-    CellFinish := @Stack.Map[FinishNumber];
-    if (CellFinish.Tile = $FF) or (CellFinish.Mask = 0) then goto exit_proc;
-    if (DwordWeights[CellStart.Tile*2] = 0) or (DwordWeights[CellFinish.Tile*2] = 0) then goto exit_proc;
-
-    if (Start.X = Finish.X) and (Start.Y = Finish.Y) then
-    begin
-      if (Self.NodeBlocksCount = 0) then IncrementNodeBlockNumber();
-      if (Self.NodeBlocksCount > 1) then ReleaseHighNodeBlock();
-
-      Stack.FPathPoints^ := Start;
-      Result := @Stack.FFindResult;
-      Result.points := Pointer(Stack.FPathPoints);
-      Result.points_count := 1;
-      Result.distance := 0;
-      exit; //goto exit_proc;
-    end;
-
-    if (SectorTest {$ifndef CPF_DLL}or FSectorsFilled{$endif}) then
-    begin
-      if (not FSectorsFilled) then
->>>>>>> master
       begin
         ChildNode.Path := Path;
         Store.Buffer[NodeInfo shr 28] := ChildNode;
@@ -534,8 +864,8 @@ begin
 
 
 
-      if (NodeInfo = 0) or (Child = 0) then
-        raise Exception.Create('Error Message');
+//      if (NodeInfo = 0) or (Child = 0) then
+//        raise Exception.Create('Error Message');
       
 
       if (NodeInfo and $ff = 0) then Break;
@@ -558,6 +888,10 @@ end;
 
 
 initialization
-  TPathMap(nil).DoFindPath;
+  {$ifNdef CPFLIB}
+  System.GetMemoryManager(MemoryManager);
+  {$endif}
+//  CPFFree(nil, nil);
+//  TPathMap(nil).DoFindPath;
 
 end.

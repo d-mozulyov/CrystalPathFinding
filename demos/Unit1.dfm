@@ -53,7 +53,7 @@ object Form1: TForm1
     TabOrder = 6
     object cbSectorTest: TCheckBox
       Left = 8
-      Top = 20
+      Top = 4
       Width = 97
       Height = 17
       Caption = ' SectorTest'
@@ -62,13 +62,13 @@ object Form1: TForm1
       TabOrder = 0
       OnClick = cbSectorTestClick
     end
-    object cbSmartWeight: TCheckBox
+    object cbUseCache: TCheckBox
       Left = 8
-      Top = 4
+      Top = 20
       Width = 97
       Height = 17
       Hint = #1059#1084#1085#1099#1081' '#1088#1072#1089#1095#1105#1090' '#1074#1077#1089#1086#1074
-      Caption = ' SmartWeight'
+      Caption = ' UseCache'
       Checked = True
       ParentShowHint = False
       ShowHint = True
@@ -286,7 +286,7 @@ object Form1: TForm1
     TabOrder = 4
     OnClick = btnClearClick
   end
-  object rgMapMode: TRadioGroup
+  object rgMapKind: TRadioGroup
     Left = 916
     Top = 442
     Width = 140
@@ -297,11 +297,10 @@ object Form1: TForm1
       'mmSimple'
       'mmDiagonal'
       'mmDiagonalEx'
-      'mmHexagonal45'
-      'mmHexagonal60')
+      'mmHexagonal')
     ParentShowHint = False
     ShowHint = False
     TabOrder = 5
-    OnClick = rgMapModeClick
+    OnClick = rgMapKindClick
   end
 end

@@ -4,6 +4,7 @@ uses
   CrystalPathFinding in '..\..\sources\CrystalPathFinding.pas';
 
 exports
+  cpfInitialize,
   cpfCreateWeights,
   cpfDestroyWeights,
   cpfWeightGet,

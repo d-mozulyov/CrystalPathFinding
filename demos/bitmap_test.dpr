@@ -1,5 +1,24 @@
 program bitmap_test;
 
+// compiler directives
+{$ifdef FPC}
+  {$mode Delphi}
+  {$asmmode Intel}
+{$endif}
+{$if CompilerVersion >= 24}
+  {$LEGACYIFEND ON}
+{$ifend}
+{$U-}{$V+}{$B-}{$X+}{$T+}{$P+}{$H+}{$J-}{$Z1}{$A4}
+{$if CompilerVersion >= 15}
+  {$WARN UNSAFE_CODE OFF}
+  {$WARN UNSAFE_TYPE OFF}
+  {$WARN UNSAFE_CAST OFF}
+{$ifend}
+{$O+}{$R-}{$I-}{$Q-}{$W-}
+{$ifdef KOL_MCK}
+  {$define KOL}
+{$endif}
+
 uses
   Types,
   Windows,
@@ -53,7 +72,7 @@ var
   BitmapPitch: integer;
   CellsCount: integer;
 
-  Map: THandle;
+  Map: TCPFHandle;
   Time: dword;
   found: boolean;
   Start, Finish: TPoint;
@@ -125,7 +144,7 @@ try
 
   // загрузка карты
   InvertBitmap();
-  Map := cpfCreateMap(BitmapWidth, BitmapHeight, mmSimple, 0, false);
+  Map := cpfCreateMap(BitmapWidth, BitmapHeight, mkSimple, 0);
   cpfMapUpdate(Map, BitmapPixel(0, 0), 0, 0, BitmapWidth, BitmapHeight, -BitmapPitch);
 
   
@@ -178,13 +197,13 @@ try
     Points := FindResult.points;
     Bitmap.Canvas.Pixels[Points[0].X, Points[0].Y] := clRed;
     RedValue := BitmapPixel(Points[0].X, Points[0].Y)^;
-    for i := 1 to FindResult.points_count-1 do
+    for i := 1 to FindResult.PointsCount-1 do
       BitmapPixel(Points[i].X, Points[i].Y)^ := RedValue;
 
     Bitmap.SaveToFile(DestFileName);
     ShowInformation('Путь расчитан за %d миллисекунд и результат сохранён в файл "%s"'#13+
                     'Расстояние: %0.2f. (количество точек - %d)',
-                    [Time, DestFileName, FindResult.Distance, FindResult.points_count]);
+                    [Time, DestFileName, FindResult.Distance, FindResult.PointsCount]);
   end;
 finally
   cpfDestroyMap(Map);

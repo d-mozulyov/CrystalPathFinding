@@ -78,10 +78,10 @@ type
     btnRandom: TButton;
     btnClear: TButton;
     lbDistance: TLabel;
-    rgMapMode: TRadioGroup;
+    rgMapKind: TRadioGroup;
     GroupBox5: TGroupBox;
     cbSectorTest: TCheckBox;
-    cbSmartWeight: TCheckBox;
+    cbUseCache: TCheckBox;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
@@ -98,7 +98,7 @@ type
     procedure btnClearClick(Sender: TObject);
     procedure btnRandomClick(Sender: TObject);
     procedure cbSectorTestClick(Sender: TObject);
-    procedure rgMapModeClick(Sender: TObject);
+    procedure rgMapKindClick(Sender: TObject);
   private
     // внутренние данные
     UseWeights: boolean;
@@ -110,7 +110,7 @@ type
     MousePressed: TMouseButton;
     FTileMode: byte;
     FClearMode: byte;
-    FMapMode: TPathMapMode;
+    FMapKind: TPathMapKind;
 
     procedure RepaintBoxes(const PaintBoxes: array of TPaintBox);
     function  ExcludePointPos(const Value: TPoint): integer;
@@ -122,7 +122,7 @@ type
     procedure SetFinishPoint(const Value: TPoint);
     procedure SetClearMode(const Value: byte);
     procedure SetTileMode(const Value: byte);
-    procedure SetMapMode(const Value: TPathMapMode);
+    procedure SetMapKind(const Value: TPathMapKind);
   private
     // основные методы
     procedure SaveMap();
@@ -132,7 +132,7 @@ type
 
     property TileMode: byte read FTileMode write SetTileMode;
     property ClearMode: byte read FClearMode write SetClearMode;
-    property MapMode: TPathMapMode read FMapMode write SetMapMode; 
+    property MapKind: TPathMapKind read FMapKind write SetMapKind; 
     property StartPoint: TPoint read FStartPoint write SetStartPoint;
     property FinishPoint: TPoint read FFinishPoint write SetFinishPoint;
   end;
@@ -158,8 +158,8 @@ var
 
 
   // рабочие объекты библиотеки cpf
-  HWeights: THandle;
-  HMap: THandle;
+  HWeights: TCPFHandle;
+  HMap: TCPFHandle;
 implementation
 
 {$R *.dfm}
@@ -229,12 +229,12 @@ begin
     F.Read(FFinishPoint, sizeof(FFinishPoint));
     F.Read(FTileMode, sizeof(FTileMode));
     F.Read(FClearMode, sizeof(FClearMode));
-    F.Read(FMapMode, sizeof(FMapMode));
+    F.Read(FMapKind, sizeof(FMapKind));
 
     cbUseWeights.Checked := ReadBool;
-    cbSmartWeight.Checked := ReadBool;
+    cbUseCache.Checked := ReadBool;
     cbSectorTest.Checked := ReadBool;
-    rgMapMode.ItemIndex := byte(FMapMode);
+    rgMapKind.ItemIndex := byte(FMapKind);
 
     sbTile0.Position := ReadInt;
     sbTile1.Position := ReadInt;
@@ -297,10 +297,10 @@ begin
   F.Write(FFinishPoint, sizeof(FFinishPoint));
   F.Write(FTileMode, sizeof(FTileMode));
   F.Write(FClearMode, sizeof(FClearMode));
-  F.Write(FMapMode, sizeof(MapMode));
+  F.Write(FMapKind, sizeof(MapKind));
 
   WriteBool(cbUseWeights.Checked);
-  WriteBool(cbSmartWeight.Checked);
+  WriteBool(cbUseCache.Checked);
   WriteBool(cbSectorTest.Checked);   
 
   WriteInt(sbTile0.Position);
@@ -334,8 +334,8 @@ begin
     FinishPoint := Point(24, 9);
     ExcludedPoints := nil;
     cbUseWeights.Checked := true;
-    cbSmartWeight.Checked := true;
-    MapMode := mmSimple;
+    cbUseCache.Checked := true;
+    MapKind := mkSimple;
     cbSectorTest.Checked := true;
     seIterationsCount.Value := 1000;
   end;
@@ -381,8 +381,8 @@ begin
     ExcludedPoints := nil;
     for i := 0 to random(20) do AddExcludedPoint(random_point);
     cbUseWeights.Checked := random_bool;
-    cbSmartWeight.Checked := random_bool;
-    MapMode := TPathMapMode(random(byte(high(TPathMapMode))+1));
+    cbUseCache.Checked := random_bool;
+    MapKind := TPathMapKind(random(byte(high(TPathMapKind))+1));
     cbSectorTest.Checked := random_bool;
     seIterationsCount.Value := random(100000)+1;
   end;
@@ -420,8 +420,7 @@ begin
   if (HMap <> 0) then cpfDestroyMap(HMap);
 
   // создать карту
-  HMap := cpfCreateMap(MAP_WIDTH, MAP_HEIGHT, MapMode, TILES_COUNT-1,
-                       cbSmartWeight.Checked);
+  HMap := cpfCreateMap(MAP_WIDTH, MAP_HEIGHT, MapKind, TILES_COUNT-1);
 
   // заполнить
   cpfMapUpdate(HMap, @TILE_MAP[0, 0], 0, 0, MAP_WIDTH, MAP_HEIGHT);
@@ -464,9 +463,9 @@ begin
   end;
 end;
 
-procedure TForm1.rgMapModeClick(Sender: TObject);
+procedure TForm1.rgMapKindClick(Sender: TObject);
 begin
-  MapMode := TPathMapMode(rgMapMode.ItemIndex);
+  MapKind := TPathMapKind(rgMapKind.ItemIndex);
 end;
 
 procedure TForm1.OnTilePaint(Sender: TObject);
@@ -652,8 +651,8 @@ begin
   Result.X := X * TILE_SIZE;
   Result.Y := Y * TILE_SIZE;
 
-  case (MapMode) of
-mmHexagonal45: begin
+  case (MapKind) of
+(*mmHexagonal45: begin
                  if (X and 1 = 1) then inc(Result.Y, TILE_SIZE div 2);
 
                  if (center) then
@@ -661,8 +660,8 @@ mmHexagonal45: begin
                    inc(Result.X, (TILE_SIZE*4 div 3) div 2 - 1);
                    inc(Result.Y, TILE_SIZE div 2 + 1);
                  end;
-               end;
-mmHexagonal60: begin
+               end;*)
+mkHexagonal{60}: begin
                  if (Y and 1 = 1) then inc(Result.X, TILE_SIZE div 2);
 
                  if (center) then
@@ -686,7 +685,7 @@ begin
   Result.X := X div TILE_SIZE;
   Result.Y := Y div TILE_SIZE;
 
-  if (MapMode = mmHexagonal45) then
+(*  if (MapKind = mmHexagonal45) then
   begin
     if (Result.X and 1 = 1) then
     begin
@@ -694,15 +693,15 @@ begin
 
       if (Result.Y = MAP_HEIGHT-1) then Result.Y := -1;
       if (Y < TILE_SIZE div 2) then Result.Y := -1;
-    end;  
+    end;
 
     if (X mod TILE_SIZE < (TILE_SIZE div 3)) then
     begin
       Result.X := low(integer);
       Result.Y := low(integer);
     end;
-  end;
-  if (MapMode = mmHexagonal60) then
+  end;*)
+  if (MapKind = mkHexagonal{60}) then
   begin
     if (Result.Y and 1 = 1) then
     begin
@@ -753,13 +752,13 @@ begin
   if (MapBitmap <> nil) then RepaintBoxes([pbClear, pbExclude]);
 end;
 
-procedure TForm1.SetMapMode(const Value: TPathMapMode);
+procedure TForm1.SetMapKind(const Value: TPathMapKind);
 var
   P: TPoint;
 begin
-  if (FMapMode = Value) then exit;
-  FMapMode := Value;
-  rgMapMode.ItemIndex := byte(Value);
+  if (FMapKind = Value) then exit;
+  FMapKind := Value;
+  rgMapKind.ItemIndex := byte(Value);
 
   // корректировка точек
   P := ScreenToMap(FStartPoint.X*TILE_SIZE + TILE_SIZE div 2, FStartPoint.Y*TILE_SIZE + TILE_SIZE div 2);
@@ -877,11 +876,11 @@ begin
 
   // подготовка данных для гексагонального режима
   BitmapMask := nil;
-  Hexagonal := (MapMode in [mmHexagonal45, mmHexagonal60]);
+  Hexagonal := (MapKind = mkHexagonal);//(MapKind in [mmHexagonal45, mmHexagonal60]);
   if (Hexagonal) then
   begin
-    if (MapMode = mmHexagonal45) then BitmapMask := MaskHex45
-    else BitmapMask := MaskHex60;
+    { if (MapKind = mmHexagonal45) then BitmapMask := MaskHex45
+    else} BitmapMask := MaskHex60;
 
   end;
 
@@ -930,12 +929,12 @@ begin
     P := MapToScreen(i, j, false);
 
     // стартовая точка
-    if (MapMode = mmHexagonal45) then inc(P.X, TILE_SIZE div 3)
-    else inc(P.X, TILE_SIZE div 2);
+    {if (MapKind = mmHexagonal45) then inc(P.X, TILE_SIZE div 3)
+    else} inc(P.X, TILE_SIZE div 2);
     Canvas.MoveTo(P.X, P.Y);
 
     // прорисовка 6 линий
-    if (MapMode = mmHexagonal45) then
+    {if (MapKind = mmHexagonal45) then
     begin
       LineTo((TILE_SIZE div 3)*2, 0);
       LineTo(TILE_SIZE div 3, TILE_SIZE div 2);
@@ -943,7 +942,7 @@ begin
       LineTo(-(TILE_SIZE div 3)*2, 0);
       LineTo(-TILE_SIZE div 3, -TILE_SIZE div 2);
       LineTo(TILE_SIZE div 3, -TILE_SIZE div 2);
-    end else
+    end else}
     begin
       LineTo(TILE_SIZE div 2, TILE_SIZE div 3);
       LineTo(0, (TILE_SIZE div 3)*2);
@@ -955,14 +954,14 @@ begin
   end; 
 
   // путь
-  if (PathMapResult <> nil) and (PathMapResult.points_count <> 1) then
+  if (PathMapResult <> nil) and (PathMapResult.PointsCount <> 1) then
   begin
-    PathPoints := PathMapResult.points;
+    PathPoints := PathMapResult.Points;
     Canvas.Pen.Width := 2;
     Canvas.Pen.Color := clRed;
     with MapToScreen(PathPoints[0].X, PathPoints[0].Y) do Canvas.MoveTo(X, Y);
 
-    for i := 1 to PathMapResult.points_count-1 do
+    for i := 1 to PathMapResult.PointsCount-1 do
     with MapToScreen(PathPoints[i].X, PathPoints[i].Y) do
       Canvas.LineTo(X, Y);
   end;
