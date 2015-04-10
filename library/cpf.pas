@@ -18,16 +18,19 @@ type
   // mode of map 
   TPathMapMode = (mmSimple, mmDiagonal, mmDiagonalEx, mmHexagonal45, mmHexagonal60);
 
-  
+  // points as array
+  PPointList = ^TPointList;
+  TPointList = array[0..high(integer) div sizeof(TPoint) - 1] of TPoint;
+
   // Result of FindPath() function
   TPathMapResult = packed record
-    points: PPoint;
+    points: PPointList;
     points_count: integer;
     distance: double;
   end;
   PPathMapResult = ^TPathMapResult;
 
-  
+
 const
   cpf_lib = 'cpf.dll';
 

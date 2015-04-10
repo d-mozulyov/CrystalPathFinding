@@ -118,9 +118,13 @@ type
   // тип карты
   TPathMapMode = (mmSimple, mmDiagonal, mmDiagonalEx, mmHexagonal45, mmHexagonal60);  
 
+  // массив точек
+  PPointList = ^TPointList;
+  TPointList = array[0..high(integer) div sizeof(TPoint) - 1] of TPoint;
+
   // поиск пути возвращается такой структурой
   TPathMapResult = packed record
-    points: PPoint;
+    points: PPointList;
     points_count: integer;
     distance: double;
   end;
@@ -3476,7 +3480,7 @@ begin
 
       Stack.FPathPoints^ := Start;
       Result := @Stack.FFindResult;
-      Result.points := Stack.FPathPoints;
+      Result.points := Pointer(Stack.FPathPoints);
       Result.points_count := 1;
       Result.distance := 0;
       exit; //goto exit_proc;
