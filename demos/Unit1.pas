@@ -814,7 +814,7 @@ var
   i, j: integer;
   P: TPoint;
   Canvas: TCanvas;
-  PathPoint: PPoint;
+  PathPoints: PPointList;
   JI: TJpegImage;
   used_tiles: array[0..TILES_COUNT-1] of boolean;
 
@@ -957,16 +957,14 @@ begin
   // путь
   if (PathMapResult <> nil) and (PathMapResult.points_count <> 1) then
   begin
-    PathPoint := PathMapResult.points;
+    PathPoints := PathMapResult.points;
     Canvas.Pen.Width := 2;
     Canvas.Pen.Color := clRed;
-    with MapToScreen(PathPoint.X, PathPoint.Y) do Canvas.MoveTo(X, Y);
+    with MapToScreen(PathPoints[0].X, PathPoints[0].Y) do Canvas.MoveTo(X, Y);
 
     for i := 1 to PathMapResult.points_count-1 do
-    begin
-      inc(PathPoint);
-      with MapToScreen(PathPoint.X, PathPoint.Y) do Canvas.LineTo(X, Y);
-    end;
+    with MapToScreen(PathPoints[i].X, PathPoints[i].Y) do
+      Canvas.LineTo(X, Y);
   end;
 
   // StartPoint, FinishPoint

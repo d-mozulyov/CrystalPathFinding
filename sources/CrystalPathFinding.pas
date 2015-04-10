@@ -116,9 +116,13 @@ type
   TPathMapKind = (mkSimple, mkDiagonal, mkDiagonalEx, mkHexagonal);
   PPathMapKind = ^TPathMapKind;
 
+  // points as array
+  PPointList = ^TPointList;
+  TPointList = array[0..high(integer) div sizeof(TPoint) - 1] of TPoint;
+
   // result of find path function
   TPathMapResult = record
-    Points: PPoint;
+    Points: PPointList;
     Count: Cardinal;
     Distance: Double;
   end;
@@ -423,7 +427,97 @@ begin
       end;
 
 
+<<<<<<< HEAD
       if (Path < ChildNode.Path) then
+=======
+// самая главная функция TPathMap - поиск пути
+// по сути заполняет данные и производит небольшие расчёты
+// а основная поисковая функция - это конечно PathMap_FIND_PATH
+function TPathMap.FindPath(const Start, Finish: TPoint; const Weights: TPathMapWeights;
+         const ExcludePoints: PPoint; const ExcludePointsCount: integer;
+         const SectorTest: boolean): PPathMapResult;
+label
+  exit_proc;
+type
+  TDwordArray = array[0..1] of dword;
+var
+  i: integer;
+  Stack: PPathMapStack;
+  WasPathFinding: boolean;
+  PointInExcluded: boolean;
+  StartNumber, FinishNumber: dword;
+  CellStart, CellFinish: PPathMapCell;
+  CurrentPoint: PPoint;
+  MapWidth, MapHeight: dword;
+  WorkWeights: TPathMapWeights;
+  DwordWeights: ^TDwordArray;
+  zero_tiles, one_weight: boolean;
+
+  procedure assert_point(const P: TPoint; const id: string);
+  begin
+    EWrongParameter.Assert('Wrong ' + id + ' point (%d, %d). Map size = %dx%d', [P.X, P.Y, Self.Width, Self.Height]);
+  end;
+begin
+  Result := nil;
+  Stack := FStack;
+  WasPathFinding := false;
+
+  // проверки
+  MapWidth := Self.Width;
+  MapHeight := Self.Height;
+  PointInExcluded := false;
+  if (dword(Start.X) >= MapWidth) or (dword(Start.Y) >= MapHeight) then assert_point(Start, 'start');
+  if (dword(Finish.X) >= MapWidth) or (dword(Finish.Y) >= MapHeight) then assert_point(Finish, 'finish');
+  if (ExcludePoints <> nil) then
+  begin
+    if (ExcludePointsCount < 0) then
+    EWrongParameter.Assert('Wrong exclude points count = %d', [ExcludePointsCount]);
+
+    CurrentPoint := pointer(ExcludePoints);
+    for i := 0 to ExcludePointsCount-1 do
+    begin
+      if (dword(CurrentPoint.X) >= MapWidth) or (dword(CurrentPoint.Y) >= MapHeight) then assert_point(CurrentPoint^, 'exclude');
+
+      if (not PointInExcluded) then
+      if ((CurrentPoint.X=Start.X)and(CurrentPoint.Y=Start.Y)) or
+         ((CurrentPoint.X=Finish.X)and(CurrentPoint.Y=Finish.Y)) then PointInExcluded := true;
+
+      inc(CurrentPoint);
+    end;
+  end;
+  if (Weights = nil) then WorkWeights := FDefaultWeights
+  else WorkWeights := Weights;
+  DwordWeights := pointer(WorkWeights.Prepare(Self, zero_tiles, one_weight));
+
+
+  // проверки на быстрое попадание/непопадание
+  begin
+    if (PointInExcluded) then goto exit_proc;
+    StartNumber := dword(Start.Y*integer(MapWidth) + Start.X);
+    CellStart := @Stack.Map[StartNumber];
+    if (CellStart.Tile = $FF) or (CellStart.Mask = 0) then goto exit_proc;
+    FinishNumber := dword(Finish.Y*integer(MapWidth) + Finish.X);
+    CellFinish := @Stack.Map[FinishNumber];
+    if (CellFinish.Tile = $FF) or (CellFinish.Mask = 0) then goto exit_proc;
+    if (DwordWeights[CellStart.Tile*2] = 0) or (DwordWeights[CellFinish.Tile*2] = 0) then goto exit_proc;
+
+    if (Start.X = Finish.X) and (Start.Y = Finish.Y) then
+    begin
+      if (Self.NodeBlocksCount = 0) then IncrementNodeBlockNumber();
+      if (Self.NodeBlocksCount > 1) then ReleaseHighNodeBlock();
+
+      Stack.FPathPoints^ := Start;
+      Result := @Stack.FFindResult;
+      Result.points := Pointer(Stack.FPathPoints);
+      Result.points_count := 1;
+      Result.distance := 0;
+      exit; //goto exit_proc;
+    end;
+
+    if (SectorTest {$ifndef CPF_DLL}or FSectorsFilled{$endif}) then
+    begin
+      if (not FSectorsFilled) then
+>>>>>>> master
       begin
         ChildNode.Path := Path;
         Store.Buffer[NodeInfo shr 28] := ChildNode;

@@ -57,7 +57,7 @@ var
   Time: dword;
   found: boolean;
   Start, Finish: TPoint;
-  Point: PPoint;
+  Points: PPointList;
   i: integer;
   RedValue: byte;
   FindResult: PPathMapResult;
@@ -175,14 +175,11 @@ try
     InvertBitmap();
 
     // красный
-    Point := FindResult.points;
-    Bitmap.Canvas.Pixels[Point.X, Point.Y] := clRed;
-    RedValue := BitmapPixel(Point.X, Point.Y)^;
+    Points := FindResult.points;
+    Bitmap.Canvas.Pixels[Points[0].X, Points[0].Y] := clRed;
+    RedValue := BitmapPixel(Points[0].X, Points[0].Y)^;
     for i := 1 to FindResult.points_count-1 do
-    begin
-      inc(Point);
-      BitmapPixel(Point.X, Point.Y)^ := RedValue;
-    end;
+      BitmapPixel(Points[i].X, Points[i].Y)^ := RedValue;
 
     Bitmap.SaveToFile(DestFileName);
     ShowInformation('Путь расчитан за %d миллисекунд и результат сохранён в файл "%s"'#13+
