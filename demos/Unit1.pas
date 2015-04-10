@@ -5,23 +5,32 @@ unit Unit1;
 {$ifdef FPC}
   {$mode Delphi}
   {$asmmode Intel}
-{$endif}
-{$if CompilerVersion >= 24}
-  {$LEGACYIFEND ON}
-{$ifend}
-{$U-}{$V+}{$B-}{$X+}{$T+}{$P+}{$H+}{$J-}{$Z1}{$A4}
-{$if CompilerVersion >= 15}
-  {$WARN UNSAFE_CODE OFF}
-  {$WARN UNSAFE_TYPE OFF}
-  {$WARN UNSAFE_CAST OFF}
-{$ifend}
-{$O+}{$R-}{$I-}{$Q-}{$W-}
-{$if (CompilerVersion < 23) and (not Defined(FPC))}
-  {$define CPUX86}
-{$ifend}
-{$if (Defined(FPC)) or (CompilerVersion >= 17)}
   {$define INLINESUPPORT}
-{$ifend}
+{$else}
+  {$if CompilerVersion >= 24}
+    {$LEGACYIFEND ON}
+  {$ifend}
+  {$if CompilerVersion >= 15}
+    {$WARN UNSAFE_CODE OFF}
+    {$WARN UNSAFE_TYPE OFF}
+    {$WARN UNSAFE_CAST OFF}
+  {$ifend}
+  {$if (CompilerVersion < 23)}
+    {$define CPUX86}
+  {$ifend}
+  {$if (CompilerVersion >= 17)}
+    {$define INLINESUPPORT}
+  {$ifend}
+  {$if CompilerVersion >= 21}
+    {$WEAKLINKRTTI ON}
+    {$RTTI EXPLICIT METHODS([]) PROPERTIES([]) FIELDS([])}
+  {$ifend}
+  {$if (not Defined(NEXTGEN)) and (CompilerVersion >= 20)}
+    {$define INTERNALCODEPAGE}
+  {$ifend}
+{$endif}
+{$U-}{$V+}{$B-}{$X+}{$T+}{$P+}{$H+}{$J-}{$Z1}{$A4}
+{$O+}{$R-}{$I-}{$Q-}{$W-}
 {$if Defined(CPUX86) or Defined(CPUX64)}
    {$define CPUINTEL}
 {$ifend}
@@ -30,16 +39,10 @@ unit Unit1;
 {$else}
   {$define SMALLINT}
 {$ifend}
-{$if CompilerVersion >= 21}
-  {$WEAKLINKRTTI ON}
-  {$RTTI EXPLICIT METHODS([]) PROPERTIES([]) FIELDS([])}
-{$ifend}
-{$if (not Defined(FPC)) and (not Defined(NEXTGEN)) and (CompilerVersion >= 20)}
-  {$define INTERNALCODEPAGE}
-{$ifend}
 {$ifdef KOL_MCK}
   {$define KOL}
 {$endif}
+
 
 interface
 

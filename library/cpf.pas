@@ -199,7 +199,7 @@ end;
 
 function CPFFree(P: Pointer): Boolean; cdecl;
 begin
-  Result := MemoryManager.FreeMem(P) <> 0;
+  Result := (MemoryManager.FreeMem(P) = 0);
 end;
 
 function CPFRealloc(P: Pointer; Size: NativeUInt): Pointer; cdecl;

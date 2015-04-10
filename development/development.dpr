@@ -1,7 +1,8 @@
 program development;
 
 uses
-  TestUnit in 'TestUnit.pas';
+  TestUnit in 'TestUnit.pas',
+  CrystalPathFinding in '..\sources\CrystalPathFinding.pas';
 
 begin
   RUN;

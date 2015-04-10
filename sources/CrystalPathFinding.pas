@@ -34,7 +34,7 @@ unit CrystalPathFinding;
 
 {.$define CPFLOG}
 {$define CPFAPI}
-{$define CPFLIB}
+{.$define CPFLIB}
 
 {$ifdef CPFLIB}
   {$define CPFAPI}  
@@ -45,23 +45,32 @@ unit CrystalPathFinding;
 {$ifdef FPC}
   {$mode Delphi}
   {$asmmode Intel}
-{$endif}
-{$if CompilerVersion >= 24}
-  {$LEGACYIFEND ON}
-{$ifend}
-{$U-}{$V+}{$B-}{$X+}{$T+}{$P+}{$H+}{$J-}{$Z1}{$A4}
-{$if CompilerVersion >= 15}
-  {$WARN UNSAFE_CODE OFF}
-  {$WARN UNSAFE_TYPE OFF}
-  {$WARN UNSAFE_CAST OFF}
-{$ifend}
-{$O+}{$R-}{$I-}{$Q-}{$W-}
-{$if (CompilerVersion < 23) and (not Defined(FPC))}
-  {$define CPUX86}
-{$ifend}
-{$if (Defined(FPC)) or (CompilerVersion >= 17)}
   {$define INLINESUPPORT}
-{$ifend}
+{$else}
+  {$if CompilerVersion >= 24}
+    {$LEGACYIFEND ON}
+  {$ifend}
+  {$if CompilerVersion >= 15}
+    {$WARN UNSAFE_CODE OFF}
+    {$WARN UNSAFE_TYPE OFF}
+    {$WARN UNSAFE_CAST OFF}
+  {$ifend}
+  {$if (CompilerVersion < 23)}
+    {$define CPUX86}
+  {$ifend}
+  {$if (CompilerVersion >= 17)}
+    {$define INLINESUPPORT}
+  {$ifend}
+  {$if CompilerVersion >= 21}
+    {$WEAKLINKRTTI ON}
+    {$RTTI EXPLICIT METHODS([]) PROPERTIES([]) FIELDS([])}
+  {$ifend}
+  {$if (not Defined(NEXTGEN)) and (CompilerVersion >= 20)}
+    {$define INTERNALCODEPAGE}
+  {$ifend}
+{$endif}
+{$U-}{$V+}{$B-}{$X+}{$T+}{$P+}{$H+}{$J-}{$Z1}{$A4}
+{$O+}{$R-}{$I-}{$Q-}{$W-}
 {$if Defined(CPUX86) or Defined(CPUX64)}
    {$define CPUINTEL}
 {$ifend}
@@ -70,20 +79,21 @@ unit CrystalPathFinding;
 {$else}
   {$define SMALLINT}
 {$ifend}
-{$if CompilerVersion >= 21}
-  {$WEAKLINKRTTI ON}
-  {$RTTI EXPLICIT METHODS([]) PROPERTIES([]) FIELDS([])}
-{$ifend}
-{$if (not Defined(FPC)) and (not Defined(NEXTGEN)) and (CompilerVersion >= 20)}
-  {$define INTERNALCODEPAGE}
-{$ifend}
 {$ifdef KOL_MCK}
   {$define KOL}
 {$endif}
 
 
 interface
-  uses Types{$ifNdef CPFLIB}, SysUtils{$endif} {$ifdef CPFLOG}, Classes{$endif};
+  uses Types
+       {$ifNdef CPFLIB}
+         {$ifdef KOL}
+           , KOL, err
+         {$else}
+           , SysUtils
+           {$ifdef CPFLOG}, Classes{$endif}
+         {$endif}
+       {$endif};
 
 type
   // standard types
@@ -263,7 +273,7 @@ type
 
   {$ifdef CPFLIB}
   TCPFAlloc = function(Size: NativeUInt): Pointer; cdecl;
-  TCPFFree = procedure(P: Pointer); cdecl;
+  TCPFFree = function(P: Pointer): Boolean; cdecl;
   TCPFRealloc = function(P: Pointer; Size: NativeUInt): Pointer; cdecl;
   TCPFException = procedure(Message: PWideChar; Address: Pointer); cdecl;
   TCPFCallbacks = packed record
@@ -293,8 +303,7 @@ implementation
   {$ifNdef KOL}uses SysConst{$endif};
 
 var
-  // todo FPC
-  MemoryManager: {$if CompilerVersion < 18}TMemoryManager{$else}TMemoryManagerEx{$ifend};
+  MemoryManager: {$if Defined(FPC) or (CompilerVersion < 18)}TMemoryManager{$else}TMemoryManagerEx{$ifend};
 {$endif}
 
 
@@ -539,7 +548,8 @@ begin
     if not Assigned(CPFCallbacks.Free) then
       RaiseCallbacks(Address);
 
-    CPFCallbacks.Free(P);
+    if (not CPFCallbacks.Free(P)) then
+      RaiseInvalidPointer(Address);
   {$else}
     if (MemoryManager.FreeMem(P) <> 0) then
       RaiseInvalidPointer(Address);
@@ -864,8 +874,8 @@ begin
 
 
 
-//      if (NodeInfo = 0) or (Child = 0) then
-//        raise Exception.Create('Error Message');
+      if (NodeInfo = 0) or (Child = 0) then
+        raise Exception.Create('Error Message');
       
 
       if (NodeInfo and $ff = 0) then Break;
@@ -891,7 +901,6 @@ initialization
   {$ifNdef CPFLIB}
   System.GetMemoryManager(MemoryManager);
   {$endif}
-//  CPFFree(nil, nil);
-//  TPathMap(nil).DoFindPath;
+  TPathMap(nil).DoFindPath;
 
 end.
