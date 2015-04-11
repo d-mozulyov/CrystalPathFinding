@@ -74,7 +74,7 @@ unit CrystalPathFinding;
 {$if Defined(CPUX86) or Defined(CPUX64)}
    {$define CPUINTEL}
 {$ifend}
-{$if SizeOf(Pointer) = 8}
+{$if Defined(CPUX64) or Defined(CPUARM64)}
   {$define LARGEINT}
 {$else}
   {$define SMALLINT}
@@ -98,6 +98,8 @@ interface
 type
   // standard types
   {$ifdef FPC}
+    Integer = Longint;
+    PInteger = ^Integer;
     PUInt64 = ^UInt64;
   {$else}
     {$if CompilerVersion < 15}
@@ -380,7 +382,8 @@ end;
 {$ifend}
 
 
-{$if (not Defined(FPC)) and (CompilerVersion < 21)}
+{$if Defined(FPC) or (CompilerVersion < 21)}
+// todo PFC
 function ReturnAddress: Pointer;
 asm
   mov eax, [ebp+4]
@@ -404,7 +407,10 @@ begin
     if Assigned(CPFCallbacks.Exception) then
       CPFCallbacks.Exception(Message, Address);
 
-     // todo Assert?
+     // guaranteed halt (Assert)
+     System.ErrorAddr := Address;
+     if (System.ExitCode = 0) then System.ExitCode := 207{reInvalidOp};
+     System.Halt;
   {$else}
      raise ECrystalPathFinding.Create(Message) at Address;
   {$endif}
@@ -496,6 +502,7 @@ end;
 procedure RaiseOutOfMemory(const Address: Pointer);
 begin
 {$ifdef CPFLIB}
+  System.ExitCode := 203{reOutOfMemory};
   CPFException('Out of memory', Address);
 {$else}
   {$ifdef KOL}
@@ -509,6 +516,7 @@ end;
 procedure RaiseInvalidPointer(const Address: Pointer);
 begin
 {$ifdef CPFLIB}
+  System.ExitCode := 204{reInvalidPtr};
   CPFException('Invalid pointer operation', Address);
 {$else}
   {$ifdef KOL}
@@ -557,7 +565,7 @@ begin
   end;
 end;
 
-function CPFRealloc(const P: Pointer; const Size: NativeUInt; const Address: Pointer): Pointer;
+function CPFRealloc({$ifNdef FPC}const{$endif} P: Pointer; const Size: NativeUInt; const Address: Pointer): Pointer;
 begin
   if (P = nil) then
   begin
