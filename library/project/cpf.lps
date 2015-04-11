@@ -1,0 +1,227 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <ProjectSession>
+    <PathDelim Value="\"/>
+    <Version Value="9"/>
+    <BuildModes Active="Default"/>
+    <Units Count="9">
+      <Unit0>
+        <Filename Value="cpf.dpr"/>
+        <IsPartOfProject Value="True"/>
+        <IsVisibleTab Value="True"/>
+        <EditorIndex Value="0"/>
+        <WindowIndex Value="0"/>
+        <TopLine Value="2"/>
+        <CursorPos X="23" Y="9"/>
+        <UsageCount Value="21"/>
+        <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit0>
+      <Unit1>
+        <Filename Value="system.pas"/>
+        <UnitName Value="System"/>
+        <WindowIndex Value="0"/>
+        <TopLine Value="1"/>
+        <CursorPos X="27" Y="15"/>
+        <UsageCount Value="10"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit1>
+      <Unit2>
+        <Filename Value="fpintres.pp"/>
+        <UnitName Value="fpintres"/>
+        <WindowIndex Value="0"/>
+        <TopLine Value="2"/>
+        <CursorPos X="25" Y="16"/>
+        <UsageCount Value="10"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit2>
+      <Unit3>
+        <Filename Value="objpas.pp"/>
+        <UnitName Value="objpas"/>
+        <WindowIndex Value="0"/>
+        <TopLine Value="1"/>
+        <CursorPos X="1" Y="1"/>
+        <UsageCount Value="10"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit3>
+      <Unit4>
+        <Filename Value="sysinitpas.pp"/>
+        <UnitName Value="sysinitpas"/>
+        <WindowIndex Value="0"/>
+        <TopLine Value="49"/>
+        <CursorPos X="59" Y="75"/>
+        <UsageCount Value="10"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit4>
+      <Unit5>
+        <Filename Value="..\..\sources\CrystalPathFinding.pas"/>
+        <UnitName Value="CrystalPathFinding"/>
+        <EditorIndex Value="2"/>
+        <WindowIndex Value="0"/>
+        <TopLine Value="118"/>
+        <CursorPos X="27" Y="86"/>
+        <UsageCount Value="10"/>
+        <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit5>
+      <Unit6>
+        <Filename Value="C:\lazarus\fpc\2.6.4\source\rtl\inc\systemh.inc"/>
+        <EditorIndex Value="1"/>
+        <WindowIndex Value="0"/>
+        <TopLine Value="77"/>
+        <CursorPos X="33" Y="95"/>
+        <UsageCount Value="10"/>
+        <Loaded Value="True"/>
+      </Unit6>
+      <Unit7>
+        <Filename Value="C:\lazarus\fpc\2.6.4\source\rtl\inc\heaph.inc"/>
+        <EditorIndex Value="4"/>
+        <WindowIndex Value="0"/>
+        <TopLine Value="29"/>
+        <CursorPos X="5" Y="45"/>
+        <UsageCount Value="10"/>
+        <Loaded Value="True"/>
+      </Unit7>
+      <Unit8>
+        <Filename Value="types.pp"/>
+        <UnitName Value="types"/>
+        <EditorIndex Value="3"/>
+        <WindowIndex Value="0"/>
+        <TopLine Value="9"/>
+        <CursorPos X="17" Y="11"/>
+        <UsageCount Value="10"/>
+        <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit8>
+    </Units>
+    <CustomDefines Count="1">
+      <Define0 Value="CPFLIB"/>
+    </CustomDefines>
+    <General>
+      <ActiveWindowIndexAtStart Value="0"/>
+    </General>
+    <JumpHistory Count="30" HistoryIndex="29">
+      <Position1>
+        <Filename Value="C:\lazarus\fpc\2.6.4\source\rtl\inc\systemh.inc"/>
+        <Caret Line="229" Column="21" TopLine="221"/>
+      </Position1>
+      <Position2>
+        <Filename Value="C:\lazarus\fpc\2.6.4\source\rtl\inc\systemh.inc"/>
+        <Caret Line="1" Column="1" TopLine="1"/>
+      </Position2>
+      <Position3>
+        <Filename Value="C:\lazarus\fpc\2.6.4\source\rtl\inc\systemh.inc"/>
+        <Caret Line="88" Column="33" TopLine="62"/>
+      </Position3>
+      <Position4>
+        <Filename Value="C:\lazarus\fpc\2.6.4\source\rtl\inc\systemh.inc"/>
+        <Caret Line="92" Column="10" TopLine="66"/>
+      </Position4>
+      <Position5>
+        <Filename Value="C:\lazarus\fpc\2.6.4\source\rtl\inc\systemh.inc"/>
+        <Caret Line="260" Column="20" TopLine="234"/>
+      </Position5>
+      <Position6>
+        <Filename Value="C:\lazarus\fpc\2.6.4\source\rtl\inc\systemh.inc"/>
+        <Caret Line="262" Column="19" TopLine="236"/>
+      </Position6>
+      <Position7>
+        <Filename Value="C:\lazarus\fpc\2.6.4\source\rtl\inc\systemh.inc"/>
+        <Caret Line="264" Column="20" TopLine="238"/>
+      </Position7>
+      <Position8>
+        <Filename Value="C:\lazarus\fpc\2.6.4\source\rtl\inc\systemh.inc"/>
+        <Caret Line="327" Column="33" TopLine="301"/>
+      </Position8>
+      <Position9>
+        <Filename Value="C:\lazarus\fpc\2.6.4\source\rtl\inc\systemh.inc"/>
+        <Caret Line="406" Column="59" TopLine="380"/>
+      </Position9>
+      <Position10>
+        <Filename Value="C:\lazarus\fpc\2.6.4\source\rtl\inc\systemh.inc"/>
+        <Caret Line="1" Column="1" TopLine="1"/>
+      </Position10>
+      <Position11>
+        <Filename Value="C:\lazarus\fpc\2.6.4\source\rtl\inc\systemh.inc"/>
+        <Caret Line="92" Column="14" TopLine="71"/>
+      </Position11>
+      <Position12>
+        <Filename Value="C:\lazarus\fpc\2.6.4\source\rtl\inc\systemh.inc"/>
+        <Caret Line="1" Column="1" TopLine="1"/>
+      </Position12>
+      <Position13>
+        <Filename Value="..\..\sources\CrystalPathFinding.pas"/>
+        <Caret Line="145" Column="50" TopLine="129"/>
+      </Position13>
+      <Position14>
+        <Filename Value="..\..\sources\CrystalPathFinding.pas"/>
+        <Caret Line="157" Column="28" TopLine="134"/>
+      </Position14>
+      <Position15>
+        <Filename Value="..\..\sources\CrystalPathFinding.pas"/>
+        <Caret Line="86" Column="30" TopLine="66"/>
+      </Position15>
+      <Position16>
+        <Filename Value="..\..\sources\CrystalPathFinding.pas"/>
+        <Caret Line="270" Column="1" TopLine="254"/>
+      </Position16>
+      <Position17>
+        <Filename Value="C:\lazarus\fpc\2.6.4\source\rtl\inc\systemh.inc"/>
+        <Caret Line="82" Column="29" TopLine="66"/>
+      </Position17>
+      <Position18>
+        <Filename Value="C:\lazarus\fpc\2.6.4\source\rtl\inc\systemh.inc"/>
+        <Caret Line="1" Column="1" TopLine="1"/>
+      </Position18>
+      <Position19>
+        <Filename Value="C:\lazarus\fpc\2.6.4\source\rtl\inc\systemh.inc"/>
+        <Caret Line="92" Column="18" TopLine="67"/>
+      </Position19>
+      <Position20>
+        <Filename Value="C:\lazarus\fpc\2.6.4\source\rtl\inc\systemh.inc"/>
+        <Caret Line="93" Column="9" TopLine="67"/>
+      </Position20>
+      <Position21>
+        <Filename Value="..\..\sources\CrystalPathFinding.pas"/>
+        <Caret Line="272" Column="34" TopLine="254"/>
+      </Position21>
+      <Position22>
+        <Filename Value="..\..\sources\CrystalPathFinding.pas"/>
+        <Caret Line="273" Column="30" TopLine="254"/>
+      </Position22>
+      <Position23>
+        <Filename Value="..\..\sources\CrystalPathFinding.pas"/>
+        <Caret Line="1" Column="1" TopLine="1"/>
+      </Position23>
+      <Position24>
+        <Filename Value="..\..\sources\CrystalPathFinding.pas"/>
+        <Caret Line="101" Column="12" TopLine="75"/>
+      </Position24>
+      <Position25>
+        <Filename Value="..\..\sources\CrystalPathFinding.pas"/>
+        <Caret Line="297" Column="35" TopLine="279"/>
+      </Position25>
+      <Position26>
+        <Filename Value="..\..\sources\CrystalPathFinding.pas"/>
+        <Caret Line="21" Column="36" TopLine="1"/>
+      </Position26>
+      <Position27>
+        <Filename Value="..\..\sources\CrystalPathFinding.pas"/>
+        <Caret Line="682" Column="39" TopLine="666"/>
+      </Position27>
+      <Position28>
+        <Filename Value="types.pp"/>
+        <Caret Line="1" Column="1" TopLine="1"/>
+      </Position28>
+      <Position29>
+        <Filename Value="types.pp"/>
+        <Caret Line="3" Column="1" TopLine="1"/>
+      </Position29>
+      <Position30>
+        <Filename Value="cpf.dpr"/>
+        <Caret Line="7" Column="21" TopLine="1"/>
+      </Position30>
+    </JumpHistory>
+  </ProjectSession>
+  <EditorMacros Count="0"/>
+</CONFIG>
