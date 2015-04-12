@@ -31,10 +31,9 @@ unit CrystalPathFinding;
 { that helps to find the shortest paths with A*/WA* algorithms.           }
 { *********************************************************************** }
 
-
-{.$define CPFLOG}
 {.$define CPFAPI}
-{$define CPFLIB}
+{.$define CPFLIB}
+{.$define CPFLOG}
 
 {$ifdef CPFLIB}
   {$define CPFAPI}  
@@ -83,6 +82,11 @@ unit CrystalPathFinding;
   {$define KOL}
 {$endif}
 
+{$ifdef CPF_GENERATE_LOOKUPS}
+  {$undef CPFLOG}
+  {$undef CPFAPI}
+  {$undef CPFLIB}
+{$endif}
 
 interface
   uses Types
@@ -91,7 +95,7 @@ interface
            , KOL, err
          {$else}
            , SysUtils
-           {$ifdef CPFLOG}, Classes{$endif}
+           {$if Defined(CPFLOG) or Defined(CPF_GENERATE_LOOKUPS)}, Classes{$ifend}
          {$endif}
        {$endif};
 
@@ -211,11 +215,10 @@ type
   // node type
   PPathMapNode = ^TPathMapNode;
   TPathMapNode = packed record
-    Value: Cardinal; // todo оценка стоимости пути. F = G+H
-    Path: Cardinal; // todo стоимость пути от стартовой точки. G. = F-H
-    Point: TWPoint;  // cell coordinates
+    SortValue: Cardinal; // path + heuristics to start point
+    Path: Cardinal; // path from finish point to the cell
+    Coordinates: TWPoint;
     Prev, Next: PPathMapNode;
-
     case Integer of
     0: (
          Tile: Byte;
@@ -223,9 +226,7 @@ type
          ParentMask: Byte;
          Parent: Byte;
        );
-    1: (
-         NodeInfo: Cardinal;
-       );
+    1: (NodeInfo: Cardinal);
   end;
 
 
@@ -853,22 +854,6 @@ end;
 {$endif .CPFAPI}
 
 
-
-
-
-const
-  POINT_OFFSETS: array[0..7] of Types.TSmallPoint = (
-    {0} (x: -1; y: -1),
-    {1} (x:  0; y: -1),
-    {2} (x: +1; y: -1),
-    {3} (x: +1; y:  0),
-    {4} (x: +1; y: +1),
-    {5} (x:  0; y: +1),
-    {6} (x: -1; y: +1),
-    {7} (x: -1; y:  0)
-  );
-
-
 { TCPFClass }
 
 procedure TCPFClass.CPFException(const Message: TExceptionString);
@@ -898,6 +883,134 @@ begin
   Result := CrystalPathFinding.CPFRealloc(P, Size, FCallAddress);
 end;
 
+
+type
+  TChildArray = array[0..7] of Word;
+  PChildArray = ^TChildArray;
+
+const
+  POINT_OFFSETS: array[0..7] of Types.TSmallPoint = (
+    {0} (x: -1; y: -1),
+    {1} (x:  0; y: -1),
+    {2} (x: +1; y: -1),
+    {3} (x: +1; y:  0),
+    {4} (x: +1; y: +1),
+    {5} (x:  0; y: +1),
+    {6} (x: -1; y: +1),
+    {7} (x: -1; y:  0)
+  );
+
+  CHILD_ARRAYS: array[0..15{Parent*2 + FLAG_CLOCKWISE}] of TChildArray = (
+    ($0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000),
+    ($0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000),
+    ($0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000),
+    ($0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000),
+    ($0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000),
+    ($0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000),
+    ($0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000),
+    ($0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000),
+    ($0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000),
+    ($0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000),
+    ($0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000),
+    ($0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000),
+    ($0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000),
+    ($0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000),
+    ($0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000),
+    ($0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000)
+  );
+
+  CHILD_ARRAYS_OFFSETS: array[0..255{parent:3,delta:2,way:3}] of Byte = (
+    $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00,
+    $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00,
+    $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00,
+    $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00,
+    $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00,
+    $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00,
+    $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00,
+    $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00,
+    $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00,
+    $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00,
+    $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00,
+    $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00,
+    $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00,
+    $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00,
+    $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00,
+    $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+  );
+
+  PARENT_BITS: array[0..{Delta}9*{Hexagonal}4*{Child}8 - 1] of Word = (
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000
+  );
+
+
+
+{$ifdef CPF_GENERATE_LOOKUPS}
+var
+  LookupsText: TStringList;
+
+procedure LookupLine(const Line: string); overload;
+begin
+  LookupsText.Add('  ' + Line);
+end;
+
+procedure LookupLine; overload;
+begin
+  LookupsText.Add('');
+end;
+
+procedure LookupLineFmt(const FmtStr: string; const Args: array of const);
+begin
+  LookupLine(Format(FmtStr, Args));
+end;
+
+procedure GenerateLookups;
+begin
+  LookupsText := TStringList.Create;
+  try
+    LookupsText.Add('const');
+
+
+    LookupsText.SaveToFile('Lookup.txt');
+  finally
+    LookupsText.Free;
+  end;
+end;
+{$endif}
 
 { TPathMapWeights }
 
@@ -1067,6 +1180,8 @@ begin
 
 
   repeat
+
+
     // Childs todo
     Childs := nil;
 
@@ -1121,7 +1236,7 @@ begin
           ChildCell.NodePtr := NativeUInt(ChildNode);
         {$endif}
 
-        Cardinal(ChildNode.Point) := ChildXY;
+        Cardinal(ChildNode.Coordinates) := ChildXY;
         // heuristics todo and so
 
         if (ChildNode = Store.Info.NodeStorage.MaximumNode) then
@@ -1173,13 +1288,14 @@ begin
     // next opened node
     Node := Store.Node.Next;
     Store.Node := Node;
-    Store.NodeXY := Node.Point;
-    if (Cardinal(Node.Point) = Cardinal(Store.Info.FinishPoint){или другой признак}) then
+    Store.NodeXY := Node.Coordinates;
+    if (Cardinal(Node.Coordinates) = Cardinal(Store.Info.FinishPoint){или другой признак}) then
     begin
       Result := False;
       Exit;
     end;
-    NodeInfo := Cardinal(Node.Value){todo NodeInfo};
+    NodeInfo := Cardinal(Node.NodeInfo);
+    // todo lock
   until (False);
 
   Result := True;
@@ -1204,9 +1320,15 @@ end;
 
 
 initialization
-  {$ifNdef CPFLIB}
-  System.GetMemoryManager(MemoryManager);
+  {$ifdef CPF_GENERATE_LOOKUPS}
+    GenerateLookups;
+    Halt;
   {$endif}
-//  TPathMap(nil).DoFindPath;
+  {$ifNdef CPFLIB}
+    System.GetMemoryManager(MemoryManager);
+  {$endif}
+  {$if Defined(DEBUG) and not Defined(CPFLIB)}
+  TPathMap(nil).DoFindPath;
+  {$ifend}
 
 end.
