@@ -33,7 +33,7 @@ unit CrystalPathFinding;
 
 
 {.$define CPFLOG}
-{$define CPFAPI}
+{.$define CPFAPI}
 {.$define CPFLIB}
 
 {$ifdef CPFLIB}
@@ -135,7 +135,7 @@ type
   {$endif}
 
   // map tile
-  TPathMapTile = type byte;
+  TPathMapTile = type Byte;
   PPathMapTile = ^TPathMapTile;
 
   // map kind
@@ -144,7 +144,7 @@ type
 
   // points as array
   PPointList = ^TPointList;
-  TPointList = array[0..high(integer) div sizeof(TPoint) - 1] of TPoint;
+  TPointList = array[0..High(Integer) div SizeOf(TPoint) - 1] of TPoint;
 
   // result of find path function
   TPathMapResult = record
@@ -154,11 +154,27 @@ type
   end;
   PPathMapResult = ^TPathMapResult;
 
+  // internal class
+  TExceptionString = {$ifdef CPFLIB}PWideChar{$else}string{$endif};
+  TCPFClass = {$ifdef CPFLIB}object{$else}class(TObject){$endif}
+  protected
+    FCallAddress: Pointer;
 
-  //
-  TPathMapWeights = {$ifdef CPFLIB}object{$else}class(TObject){$endif}
+    procedure CPFException(const Message: TExceptionString);
+    procedure CPFExceptionFmt(const Fmt: PWideChar; const Args: array of {$ifdef CPFLIB}Integer{$else}const{$endif});
+    function CPFAlloc(const Size: NativeUInt): Pointer;
+    procedure CPFFree(const P: Pointer);
+    function CPFRealloc(const P: Pointer; const Size: NativeUInt): Pointer;
+  end;
+  TCPFClassPtr = {$ifdef CPFLIB}^{$endif}TCPFClass;
+
+  // map weights
+  TPathMapWeights = {$ifdef CPFLIB}object{$else}class{$endif}(TCPFClass)
   private
+    FHighTile: TPathMapTile;
 
+    function GetValue(const Tile: TPathMapTile): Single;
+    procedure SetValue(const Tile: TPathMapTile; const Value: Single);
   {$ifdef CPFLIB}
   public
     procedure Destroy;
@@ -168,10 +184,12 @@ type
   {$endif}
   public
     {$ifdef CPFLIB}procedure{$else}constructor{$endif}
-    Create(const AHighTile: TPathMapTile);
+      Create(const AHighTile: TPathMapTile);
 
-
+    property HighTile: TPathMapTile read FHighTile;
+    property Values[const Tile: TPathMapTile]: Single read GetValue write SetValue; default;
   end;
+  TPathMapWeightsPtr = {$ifdef CPFLIB}^{$endif}TPathMapWeights;
 
   // compact cell coordinates
   PWPoint = ^TWPoint;
@@ -241,17 +259,22 @@ type
     FinishPoint: TWPoint;
   end;
 
-
-
-
-
-  //
-  TPathMap = {$ifdef CPFLIB}object{$else}class(TObject){$endif}
+  // main path finding class
+  TPathMap = {$ifdef CPFLIB}object{$else}class{$endif}(TCPFClass)
   private
-    FInfo: TPathMapInfo;
     FFindResult: TPathMapResult;
+    FInfo: TPathMapInfo;
+    FWidth: Word;
+    FHeight: Word;
+    FKind: TPathMapKind;
+    FHighTile: TPathMapTile;
+    FSectorTest: Boolean;
+    FUseCache: Boolean;
 
-
+    function GetTile(const X, Y: Word): TPathMapTile;
+    procedure SetTile(const X, Y: Word; const Value: TPathMapTile);
+    procedure SetSectorTest(const Value: Boolean);
+    procedure SetUseCache(const Value: Boolean);
     function DoFindPath: Boolean;
   {$ifdef CPFLIB}
   public
@@ -262,11 +285,22 @@ type
   {$endif}
   public
     {$ifdef CPFLIB}procedure{$else}constructor{$endif}
-    Create(const AWidth, AHeight: Word; const AKind: TPathMapKind; const AHighTile: TPathMapTile);
+      Create(const AWidth, AHeight: Word; const AKind: TPathMapKind; const AHighTile: TPathMapTile);
+    procedure Clear();
+    procedure Update(const ATiles: PPathMapTile; const X, Y, AWidth, AHeight: Word; const Pitch: NativeInt = 0);
 
+    property Width: Word read FWidth;
+    property Height: Word read FHeight;
+    property Kind: TPathMapKind read FKind;
+    property HighTile: TPathMapTile read FHighTile;
+    property SectorTest: Boolean read FSectorTest write SetSectorTest;
+    property UseCache: Boolean read FUseCache write SetUseCache;
+    property Tiles[const X, Y: Word]: TPathMapTile read GetTile write SetTile; default;
 
+    function FindPath(const Start, Finish: TPoint; const Weights: TPathMapWeightsPtr = nil;
+      const ExcludedPoints: PPoint = nil; const ExcludedPointsCount: NativeUInt = 0): PPathMapResult;
   end;
-
+  TPathMapPtr = {$ifdef CPFLIB}^{$endif}TPathMap;
 
 {$ifdef CPFAPI}
 type
@@ -287,17 +321,17 @@ type
   procedure cpfInitialize(const Callbacks: TCPFCallbacks); cdecl;
   {$endif}
 
-  function  cpfCreateWeights(HighTile: Byte): TCPFHandle; cdecl;
+  function  cpfCreateWeights(HighTile: TPathMapTile): TCPFHandle; cdecl;
   procedure cpfDestroyWeights(var HWeights: TCPFHandle); cdecl;
-  function  cpfWeightGet(HWeights: TCPFHandle; Tile: Byte): Single; cdecl;
-  procedure cpfWeightSet(HWeights: TCPFHandle; Tile: Byte; Value: Single); cdecl;
-  function  cpfCreateMap(Width, Height: Word; Kind: TPathMapKind = mkSimple; HighTile: Byte = 0): TCPFHandle; cdecl;
+  function  cpfWeightGet(HWeights: TCPFHandle; Tile: TPathMapTile): Single; cdecl;
+  procedure cpfWeightSet(HWeights: TCPFHandle; Tile: TPathMapTile; Value: Single); cdecl;
+  function  cpfCreateMap(Width, Height: Word; Kind: TPathMapKind = mkSimple; HighTile: TPathMapTile = 0): TCPFHandle; cdecl;
   procedure cpfDestroyMap(var HMap: TCPFHandle); cdecl;
   procedure cpfMapClear(HMap: TCPFHandle); cdecl;
-  procedure cpfMapUpdate(HMap: TCPFHandle; Tiles: PByte; X, Y, Width, Height: Word; Pitch: NativeInt = 0); cdecl;
-  function  cpfMapGetTile(HMap: TCPFHandle; X, Y: Word): Byte; cdecl;
-  procedure cpfMapSetTile(HMap: TCPFHandle; X, Y: Word; Value: Byte);
-  function  cpfFindPath(HMap: TCPFHandle; Start, Finish: TPoint; HWeights: TCPFHandle = 0; ExcludePoints: PPoint = nil; ExcludePointsCount: NativeUInt = 0; SectorTest: Boolean = True; UseCache: Boolean = True): PPathMapResult; cdecl;
+  procedure cpfMapUpdate(HMap: TCPFHandle; Tiles: PPathMapTile; X, Y, Width, Height: Word; Pitch: NativeInt = 0); cdecl;
+  function  cpfMapGetTile(HMap: TCPFHandle; X, Y: Word): TPathMapTile; cdecl;
+  procedure cpfMapSetTile(HMap: TCPFHandle; X, Y: Word; Value: TPathMapTile); cdecl;
+  function  cpfFindPath(HMap: TCPFHandle; Start, Finish: TPoint; HWeights: TCPFHandle = 0; ExcludedPoints: PPoint = nil; ExcludedPointsCount: NativeUInt = 0; SectorTest: Boolean = True; UseCache: Boolean = True): PPathMapResult; cdecl;
 {$endif}
 
 implementation
@@ -390,16 +424,54 @@ asm
 end;
 {$ifend}
 
+procedure ZeroMemory(Destination: Pointer; Length: NativeUInt);
+{$ifdef CPFLIB}
+var
+  P: PByte;
+begin
+  P := Destination;
+
+  while (Length >= SizeOf(NativeUInt)) do
+  begin
+    PNativeUInt(P)^ := 0;
+
+    Dec(Length, SizeOf(NativeUInt));
+    Inc(P, SizeOf(NativeUInt));
+  end;
+
+  {$ifdef LARGEINT}
+  if (Length >= SizeOf(Cardinal)) then
+  begin
+    Cardinal(P)^ := 0;
+
+    Dec(Length, SizeOf(Cardinal));
+    Inc(P, SizeOf(Cardinal));
+  end;
+  {$endif}
+
+  case Length of
+    3:
+    begin
+      PWord(P)^ := 0;
+      Inc(P, SizeOf(Word));
+      P^ := 0;
+    end;
+    2: PWord(P)^ := 0;
+    1: P^ := 0;
+  end;
+end;
+{$else}
+  {$ifdef INLINESUPPORT}inline;{$endif}
+begin
+  FillChar(Destination^, Length, 0);
+end;
+{$endif}
+
 
 {$ifdef CPFLIB}
 var
   CPFCallbacks: TCPFCallbacks;
 {$endif}
-
-type
-  TPathMapWeightsPtr = {$ifdef CPFLIB}^{$endif}TPathMapWeights;
-  TPathMapPtr = {$ifdef CPFLIB}^{$endif}TPathMap;
-  TExceptionString = {$ifdef CPFLIB}PWideChar{$else}string{$endif};
 
 procedure CPFException(const Message: TExceptionString; const Address: Pointer);
 begin
@@ -617,68 +689,160 @@ end;
 
 
 {$ifdef CPFAPI}
-function  cpfCreateWeights(HighTile: Byte): TCPFHandle; cdecl;
+
+function NewCPFClassInstance(AClass: {$ifNdef CPFLIB}TClass{$else}NativeUInt{$endif};
+  Address: Pointer): TCPFHandle;
 begin
-  // todo
-  Result := 0;
+  {$ifdef CPFLIB}
+    Result := TCPFHandle(CPFAlloc(AClass, Address));
+    ZeroMemory(Pointer(Result), AClass);
+  {$else}
+    Result := TCPFHandle(AClass.NewInstance);
+  {$endif}
+  TCPFClassPtr(Result).FCallAddress := Address;
+end;
+
+function  cpfCreateWeights(HighTile: TPathMapTile): TCPFHandle; cdecl;
+var
+  Address: Pointer;
+begin
+  Address := ReturnAddress;
+  Result := NewCPFClassInstance({$ifdef CPFLIB}SizeOf{$endif}(TPathMapWeights), Address);
+  TPathMapWeightsPtr(Result).Create(HighTile);
 end;
 
 procedure cpfDestroyWeights(var HWeights: TCPFHandle); cdecl;
+var
+  Address: Pointer;
+  Weights: Pointer;
 begin
-  // todo
-
+  Address := ReturnAddress;
+  Weights := Pointer(HWeights);
   HWeights := 0;
+
+  if (Weights <> nil) then
+  begin
+    TPathMapWeightsPtr(Weights).FCallAddress := Address;
+    {$if Defined(AUTOREFCOUNT) and not Defined(CPFLIB)}
+      TPathMapWeightsPtr(Weights).__ObjRelease;
+    {$else}
+      TPathMapWeightsPtr(Weights).Destroy;
+    {$ifend}
+  end;
 end;
 
-function  cpfWeightGet(HWeights: TCPFHandle; Tile: Byte): Single; cdecl;
+function  cpfWeightGet(HWeights: TCPFHandle; Tile: TPathMapTile): Single; cdecl;
+var
+  Address: Pointer;
 begin
-  // todo
-  Result := 0;
+  Address := ReturnAddress;
+  if (HWeights <= $ffff) then RaiseInvalidPointer(Address);
+  TCPFClassPtr(HWeights).FCallAddress := Address;
+
+  Result := TPathMapWeightsPtr(HWeights).Values[Tile];
 end;
 
-procedure cpfWeightSet(HWeights: TCPFHandle; Tile: Byte; Value: Single); cdecl;
+procedure cpfWeightSet(HWeights: TCPFHandle; Tile: TPathMapTile; Value: Single); cdecl;
+var
+  Address: Pointer;
 begin
-  // todo
+  Address := ReturnAddress;
+  if (HWeights <= $ffff) then RaiseInvalidPointer(Address);
+  TCPFClassPtr(HWeights).FCallAddress := Address;
+
+  TPathMapWeightsPtr(HWeights).Values[Tile] := Value;
 end;
 
-function  cpfCreateMap(Width, Height: Word; Kind: TPathMapKind = mkSimple; HighTile: Byte = 0): TCPFHandle; cdecl;
+function  cpfCreateMap(Width, Height: Word; Kind: TPathMapKind = mkSimple; HighTile: TPathMapTile = 0): TCPFHandle; cdecl;
+var
+  Address: Pointer;
 begin
-  // todo
-  Result := 0;
+  Address := ReturnAddress;
+  Result := NewCPFClassInstance({$ifdef CPFLIB}SizeOf{$endif}(TPathMap), Address);
+  TPathMapPtr(Result).Create(Width, Height, Kind, HighTile);
 end;
 
 procedure cpfDestroyMap(var HMap: TCPFHandle); cdecl;
+var
+  Address: Pointer;
+  Map: Pointer;
 begin
-  // todo
-
+  Address := ReturnAddress;
+  Map := Pointer(HMap);
   HMap := 0;
+
+  if (Map <> nil) then
+  begin
+    TPathMapWeightsPtr(Map).FCallAddress := Address;
+    {$if Defined(AUTOREFCOUNT) and not Defined(CPFLIB)}
+      TPathMapWeightsPtr(Map).__ObjRelease;
+    {$else}
+      TPathMapWeightsPtr(Map).Destroy;
+    {$ifend}
+  end;
 end;
 
 procedure cpfMapClear(HMap: TCPFHandle); cdecl;
+var
+  Address: Pointer;
 begin
-  // todo
+  Address := ReturnAddress;
+  if (HMap <= $ffff) then RaiseInvalidPointer(Address);
+  TCPFClassPtr(HMap).FCallAddress := Address;
+
+  TPathMapPtr(HMap).Clear;
 end;
 
-procedure cpfMapUpdate(HMap: TCPFHandle; Tiles: PByte; X, Y, Width, Height: Word; Pitch: NativeInt = 0); cdecl;
+procedure cpfMapUpdate(HMap: TCPFHandle; Tiles: PPathMapTile; X, Y, Width, Height: Word; Pitch: NativeInt = 0); cdecl;
+var
+  Address: Pointer;
 begin
-  // todo
+  Address := ReturnAddress;
+  if (HMap <= $ffff) then RaiseInvalidPointer(Address);
+  TCPFClassPtr(HMap).FCallAddress := Address;
+
+  TPathMapPtr(HMap).Update(Tiles, X, Y, Width, Height, Pitch);
 end;
 
-function  cpfMapGetTile(HMap: TCPFHandle; X, Y: Word): Byte; cdecl;
+function  cpfMapGetTile(HMap: TCPFHandle; X, Y: Word): TPathMapTile; cdecl;
+var
+  Address: Pointer;
 begin
-  // todo
-  Result := 0;
+  Address := ReturnAddress;
+  if (HMap <= $ffff) then RaiseInvalidPointer(Address);
+  TCPFClassPtr(HMap).FCallAddress := Address;
+
+  Result := TPathMapPtr(HMap).Tiles[X, Y];
 end;
 
-procedure cpfMapSetTile(HMap: TCPFHandle; X, Y: Word; Value: Byte);
+procedure cpfMapSetTile(HMap: TCPFHandle; X, Y: Word; Value: TPathMapTile); cdecl;
+var
+  Address: Pointer;
 begin
-  // todo
+  Address := ReturnAddress;
+  if (HMap <= $ffff) then RaiseInvalidPointer(Address);
+  TCPFClassPtr(HMap).FCallAddress := Address;
+
+  TPathMapPtr(HMap).Tiles[X, Y] := Value;
 end;
 
-function  cpfFindPath(HMap: TCPFHandle; Start, Finish: TPoint; HWeights: TCPFHandle = 0; ExcludePoints: PPoint = nil; ExcludePointsCount: NativeUInt = 0; SectorTest: Boolean = True; UseCache: Boolean = True): PPathMapResult; cdecl;
+function  cpfFindPath(HMap: TCPFHandle; Start, Finish: TPoint; HWeights: TCPFHandle = 0; ExcludedPoints: PPoint = nil; ExcludedPointsCount: NativeUInt = 0; SectorTest: Boolean = True; UseCache: Boolean = True): PPathMapResult; cdecl;
+var
+  Address: Pointer;
 begin
-  // todo
-  Result := nil;
+  Address := ReturnAddress;
+  if (HMap <= $ffff) then RaiseInvalidPointer(Address);
+  TCPFClassPtr(HMap).FCallAddress := Address;
+  if (HWeights <> 0) then
+  begin
+    if (HWeights <= $ffff) then RaiseInvalidPointer(Address);
+    TCPFClassPtr(HWeights).FCallAddress := Address;
+  end;
+
+  TPathMapPtr(HMap).SectorTest := SectorTest;
+  TPathMapPtr(HMap).UseCache := UseCache;
+  Result := TPathMapPtr(HMap).FindPath(Start, Finish, TPathMapWeightsPtr(HWeights),
+    ExcludedPoints, ExcludedPointsCount);
 end;
 {$endif .CPFAPI}
 
@@ -699,12 +863,43 @@ const
   );
 
 
+{ TCPFClass }
+
+procedure TCPFClass.CPFException(const Message: TExceptionString);
+begin
+  CrystalPathFinding.CPFException(Message, FCallAddress);
+end;
+
+procedure TCPFClass.CPFExceptionFmt(const Fmt: PWideChar;
+  const Args: array of {$ifdef CPFLIB}Integer{$else}const{$endif});
+begin
+  CrystalPathFinding.CPFExceptionFmt(Fmt, Args, FCallAddress);
+end;
+
+function TCPFClass.CPFAlloc(const Size: NativeUInt): Pointer;
+begin
+  Result := CrystalPathFinding.CPFAlloc(Size, FCallAddress);
+end;
+
+procedure TCPFClass.CPFFree(const P: Pointer);
+begin
+  CrystalPathFinding.CPFFree(P, FCallAddress);
+end;
+
+function TCPFClass.CPFRealloc(const P: Pointer;
+  const Size: NativeUInt): Pointer;
+begin
+  Result := CrystalPathFinding.CPFRealloc(P, Size, FCallAddress);
+end;
+
+
 { TPathMapWeights }
 
 {$ifdef CPFLIB}procedure{$else}constructor{$endif}
   TPathMapWeights.Create(const AHighTile: TPathMapTile);
 begin
   {$ifNdef CPFLIB}
+    FCallAddress := ReturnAddress;
     inherited Create;
   {$endif}
 
@@ -714,6 +909,9 @@ end;
 {$ifdef CPFLIB}procedure{$else}destructor{$endif}
   TPathMapWeights.Destroy;
 begin
+  {$ifNdef CPFLIB}
+    FCallAddress := ReturnAddress;
+  {$endif}
 
 
   {$ifNdef CPFLIB}
@@ -721,6 +919,25 @@ begin
   {$endif}
 end;
 
+
+function TPathMapWeights.GetValue(const Tile: TPathMapTile): Single;
+begin
+  {$ifNdef CPFLIB}
+    FCallAddress := ReturnAddress;
+  {$endif}
+
+  Result := 0;
+end;
+
+procedure TPathMapWeights.SetValue(const Tile: TPathMapTile;
+  const Value: Single);
+begin
+  {$ifNdef CPFLIB}
+    FCallAddress := ReturnAddress;
+  {$endif}
+
+
+end;
 
 
 { TPathMap }
@@ -730,6 +947,7 @@ end;
     const AHighTile: TPathMapTile);
 begin
   {$ifNdef CPFLIB}
+    FCallAddress := ReturnAddress;
     inherited Create;
   {$endif}
 
@@ -739,11 +957,68 @@ end;
 {$ifdef CPFLIB}procedure{$else}destructor{$endif}
   TPathMap.Destroy;
 begin
+  {$ifNdef CPFLIB}
+    FCallAddress := ReturnAddress;
+  {$endif}
 
 
   {$ifNdef CPFLIB}
     inherited;
   {$endif}
+end;
+
+procedure TPathMap.Clear;
+begin
+  {$ifNdef CPFLIB}
+    FCallAddress := ReturnAddress;
+  {$endif}
+
+
+end;
+
+function TPathMap.GetTile(const X, Y: Word): TPathMapTile;
+begin
+  {$ifNdef CPFLIB}
+    FCallAddress := ReturnAddress;
+  {$endif}
+
+
+  Result := 0;
+end;
+
+procedure TPathMap.SetTile(const X, Y: Word; const Value: TPathMapTile);
+begin
+  {$ifNdef CPFLIB}
+    FCallAddress := ReturnAddress;
+  {$endif}
+
+end;
+
+procedure TPathMap.Update(const ATiles: PPathMapTile; const X, Y, AWidth,
+  AHeight: Word; const Pitch: NativeInt);
+begin
+  {$ifNdef CPFLIB}
+    FCallAddress := ReturnAddress;
+  {$endif}
+
+end;
+
+procedure TPathMap.SetSectorTest(const Value: Boolean);
+begin
+  {$ifNdef CPFLIB}
+    FCallAddress := ReturnAddress;
+  {$endif}
+
+  FSectorTest := Value;
+end;
+
+procedure TPathMap.SetUseCache(const Value: Boolean);
+begin
+  {$ifNdef CPFLIB}
+    FCallAddress := ReturnAddress;
+  {$endif}
+
+  FUseCache := Value;
 end;
 
 procedure CopyInfo(var Dest, Src: TPathMapInfo);
@@ -882,8 +1157,8 @@ begin
 
 
 
-      if (NodeInfo = 0) or (Child = 0) then
-        raise Exception.Create('Error Message');
+//      if (NodeInfo = 0) or (Child = 0) then
+//        raise Exception.Create('Error Message');
       
 
       if (NodeInfo and $ff = 0) then Break;
@@ -905,10 +1180,27 @@ begin
 end;
 
 
+function TPathMap.FindPath(const Start, Finish: TPoint;
+  const Weights: TPathMapWeightsPtr; const ExcludedPoints: PPoint;
+  const ExcludedPointsCount: NativeUInt): PPathMapResult;
+begin
+  {$ifNdef CPFLIB}
+    FCallAddress := ReturnAddress;
+  {$endif}
+
+  if (not DoFindPath) then Result := nil
+  else Result := @FFindResult;
+end;
+
+
+
+
+
+
 initialization
   {$ifNdef CPFLIB}
   System.GetMemoryManager(MemoryManager);
   {$endif}
-  TPathMap(nil).DoFindPath;
+//  TPathMap(nil).DoFindPath;
 
 end.

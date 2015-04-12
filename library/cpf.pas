@@ -141,7 +141,7 @@ type
   public
     constructor Create(const AWidth, AHeight: Word; const AKind: TPathMapKind = mkSimple; const AHighTile: TPathMapTile = 0);
     procedure Clear(); {$ifdef INLINESUPPORT}inline;{$endif}
-    procedure Update(const Tiles: PPathMapTile; const X, Y, Width, Height: Word; const Pitch: NativeInt = 0); {$ifdef INLINESUPPORT}inline;{$endif}
+    procedure Update(const ATiles: PPathMapTile; const X, Y, AWidth, AHeight: Word; const Pitch: NativeInt = 0); {$ifdef INLINESUPPORT}inline;{$endif}
 
     property Width: Word read FWidth;
     property Height: Word read FHeight;
@@ -312,10 +312,10 @@ begin
   cpfMapSetTile(FHandle, X, Y, Value);
 end;
 
-procedure TPathMap.Update(const Tiles: PPathMapTile; const X, Y, Width,
-  Height: Word; const Pitch: NativeInt);
+procedure TPathMap.Update(const ATiles: PPathMapTile; const X, Y, AWidth,
+  AHeight: Word; const Pitch: NativeInt);
 begin
-  cpfMapUpdate(FHandle, Tiles, X, Y, Width, Height, Pitch);
+  cpfMapUpdate(FHandle, ATiles, X, Y, AWidth, AHeight, Pitch);
 end;
 
 procedure TPathMap.Clear;
