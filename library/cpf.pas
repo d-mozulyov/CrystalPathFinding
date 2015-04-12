@@ -113,9 +113,10 @@ type
 
     function GetValue(const Tile: TPathMapTile): Single; {$ifdef INLINESUPPORT}inline;{$endif}
     procedure SetValue(const Tile: TPathMapTile; const Value: Single); {$ifdef INLINESUPPORT}inline;{$endif}
+  {$ifdef AUTOREFCOUNT}protected{$else}public{$endif}
+    destructor Destroy; override;
   public
     constructor Create(const AHighTile: TPathMapTile);
-    destructor Destroy; override;
 
     property HighTile: TPathMapTile read FHighTile;
     property Handle: TCPFHandle read FHandle;
@@ -135,9 +136,10 @@ type
 
     function GetTile(const X, Y: Word): TPathMapTile; {$ifdef INLINESUPPORT}inline;{$endif}
     procedure SetTile(const X, Y: Word; const Value: TPathMapTile); {$ifdef INLINESUPPORT}inline;{$endif}
-  public
-    constructor Create(const AWidth, AHeight: word; const AKind: TPathMapKind = mkSimple; const AHighTile: TPathMapTile = 0);
+  {$ifdef AUTOREFCOUNT}protected{$else}public{$endif}
     destructor Destroy; override;
+  public
+    constructor Create(const AWidth, AHeight: Word; const AKind: TPathMapKind = mkSimple; const AHighTile: TPathMapTile = 0);
     procedure Clear(); {$ifdef INLINESUPPORT}inline;{$endif}
     procedure Update(const Tiles: PPathMapTile; const X, Y, Width, Height: Word; const Pitch: NativeInt = 0); {$ifdef INLINESUPPORT}inline;{$endif}
 
@@ -280,7 +282,7 @@ end;
 
 { TPathMap }
 
-constructor TPathMap.Create(const AWidth, AHeight: word;
+constructor TPathMap.Create(const AWidth, AHeight: Word;
   const AKind: TPathMapKind; const AHighTile: TPathMapTile);
 begin
   inherited Create;
