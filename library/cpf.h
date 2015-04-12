@@ -43,7 +43,7 @@ namespace cpf_routine
   typedef TPathMapTile (*CPF_PROC_MAP_GET_TILE)(TCPFHandle HMap, word X, word Y);
   typedef void (*CPF_PROC_MAP_SET_TILE)(TCPFHandle HMap, word X, word Y, TPathMapTile Value);
   typedef void (*CPF_PROC_MAP_UPDATE)(TCPFHandle HMap, TPathMapTile* Tiles, word X, word Y, word Width, word Height, signed size_t Pitch);
-  typedef TPathMapResult* (*CPF_PROC_FIND_PATH)(TCPFHandle HMap, TPoint Start, TPoint Finish, TCPFHandle Weights, TPoint* ExcludePoints, size_t ExcludePointsCount, bool SectorTest, bool UseCache);
+  typedef TPathMapResult* (*CPF_PROC_FIND_PATH)(TCPFHandle HMap, TPoint Start, TPoint Finish, TCPFHandle Weights, TPoint* ExcludedPoints, size_t ExcludedPointsCount, bool SectorTest, bool UseCache);
 
   CPF_PROC_CREATE_WEIGHTS __cpfCreateWeights = NULL;
   CPF_PROC_DESTROY_WEIGHTS __cpfDestroyWeights = NULL;
@@ -106,7 +106,7 @@ void    cpfMapClear(TCPFHandle HMap)/*;*/{cpf_routine::__cpfMapClear(HMap);}
 TPathMapTile cpfMapGetTile(TCPFHandle HMap, word X, word Y)/*;*/{return cpf_routine::__cpfMapGetTile(HMap, X, Y);}
 void    cpfMapSetTile(TCPFHandle HMap, word X, word Y, TPathMapTile Value)/*;*/{cpf_routine::__cpfMapSetTile(HMap, X, Y, Value);};
 void    cpfMapUpdate(TCPFHandle HMap, TPathMapTile* Tiles, word X, word Y, word Width, word Height, signed size_t Pitch=0)/*;*/{cpf_routine::__cpfMapUpdate(HMap, Tiles, X, Y, Width, Height, Pitch);}
-TPathMapResult* cpfFindPath(TCPFHandle HMap, TPoint Start, TPoint Finish, TCPFHandle Weights=0, TPoint* ExcludePoints=NULL, size_t ExcludePointsCount=0, bool SectorTest=true, bool UseCache=true)/*;*/{return cpf_routine::__cpfFindPath(HMap, Start, Finish, Weights, ExcludePoints, ExcludePointsCount, SectorTest, UseCache);}
+TPathMapResult* cpfFindPath(TCPFHandle HMap, TPoint Start, TPoint Finish, TCPFHandle Weights=0, TPoint* ExcludedPoints=NULL, size_t ExcludedPointsCount=0, bool SectorTest=true, bool UseCache=true)/*;*/{return cpf_routine::__cpfFindPath(HMap, Start, Finish, Weights, ExcludedPoints, ExcludedPointsCount, SectorTest, UseCache);}
 
 
 

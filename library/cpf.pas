@@ -153,7 +153,7 @@ type
     property Tiles[const X, Y: Word]: TPathMapTile read GetTile write SetTile; default;
 
     function FindPath(const Start, Finish: TPoint; const Weights: TPathMapWeights = nil;
-      const ExcludePoints: PPoint = nil; const ExcludePointsCount: NativeUInt = 0): PPathMapResult; {$ifdef INLINESUPPORT}inline;{$endif}
+      const ExcludedPoints: PPoint = nil; const ExcludedPointsCount: NativeUInt = 0): PPathMapResult; {$ifdef INLINESUPPORT}inline;{$endif}
   end;
 
 
@@ -324,11 +324,11 @@ begin
 end;
 
 function TPathMap.FindPath(const Start, Finish: TPoint;
-  const Weights: TPathMapWeights; const ExcludePoints: PPoint;
-  const ExcludePointsCount: NativeUInt): PPathMapResult;
+  const Weights: TPathMapWeights; const ExcludedPoints: PPoint;
+  const ExcludedPointsCount: NativeUInt): PPathMapResult;
 begin
   Result := cpfFindPath(FHandle, Start, Finish, TCPFHandle(Weights),
-    ExcludePoints, ExcludePointsCount, FSectorTest, FUseCache);
+    ExcludedPoints, ExcludedPointsCount, FSectorTest, FUseCache);
 end;
 
 
@@ -374,9 +374,9 @@ begin
       AssertErrorProc(Text, 'cpf.pas', 0, Address)
     end else
     begin
-     System.ErrorAddr := Address;
-     System.ExitCode := 207{reInvalidOp};
-     System.Halt;
+      System.ErrorAddr := Address;
+      System.ExitCode := 207{reInvalidOp};
+      System.Halt;
     end;
   {$else}
     raise ECrystalPathFinding.Create(Text) at Address;
