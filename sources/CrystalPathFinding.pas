@@ -34,7 +34,7 @@ unit CrystalPathFinding;
 
 {.$define CPFLOG}
 {.$define CPFAPI}
-{.$define CPFLIB}
+{$define CPFLIB}
 
 {$ifdef CPFLIB}
   {$define CPFAPI}  
@@ -727,6 +727,9 @@ begin
       TPathMapWeightsPtr(Weights).__ObjRelease;
     {$else}
       TPathMapWeightsPtr(Weights).Destroy;
+      {$ifdef CPFLIB}
+        CPFFree(Weights, Address);
+      {$endif}
     {$ifend}
   end;
 end;
@@ -778,6 +781,9 @@ begin
       TPathMapWeightsPtr(Map).__ObjRelease;
     {$else}
       TPathMapWeightsPtr(Map).Destroy;
+      {$ifdef CPFLIB}
+        CPFFree(Map, Address);
+      {$endif}
     {$ifend}
   end;
 end;
