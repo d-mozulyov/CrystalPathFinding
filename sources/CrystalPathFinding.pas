@@ -221,12 +221,13 @@ type
     Prev, Next: PPathMapNode;
     case Integer of
     0: (
-         Tile: Byte;
          Mask: Byte;
+         ParentAndFlags: Byte{Parent:3; WayDeltaId:2; Way:3};
          ParentMask: Byte;
-         Parent: Byte;
+         Tile: Byte;
        );
-    1: (NodeInfo: Cardinal);
+    1: (_: Byte; ParentBits: Word);
+    2: (NodeInfo: Cardinal);
   end;
 
 
@@ -244,13 +245,16 @@ type
     {$endif}
   end;
 
+  PCardinalList = ^TCardinalList;
+  TCardinalList = array[0..High(Integer) div SizeOf(Cardinal) - 1] of Cardinal;
+
   TPathMapInfo = record
     Cells: PPathMapCellArray;
     MapWidth: NativeInt;
     HeuristicsLine: NativeInt;
     HeuristicsDiagonal: NativeInt;
-    //PointOffsets: array[0..7] of Cardinal;
-    //CellOffsets: array[0..7] of NativeInt;
+    TileWeights: array[0..1] of PCardinalList;
+    CellOffsets: array[0..7] of NativeInt;
 
     //Nodes
 
@@ -276,7 +280,7 @@ type
     procedure SetTile(const X, Y: Word; const Value: TPathMapTile);
     procedure SetSectorTest(const Value: Boolean);
     procedure SetUseCache(const Value: Boolean);
-    function DoFindPath: Boolean;
+    function DoFindPath(MapSelf: Pointer; FinishNode: PPathMapNode): Boolean;
   {$ifdef CPFLIB}
   public
     procedure Destroy;
@@ -417,7 +421,7 @@ end;
 {$ifend}
 
 
-{$if Defined(FPC) or (CompilerVersion < 21)}
+{$if Defined(FPC) or (CompilerVersion < 23)}
 // todo PFC
 function ReturnAddress: Pointer;
 asm
@@ -938,45 +942,24 @@ const
     $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
   );
 
-  PARENT_BITS: array[0..{Delta}9*{Hexagonal}4*{Child}8 - 1] of Word = (
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
+  PARENT_BITS: array[0..{Delta9*}{Hexagonal}4*{Child}8 - 1] of NativeUInt = (
     $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
     $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
     $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
     $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000
   );
 
+  WAY_BITS: array[0..8] of NativeUInt{Byte} = (
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  );
 
 
 {$ifdef CPF_GENERATE_LOOKUPS}
@@ -1145,99 +1128,131 @@ begin
   Dest := Src;
 end;
 
-function TPathMap.DoFindPath: Boolean;
-//label
-//  loop;
+function TPathMap.DoFindPath(MapSelf: Pointer; FinishNode: PPathMapNode): Boolean;
+label
+  nextchild, current_initialize;
 var
   Node: PPathMapNode;
   NodeInfo: NativeUInt;
-  Childs: PWord;
+  ChildList: PWord;
   Child: NativeUInt;
-  NodeXY, OffsetXY, ChildXY: Cardinal;
-  ChildCell: PPathMapCell;
+  Cell: PPathMapCell;
+  ChildNodeInfo: NativeUInt;
   ChildNodePtr: NativeUInt;
   ChildNode: PPathMapNode;
+  TileWeights: PCardinalList;
   Path: Cardinal;
+  NodeXY, OffsetXY, ChildXY: Cardinal;
 
   Store: record
     Buffer: array[0..7] of PPathMapNode;
     Self: Pointer;
     Info: TPathMapInfo;
 
-    Node: PPathMapNode;
-    NodeXY: TWPoint;
+    HexagonalFlag: NativeUInt;
+    ChildList: PWord;
+
+    Current: record
+      Node: PPathMapNode;
+      Cell: PPathMapCell;
+      Coordinates: TWPoint;
+      Path: Cardinal;
+    end;
   end;
 begin
-//  Store.
-  Store.Self := Pointer({$ifdef CPFLIB}@Self{$else}Self{$endif});
+  Store.Self := MapSelf;//Pointer({$ifdef CPFLIB}@Self{$else}Self{$endif});
+  Store.HexagonalFlag := NativeUInt(TPathMapPtr(MapSelf).FKind = mkHexagonal) shl 17;
   //Store.Info := TPathMapPtr(Store.Self).FInfo;
-  CopyInfo(Store.Info, TPathMapPtr(Store.Self).FInfo);
+  CopyInfo(Store.Info, TPathMapPtr(MapSelf).FInfo);
 
-  // todo
-  //Node := nil;
-  Store.NodeXY := Store.Info.StartPoint;
-  NodeInfo := 0;
-
-
+  // finding loop from Finish to Start
+  Node := FinishNode;
+  goto current_initialize;
   repeat
+    // child list
+    ChildList := Pointer(NativeUInt(CHILD_ARRAYS_OFFSETS[Byte(NodeInfo shr 8)]));
+    Inc(NativeUInt(ChildList), NativeUInt(@CHILD_ARRAYS));
 
-
-    // Childs todo
-    Childs := nil;
+    // reinitialize NodeInfo:
+    //   - mask
+    //   - stored childs counter
+    //   - bit hexagonal << 1
+    //   - tile
+    NodeInfo := ((NodeInfo and (NodeInfo shr 16)) and Integer($ff0000ff)) or Store.HexagonalFlag;
 
     // each child cell loop
-    if (NodeInfo and $ff <> 0) then
+    goto nextchild;
     repeat
       // first available
-      Child := Childs^;
-      Inc(Childs);
-      if (NodeInfo and Child = 0) then Continue;
+      ChildList := Store.ChildList;
+      nextchild:
+      Child := ChildList^;
+      Inc(ChildList);
+      if (NodeInfo and Child = 0) then goto nextchild;
+      Store.ChildList := ChildList;
 
-      // clear flag, child number
+      // clear child bit, get child number
       NodeInfo := NodeInfo and (not Child);
       Child := Child shr (8 + 4);
 
-      // ChildXY coordinates
-      OffsetXY := Cardinal(POINT_OFFSETS[Child]);
-      NodeXY := Cardinal(Store.NodeXY{Node.Point});
-      ChildXY := NodeXY + OffsetXY;
-      OffsetXY := OffsetXY and $ffff0000;
-      NodeXY := NodeXY and $ffff0000;
-      ChildXY := Word(ChildXY) + NodeXY + OffsetXY;
-
-      // found test
-      if (ChildXY = Cardinal(Store.Info.FinishPoint)) then
-      begin
-        Result := True;
-        Exit;
-        // todo
-      end;
-
-      // ChildXY map cell
-      ChildCell := @Store.Info.Cells[(NativeInt(ChildXY) shr 16) * Store.Info.MapWidth + Word(ChildXY)];
-      ChildNodePtr := ChildCell.NodePtr;
+      // child map cell
+      Cell := Store.Current.Cell;
+      Inc(NativeInt(Cell), Store.Info.CellOffsets[Child]);
+      ChildNodePtr := Cell.NodePtr;
       if (ChildNodePtr and 1 <> 0{Fixed}) then
       begin
         if (NodeInfo and $ff <> 0) then Continue;
         Break;
       end;
 
-      // Path?
-      Path := 0;
+      // parent bits
+      ChildNodeInfo := PARENT_BITS[Child +
+      ((NodeInfo or (NativeUInt(Cardinal(Store.Current.Coordinates)) and (1 shl 16)))
+        shr (16 - 3))];
 
-      // ChildNodePtr --> ChildNode
+      // test
+
+//      ChildNodeInfo := PWord(Cell)^;
+
+      // Path
+      TileWeights := Store.Info.TileWeights[Child and 1];
+      //Path := (TileWeights[NodeInfo shr 24] +  shr 1;
+      //Inc(Path, Store.Current.Path);
+      Path := TileWeights[NodeInfo shr 24];
+      Inc(Path, TileWeights[Byte(ChildNodeInfo){Cell.Tile}]);
+      Path := Store.Current.Path + (Path shr 1);
+
+      // allocate new node or compare exists path
       if (ChildNodePtr = 0) then
       begin
         // allocate new node
         ChildNode := Store.Info.NodeStorage.NewNode;
         {$ifdef LARGEINT}
-          ChildCell.NodePtr := NativeUInt(NativeInt(ChildNode) + Store.Info.NodeStorage.LargeModifier);
+          Cell.NodePtr := NativeUInt(NativeInt(ChildNode) + Store.Info.NodeStorage.LargeModifier);
         {$else}
-          ChildCell.NodePtr := NativeUInt(ChildNode);
+          Cell.NodePtr := NativeUInt(ChildNode);
         {$endif}
+
+        // Child coordinates
+        OffsetXY := Cardinal(POINT_OFFSETS[Child]);
+        NodeXY := Cardinal(Store.Current.Coordinates);
+        ChildXY := NodeXY + OffsetXY;
+        OffsetXY := OffsetXY and $ffff0000;
+        NodeXY := NodeXY and $ffff0000;
+        ChildXY := Word(ChildXY) + NodeXY + OffsetXY;
 
         Cardinal(ChildNode.Coordinates) := ChildXY;
         // heuristics todo and so
+
+        // found test
+        if (ChildXY = Cardinal(Store.Info.FinishPoint)) then
+        begin
+          Result := True;
+          Exit;
+          // todo
+        end;
+
+
 
         if (ChildNode = Store.Info.NodeStorage.MaximumNode) then
         begin
@@ -1278,24 +1293,35 @@ begin
 
 
 
-//      if (NodeInfo = 0) or (Child = 0) then
-//        raise Exception.Create('Error Message');
+      if (NodeInfo = 0) or (Child = 0) then
+        raise Exception.Create('Error Message');
       
 
       if (NodeInfo and $ff = 0) then Break;
     until (False);
 
     // next opened node
-    Node := Store.Node.Next;
-    Store.Node := Node;
-    Store.NodeXY := Node.Coordinates;
-    if (Cardinal(Node.Coordinates) = Cardinal(Store.Info.FinishPoint){или другой признак}) then
+    Node := Store.Current.Node.Next;
+  current_initialize:
+    Store.Current.Node := Node;
+    if (Node.SortValue = High(Cardinal)) then
     begin
       Result := False;
       Exit;
     end;
+
+    // cell
+    NodeInfo{XY} := Cardinal(Node.Coordinates);
+    Cardinal(Store.Current.Coordinates) := NodeInfo{XY};
+    Cell := @Store.Info.Cells[(NativeInt(NodeInfo{XY}) shr 16) * Store.Info.MapWidth + Word(NodeInfo{XY})];
+    Store.Current.Cell := Cell;
+    Store.Current.Path := Node.Path;
+
+    // lock
+    Cell.NodePtr := Cell.NodePtr or 1;
+
+    // node info
     NodeInfo := Cardinal(Node.NodeInfo);
-    // todo lock
   until (False);
 
   Result := True;
@@ -1305,13 +1331,24 @@ end;
 function TPathMap.FindPath(const Start, Finish: TPoint;
   const Weights: TPathMapWeightsPtr; const ExcludedPoints: PPoint;
   const ExcludedPointsCount: NativeUInt): PPathMapResult;
+var
+  FinishNode: PPathMapNode;
 begin
   {$ifNdef CPFLIB}
     FCallAddress := ReturnAddress;
   {$endif}
 
-  if (not DoFindPath) then Result := nil
-  else Result := @FFindResult;
+  FinishNode := nil;
+  // todo
+
+  if (not DoFindPath({$ifdef CPFLIB}@Self{$else}Self{$endif}, FinishNode)) then
+  begin
+    Result := nil;
+    Exit;
+  end;
+
+  Result := @FFindResult;
+  // todo calculate
 end;
 
 
@@ -1328,7 +1365,7 @@ initialization
     System.GetMemoryManager(MemoryManager);
   {$endif}
   {$if Defined(DEBUG) and not Defined(CPFLIB)}
-  TPathMap(nil).DoFindPath;
+  TPathMap(nil).DoFindPath(nil, nil);
   {$ifend}
 
 end.
