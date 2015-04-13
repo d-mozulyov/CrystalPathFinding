@@ -196,10 +196,10 @@ type
   TPathMapWeightsPtr = {$ifdef CPFLIB}^{$endif}TPathMapWeights;
 
   // compact cell coordinates
-  PWPoint = ^TWPoint;
-  TWPoint = packed record
-    X: Word;
+  PCPFPoint = ^TCPFPoint;
+  TCPFPoint = packed record
     Y: Word;
+    X: Word;
   end;
 
   // map cell
@@ -217,12 +217,12 @@ type
   TPathMapNode = packed record
     SortValue: Cardinal; // path + heuristics to start point
     Path: Cardinal; // path from finish point to the cell
-    Coordinates: TWPoint;
+    Coordinates: TCPFPoint;
     Prev, Next: PPathMapNode;
     case Integer of
     0: (
-         Mask: Byte;
          ParentAndFlags: Byte{Parent:3; WayDeltaId:2; Way:3};
+         Mask: Byte;
          ParentMask: Byte;
          Tile: Byte;
        );
@@ -260,8 +260,8 @@ type
 
     NodeStorage: TPathMapNodeStorage;
 
-    StartPoint: TWPoint;
-    FinishPoint: TWPoint;
+    StartPoint: TCPFPoint;
+    FinishPoint: TCPFPoint;
   end;
 
   // main path finding class
@@ -889,19 +889,44 @@ end;
 
 
 type
+  TYXSmallPoint = record
+    y: SmallInt;
+    x: SmallInt;
+  end;
+
   TChildArray = array[0..7] of Word;
   PChildArray = ^TChildArray;
 
 const
-  POINT_OFFSETS: array[0..7] of Types.TSmallPoint = (
-    {0} (x: -1; y: -1),
-    {1} (x:  0; y: -1),
-    {2} (x: +1; y: -1),
-    {3} (x: +1; y:  0),
-    {4} (x: +1; y: +1),
-    {5} (x:  0; y: +1),
-    {6} (x: -1; y: +1),
-    {7} (x: -1; y:  0)
+  _0 = (1 shl 0);
+  _1 = (1 shl 1);
+  _2 = (1 shl 2);
+  _3 = (1 shl 3);
+  _4 = (1 shl 4);
+  _5 = (1 shl 5);
+  _6 = (1 shl 6);
+  _7 = (1 shl 7);
+
+  POINT_OFFSETS: array[0..7] of TYXSmallPoint = (
+    {0} (y: -1; x: -1),
+    {1} (y: -1; x:  0),
+    {2} (y: -1; x: +1),
+    {3} (y:  0; x: +1),
+    {4} (y: +1; x: +1),
+    {5} (y: +1; x:  0),
+    {6} (y: +1; x: -1),
+    {7} (y:  0; x: -1)
+  );
+
+  POINT_OFFSETS_INVERT: array[0..7] of TYXSmallPoint = (
+    {0 --> 4} (y: +1; x: +1),
+    {1 --> 5} (y: +1; x:  0),
+    {2 --> 6} (y: +1; x: -1),
+    {3 --> 7} (y:  0; x: -1),
+    {4 --> 0} (y: -1; x: -1),
+    {5 --> 1} (y: -1; x:  0),
+    {6 --> 2} (y: -1; x: +1),
+    {7 --> 3} (y:  0; x: +1)
   );
 
   CHILD_ARRAYS: array[0..15{Parent*2 + FLAG_CLOCKWISE}] of TChildArray = (
@@ -1130,7 +1155,13 @@ end;
 
 function TPathMap.DoFindPath(MapSelf: Pointer; FinishNode: PPathMapNode): Boolean;
 label
-  nextchild, current_initialize;
+  nextchild, child_tobuffer, next_current, current_initialize;
+const
+  DELTA_CLEAR_MASK = not Cardinal(((1 shl 5) - 1) shl 3);
+  X86EXISTS_CLEAR_MASK = Integer(not 1);
+  COUNTER_OFFSET = 16;
+type
+  TMapNodeBuffer = array[0..7] of PPathMapNode;
 var
   Node: PPathMapNode;
   NodeInfo: NativeUInt;
@@ -1145,7 +1176,7 @@ var
   NodeXY, OffsetXY, ChildXY: Cardinal;
 
   Store: record
-    Buffer: array[0..7] of PPathMapNode;
+    Buffer: TMapNodeBuffer;
     Self: Pointer;
     Info: TPathMapInfo;
 
@@ -1155,30 +1186,38 @@ var
     Current: record
       Node: PPathMapNode;
       Cell: PPathMapCell;
-      Coordinates: TWPoint;
+      Coordinates: TCPFPoint;
       Path: Cardinal;
     end;
   end;
+
+  {$ifNdef CPUX86}
+    Buffer: ^TMapNodeBuffer;
+  {$endif}
 begin
-  Store.Self := MapSelf;//Pointer({$ifdef CPFLIB}@Self{$else}Self{$endif});
-  Store.HexagonalFlag := NativeUInt(TPathMapPtr(MapSelf).FKind = mkHexagonal) shl 17;
-  //Store.Info := TPathMapPtr(Store.Self).FInfo;
+  Store.Self := MapSelf;
+  Store.HexagonalFlag := NativeUInt(TPathMapPtr(MapSelf).FKind = mkHexagonal) * 2;
+ // Store.Info := TPathMapPtr(MapSelf{Store.Self}).FInfo;
   CopyInfo(Store.Info, TPathMapPtr(MapSelf).FInfo);
+
+  {$ifNdef CPUX86}
+  Buffer := @Store.Buffer;
+  {$endif}
 
   // finding loop from Finish to Start
   Node := FinishNode;
   goto current_initialize;
   repeat
     // child list
-    ChildList := Pointer(NativeUInt(CHILD_ARRAYS_OFFSETS[Byte(NodeInfo shr 8)]));
+    ChildList := Pointer(NativeUInt(CHILD_ARRAYS_OFFSETS[Byte(NodeInfo)]));
     Inc(NativeUInt(ChildList), NativeUInt(@CHILD_ARRAYS));
 
     // reinitialize NodeInfo:
+    //   - bit hexagonal << 1
     //   - mask
     //   - stored childs counter
-    //   - bit hexagonal << 1
     //   - tile
-    NodeInfo := ((NodeInfo and (NodeInfo shr 16)) and Integer($ff0000ff)) or Store.HexagonalFlag;
+    NodeInfo := ((NodeInfo and (NodeInfo shr 8)) and Integer($ff00ff00)) or Store.HexagonalFlag;
 
     // each child cell loop
     goto nextchild;
@@ -1193,118 +1232,143 @@ begin
 
       // clear child bit, get child number
       NodeInfo := NodeInfo and (not Child);
-      Child := Child shr (8 + 4);
+      Child := Child shr 4;
 
       // child map cell
       Cell := Store.Current.Cell;
       Inc(NativeInt(Cell), Store.Info.CellOffsets[Child]);
       ChildNodePtr := Cell.NodePtr;
-      if (ChildNodePtr and 1 <> 0{Fixed}) then
+      if (ChildNodePtr and 1 <> 0{locked}) then
       begin
-        if (NodeInfo and $ff <> 0) then Continue;
+        if (NodeInfo and $ff00 <> 0) then Continue;
+        Break;
+      end;
+      {$ifdef CPUX86}
+      NodeInfo := NodeInfo or NativeUInt(ChildNodePtr <> 0);
+      {$endif}
+
+      // mask and tile conversion
+      ChildNodeInfo := PWord(Cell)^;
+      ChildNodeInfo := (ChildNodeInfo + (ChildNodeInfo shl 24)) and Integer($00ff00ff);
+
+      // parent bits
+      Child := (Child shl 2) + (NodeInfo and 2) + (NativeUInt(Cardinal(Store.Current.Coordinates)) and 1);
+      ChildNodeInfo := ChildNodeInfo or PARENT_BITS[Child];
+
+      // mask test
+      if (ChildNodeInfo and ((ChildNodeInfo and $ff00) shl 8) = 0) then
+      begin
+        {$ifdef CPUX86}
+        NodeInfo := NodeInfo and X86EXISTS_CLEAR_MASK;
+        {$endif}
+        if (NodeInfo and $ff00 <> 0) then Continue;
         Break;
       end;
 
-      // parent bits
-      ChildNodeInfo := PARENT_BITS[Child +
-      ((NodeInfo or (NativeUInt(Cardinal(Store.Current.Coordinates)) and (1 shl 16)))
-        shr (16 - 3))];
-
-      // test
-
-//      ChildNodeInfo := PWord(Cell)^;
-
-      // Path
-      TileWeights := Store.Info.TileWeights[Child and 1];
-      //Path := (TileWeights[NodeInfo shr 24] +  shr 1;
-      //Inc(Path, Store.Current.Path);
+      // path
+      TileWeights := Store.Info.TileWeights[ChildNodeInfo and 1];
       Path := TileWeights[NodeInfo shr 24];
-      Inc(Path, TileWeights[Byte(ChildNodeInfo){Cell.Tile}]);
+      Inc(Path, TileWeights[ChildNodeInfo shr 24{Cell.Tile}]);
       Path := Store.Current.Path + (Path shr 1);
 
-      // allocate new node or compare exists path
-      if (ChildNodePtr = 0) then
+      // if node is exists
+      {$ifdef CPUX86}
+      if (NodeInfo and 1 <> 0) then
+      {$else}
+      if (ChildNodePtr <> 0) then
+      {$endif}
       begin
-        // allocate new node
-        ChildNode := Store.Info.NodeStorage.NewNode;
-        {$ifdef LARGEINT}
-          Cell.NodePtr := NativeUInt(NativeInt(ChildNode) + Store.Info.NodeStorage.LargeModifier);
-        {$else}
-          Cell.NodePtr := NativeUInt(ChildNode);
+        {$ifdef CPUX86}
+          ChildNodePtr := Cell.NodePtr;
+          NodeInfo := NodeInfo and X86EXISTS_CLEAR_MASK;
         {$endif}
 
-        // Child coordinates
-        OffsetXY := Cardinal(POINT_OFFSETS[Child]);
-        NodeXY := Cardinal(Store.Current.Coordinates);
-        ChildXY := NodeXY + OffsetXY;
-        OffsetXY := OffsetXY and $ffff0000;
-        NodeXY := NodeXY and $ffff0000;
-        ChildXY := Word(ChildXY) + NodeXY + OffsetXY;
-
-        Cardinal(ChildNode.Coordinates) := ChildXY;
-        // heuristics todo and so
-
-        // found test
-        if (ChildXY = Cardinal(Store.Info.FinishPoint)) then
-        begin
-          Result := True;
-          Exit;
+        {$ifdef LARGEINT}
           // todo
+          ChildNode := Pointer(ChildNodePtr);
+        {$else}
+          ChildNode := Pointer(ChildNodePtr);
+        {$endif}
+
+        if (Path >= ChildNode.Path) then
+        begin
+          if (NodeInfo and $ff00 <> 0) then Continue;
+          Break;
         end;
 
+        // new parent bits
+        ChildNode.NodeInfo := (ChildNode.NodeInfo and DELTA_CLEAR_MASK) or ChildNodeInfo;
 
+        // new Path and SortValue
+        ChildNode.SortValue := Path + (ChildNode.SortValue - ChildNode.Path);
 
-        if (ChildNode = Store.Info.NodeStorage.MaximumNode) then
-        begin
-          // todo call some realloc
-          CopyInfo(Store.Info, TPathMapPtr(Store.Self).FInfo);
-        end else
-        begin
-          Inc(ChildNode);
-          Store.Info.NodeStorage.NewNode := ChildNode;
-          Dec(ChildNode);
-        end;
+        // remove todo
+        //
+
+        goto child_tobuffer;
+      end;
+
+      // allocate new node
+      ChildNode := Store.Info.NodeStorage.NewNode;
+      {$ifdef LARGEINT}
+        Cell.NodePtr := NativeUInt(NativeInt(ChildNode) + Store.Info.NodeStorage.LargeModifier);
+      {$else}
+        Cell.NodePtr := NativeUInt(ChildNode);
+      {$endif}
+
+      // child coordinates
+      OffsetXY := Cardinal(POINT_OFFSETS_INVERT[ChildNodeInfo and 7]);
+      NodeXY := Cardinal(Store.Current.Coordinates);
+      ChildXY := NodeXY + OffsetXY;
+      OffsetXY := OffsetXY and $ffff0000;
+      NodeXY := NodeXY and $ffff0000;
+      ChildXY := Word(ChildXY) + NodeXY + OffsetXY;
+      Cardinal(ChildNode.Coordinates) := ChildXY;
+
+      // heuristics and so on
+      // todo
+
+      // set next allocable node
+      if (ChildNode = Store.Info.NodeStorage.MaximumNode) then
+      begin
+        // todo call some realloc
+        CopyInfo(Store.Info, TPathMapPtr(Store.Self).FInfo);
       end else
       begin
-        // node is already exists
-        {$ifdef LARGEINT}
-          // todo
-          ChildNode := Pointer(ChildNodePtr);
-        {$else}
-          ChildNode := Pointer(ChildNodePtr);
-        {$endif}
-
+        Inc(ChildNode);
+        Store.Info.NodeStorage.NewNode := ChildNode;
+        Dec(ChildNode);
       end;
 
-      if (Path < ChildNode.Path) then
+      // found test
+      if (ChildXY = Cardinal(Store.Info.FinishPoint)) then
       begin
-        ChildNode.Path := Path;
-        Store.Buffer[NodeInfo shr 28] := ChildNode;
-        Inc(NodeInfo, 100500);
+        Result := True;
+        Exit;
+        // todo
       end;
 
-//      MapCell: PPathMapCell;
+    child_tobuffer:
+      {$ifdef CPUX86}Store.{$endif}Buffer[(NodeInfo shr COUNTER_OFFSET) and 7] := ChildNode;
+      Inc(NodeInfo, (1 shl COUNTER_OFFSET));
 
-
-      // try open child node
-
-
-      //Node.
-
-
-
-      if (NodeInfo = 0) or (Child = 0) then
-        raise Exception.Create('Error Message');
-      
-
-      if (NodeInfo and $ff = 0) then Break;
+      if (NodeInfo and $ff00 = 0) then Break;
     until (False);
 
+    // move buffered nodes to opened list
+    if (NodeInfo and (7 shl COUNTER_OFFSET) = 0) then
+      goto next_current;
+
+    // sort
+    // todo
+
     // next opened node
+  next_current:
     Node := Store.Current.Node.Next;
   current_initialize:
     Store.Current.Node := Node;
-    if (Node.SortValue = High(Cardinal)) then
+    Store.Current.Path := Node.Path;
+    if (Store.Current.Path = High(Cardinal)) then
     begin
       Result := False;
       Exit;
@@ -1313,9 +1377,8 @@ begin
     // cell
     NodeInfo{XY} := Cardinal(Node.Coordinates);
     Cardinal(Store.Current.Coordinates) := NodeInfo{XY};
-    Cell := @Store.Info.Cells[(NativeInt(NodeInfo{XY}) shr 16) * Store.Info.MapWidth + Word(NodeInfo{XY})];
+    Cell := @Store.Info.Cells[(NativeInt(NodeInfo{XY}) shr 16) + Store.Info.MapWidth * Word(NodeInfo{XY})];
     Store.Current.Cell := Cell;
-    Store.Current.Path := Node.Path;
 
     // lock
     Cell.NodePtr := Cell.NodePtr or 1;
