@@ -396,6 +396,7 @@ procedure cpfInitialize(const Callbacks: TCPFCallbacks); cdecl; external cpf_lib
 
 
 initialization
+  {$WARNINGS OFF} // deprecated warning bug fix (like Delphi 2010 compiler)
   System.GetMemoryManager(MemoryManager);
   cpfInitialize(CPFCallbacks);
 

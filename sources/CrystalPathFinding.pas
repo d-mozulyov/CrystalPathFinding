@@ -1428,6 +1428,7 @@ initialization
     Halt;
   {$endif}
   {$ifNdef CPFLIB}
+    {$WARNINGS OFF} // deprecated warning bug fix (like Delphi 2010 compiler)
     System.GetMemoryManager(MemoryManager);
   {$endif}
   {$if Defined(DEBUG) and not Defined(CPFLIB)}
