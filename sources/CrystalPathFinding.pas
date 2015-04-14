@@ -175,6 +175,7 @@ type
   // map weights
   TPathMapWeights = {$ifdef CPFLIB}object{$else}class{$endif}(TCPFClass)
   private
+    FReferenceCount: Integer;
     FHighTile: TPathMapTile;
 
     function GetValue(const Tile: TPathMapTile): Single;
@@ -281,12 +282,15 @@ type
     FKind: TPathMapKind;
     FHighTile: TPathMapTile;
     FSectorTest: Boolean;
-    FUseCache: Boolean;
+    FCaching: Boolean;
 
     function GetTile(const X, Y: Word): TPathMapTile;
     procedure SetTile(const X, Y: Word; const Value: TPathMapTile);
     procedure SetSectorTest(const Value: Boolean);
-    procedure SetUseCache(const Value: Boolean);
+    procedure SectorTestChanged;
+    procedure SetCaching(const Value: Boolean);
+    procedure CachingChanged;
+    function AllocateNode(const X, Y: NativeInt): PPathMapNode;
     function DoFindPath(MapSelf: Pointer; StartNode: PPathMapNode): PPathMapNode;
   {$ifdef CPFLIB}
   public
@@ -306,7 +310,7 @@ type
     property Kind: TPathMapKind read FKind;
     property HighTile: TPathMapTile read FHighTile;
     property SectorTest: Boolean read FSectorTest write SetSectorTest;
-    property UseCache: Boolean read FUseCache write SetUseCache;
+    property Caching: Boolean read FCaching write SetCaching;
     property Tiles[const X, Y: Word]: TPathMapTile read GetTile write SetTile; default;
 
     function FindPath(const Start, Finish: TPoint; const Weights: TPathMapWeightsPtr = nil;
@@ -343,7 +347,7 @@ type
   procedure cpfMapUpdate(HMap: TCPFHandle; Tiles: PPathMapTile; X, Y, Width, Height: Word; Pitch: NativeInt = 0); cdecl;
   function  cpfMapGetTile(HMap: TCPFHandle; X, Y: Word): TPathMapTile; cdecl;
   procedure cpfMapSetTile(HMap: TCPFHandle; X, Y: Word; Value: TPathMapTile); cdecl;
-  function  cpfFindPath(HMap: TCPFHandle; Start, Finish: TPoint; HWeights: TCPFHandle = 0; ExcludedPoints: PPoint = nil; ExcludedPointsCount: NativeUInt = 0; SectorTest: Boolean = True; UseCache: Boolean = True): PPathMapResult; cdecl;
+  function  cpfFindPath(HMap: TCPFHandle; Start, Finish: TPoint; HWeights: TCPFHandle = 0; ExcludedPoints: PPoint = nil; ExcludedPointsCount: NativeUInt = 0; SectorTest: Boolean = True; Caching: Boolean = True): PPathMapResult; cdecl;
 {$endif}
 
 implementation
@@ -844,7 +848,7 @@ begin
   TPathMapPtr(HMap).Tiles[X, Y] := Value;
 end;
 
-function  cpfFindPath(HMap: TCPFHandle; Start, Finish: TPoint; HWeights: TCPFHandle = 0; ExcludedPoints: PPoint = nil; ExcludedPointsCount: NativeUInt = 0; SectorTest: Boolean = True; UseCache: Boolean = True): PPathMapResult; cdecl;
+function  cpfFindPath(HMap: TCPFHandle; Start, Finish: TPoint; HWeights: TCPFHandle = 0; ExcludedPoints: PPoint = nil; ExcludedPointsCount: NativeUInt = 0; SectorTest: Boolean = True; Caching: Boolean = True): PPathMapResult; cdecl;
 var
   Address: Pointer;
 begin
@@ -857,8 +861,12 @@ begin
     TCPFClassPtr(HWeights).FCallAddress := Address;
   end;
 
-  TPathMapPtr(HMap).SectorTest := SectorTest;
-  TPathMapPtr(HMap).UseCache := UseCache;
+  if (TPathMapPtr(HMap).SectorTest <> SectorTest) then
+    TPathMapPtr(HMap).SectorTestChanged;
+
+  if (TPathMapPtr(HMap).Caching <> Caching) then
+    TPathMapPtr(HMap).CachingChanged;
+
   Result := TPathMapPtr(HMap).FindPath(Start, Finish, TPathMapWeightsPtr(HWeights),
     ExcludedPoints, ExcludedPointsCount);
 end;
@@ -914,7 +922,10 @@ const
   _6 = (1 shl 6);
   _7 = (1 shl 7);
 
-  FLAGS_CACHED_PATH = 1 shl 7;
+  UNSUPPORTED_TILE_WEIGHT = High(Cardinal) shr 1;
+
+  FLAG_ATTAINABLE = 1 shl 6;
+  FLAG_KNOWN_PATH = 1 shl 7;
 
   POINT_OFFSETS: array[0..7] of TYXSmallPoint = (
     {0} (y: -1; x: -1),
@@ -1041,6 +1052,8 @@ begin
     FCallAddress := ReturnAddress;
   {$endif}
 
+  if (FReferenceCount <> 0) then
+    CPFExceptionFmt('The weights are used by %d maps', [FReferenceCount]);
 
   {$ifNdef CPFLIB}
     inherited;
@@ -1133,20 +1146,38 @@ end;
 
 procedure TPathMap.SetSectorTest(const Value: Boolean);
 begin
-  {$ifNdef CPFLIB}
-    FCallAddress := ReturnAddress;
-  {$endif}
+  if (FSectorTest <> Value) then
+  begin
+    {$ifNdef CPFLIB}
+      FCallAddress := ReturnAddress;
+    {$endif}
 
-  FSectorTest := Value;
+    SectorTestChanged;
+  end;
 end;
 
-procedure TPathMap.SetUseCache(const Value: Boolean);
+procedure TPathMap.SectorTestChanged;
 begin
-  {$ifNdef CPFLIB}
-    FCallAddress := ReturnAddress;
-  {$endif}
+  FSectorTest := not FSectorTest;
+  // todo
+end;
 
-  FUseCache := Value;
+procedure TPathMap.SetCaching(const Value: Boolean);
+begin
+  if (FCaching <> Value) then
+  begin
+    {$ifNdef CPFLIB}
+      FCallAddress := ReturnAddress;
+    {$endif}
+
+    CachingChanged;
+  end;
+end;
+
+procedure TPathMap.CachingChanged;
+begin
+  FCaching := not FCaching;
+  // todo
 end;
 
 procedure CopyInfo(var Dest, Src: TPathMapInfo);
@@ -1156,10 +1187,9 @@ end;
 
 function TPathMap.DoFindPath(MapSelf: Pointer; StartNode: PPathMapNode): PPathMapNode;
 label
-  nextchild, child_tobuffer, next_current, current_initialize;
+  nextchild_continue, nextchild, child_tobuffer, next_current, current_initialize;
 const
   DELTA_CLEAR_MASK = not Cardinal(((1 shl 4) - 1) shl 3);
-  X86EXISTS_CLEAR_MASK = Integer(not 1);
   COUNTER_OFFSET = 16;
 type
   TMapNodeBuffer = array[0..7] of PPathMapNode;
@@ -1179,9 +1209,8 @@ var
   Store: record
     Buffer: TMapNodeBuffer;
     Self: Pointer;
-    Info: TPathMapInfo;
-
     HexagonalFlag: NativeUInt;
+    Info: TPathMapInfo;
 
     {$ifdef CPUX86}
     ChildList: PWord;
@@ -1191,7 +1220,12 @@ var
       Node: PPathMapNode;
       Cell: PPathMapCell;
       Coordinates: TCPFPoint;
+      SortValue: Cardinal;
       Path: Cardinal;
+    end;
+    Top: record
+      Node: PPathMapNode;
+      SortValue: Cardinal;
     end;
   end;
 
@@ -1201,17 +1235,27 @@ var
 begin
   Store.Self := MapSelf;
   Store.HexagonalFlag := NativeUInt(TPathMapPtr(MapSelf).FKind = mkHexagonal) * 2;
- // Store.Info := TPathMapPtr(MapSelf{Store.Self}).FInfo;
   CopyInfo(Store.Info, TPathMapPtr(MapSelf).FInfo);
 
   {$ifNdef CPUX86}
   Buffer := @Store.Buffer;
   {$endif}
 
+  // Top initialization
+  Node := StartNode.Next;
+  Store.Top.Node := Node;
+  Node.Prev := StartNode;
+  Store.Top.SortValue := UNSUPPORTED_TILE_WEIGHT;
+
   // finding loop from Start to Finish
   Node := StartNode;
   goto current_initialize;
   repeat
+    // lock
+    Node.ParentMask := 0;
+
+    // todo next top?
+
     // child list
     ChildList := Pointer(NativeUInt(CHILD_ARRAYS_OFFSETS[NodeInfo and 127]));
     Inc(NativeUInt(ChildList), NativeUInt(@CHILD_ARRAYS));
@@ -1225,6 +1269,8 @@ begin
 
     // each child cell loop
     goto nextchild;
+    nextchild_continue:
+    if (NodeInfo and $ff00 <> 0) then
     repeat
       // first available
       {$ifdef CPUX86}
@@ -1245,15 +1291,6 @@ begin
       // child map cell
       Cell := Store.Current.Cell;
       Inc(NativeInt(Cell), Store.Info.CellOffsets[Child]);
-      ChildNodePtr := Cell.NodePtr;
-      if (ChildNodePtr and 1 <> 0{locked}) then
-      begin
-        if (NodeInfo and $ff00 <> 0) then Continue;
-        Break;
-      end;
-      {$ifdef CPUX86}
-      NodeInfo := NodeInfo or NativeUInt(ChildNodePtr <> 0);
-      {$endif}
 
       // tile, mask --> (0, mask, 0, tile)
       ChildNodeInfo := PWord(Cell)^;
@@ -1263,39 +1300,27 @@ begin
       Child := (Child shl 2) + (NodeInfo and 2) + (NativeUInt(Cardinal(Store.Current.Coordinates)) and 1);
       ChildNodeInfo := ChildNodeInfo or PARENT_BITS[Child];
 
-      // mask & parentmask test
+      // locked & (mask <--> parentmask) test
       if (ChildNodeInfo and ((ChildNodeInfo and $ff00) shl 8) = 0) then
-      begin
-        {$ifdef CPUX86}
-        NodeInfo := NodeInfo and X86EXISTS_CLEAR_MASK;
-        {$endif}
-        if (NodeInfo and $ff00 <> 0) then Continue;
-        Break;
-      end;
+        goto nextchild_continue;
 
-      // path of current --> child
-      TileWeights := Store.Info.TileWeights[ChildNodeInfo and 1];
+      // path of current(tile) --> child(tile)
+      TileWeights := Store.Info.TileWeights[ChildNodeInfo{parent} and 1];
       Path := TileWeights[NodeInfo shr 24];
       Inc(Path, TileWeights[ChildNodeInfo shr 24]);
 
-      // Path test
-      // todo
+      // unsupported tiles test
+      if (Path > UNSUPPORTED_TILE_WEIGHT) then
+        goto nextchild_continue;
 
       // from start point path
       Path := Store.Current.Path + (Path shr 1);
 
       // if node is exists
-      {$ifdef CPUX86}
-      if (NodeInfo and 1 <> 0) then
-      {$else}
+      ChildNodePtr := Cell.NodePtr;
+      // ???cache variants
       if (ChildNodePtr <> 0) then
-      {$endif}
       begin
-        {$ifdef CPUX86}
-          ChildNodePtr := Cell.NodePtr;
-          NodeInfo := NodeInfo and X86EXISTS_CLEAR_MASK;
-        {$endif}
-
         {$ifdef LARGEINT}
           // todo
           ChildNode := Pointer(ChildNodePtr);
@@ -1357,6 +1382,7 @@ begin
       {$ifdef CPUX86}Store.{$endif}Buffer[(NodeInfo shr COUNTER_OFFSET) and 7] := ChildNode;
       Inc(NodeInfo, (1 shl COUNTER_OFFSET));
 
+      // goto nextchild_continue;
       if (NodeInfo and $ff00 = 0) then Break;
     until (False);
 
@@ -1373,6 +1399,7 @@ begin
   current_initialize:
     // store pointer and path
     Store.Current.Node := Node;
+    Store.Current.SortValue := Node.SortValue;
     Store.Current.Path := Node.Path;
 
     // cell
@@ -1381,42 +1408,122 @@ begin
     Cell := @Store.Info.Cells[(NativeInt(NodeInfo) shr 16){X} + Store.Info.MapWidth * {Y}Word(NodeInfo)];
     Store.Current.Cell := Cell;
 
-    // lock
-    Cell.NodePtr := Cell.NodePtr or 1;
-
     // node info
     NodeInfo := Cardinal(Node.NodeInfo);
-    if (NodeInfo and FLAGS_CACHED_PATH <> 0) then Break;
+    if (NodeInfo and FLAG_KNOWN_PATH <> 0) then Break;
   until (False);
 
+  // Result
   Result := Node;
+
+  // store current Info
+  CopyInfo(TPathMapPtr(Store.Self).FInfo, Store.Info);
 end;
 
+function TPathMap.AllocateNode(const X, Y: NativeInt): PPathMapNode;
+var
+  Coordinates: NativeUInt;
+  Cell: PPathMapCell;
+  ChildNodePtr: NativeUInt;
+  NodeInfo: NativeUInt;
+begin
+  Coordinates := Y + (X shl 16);
+  Cell := @FInfo.Cells[X + FInfo.MapWidth * Y];
+
+  ChildNodePtr := Cell.NodePtr; // clear bits?
+  if (ChildNodePtr = 0) then
+  begin
+    Result := FInfo.NodeStorage.NewNode;
+    Cardinal(Result.Coordinates) := Coordinates;
+    {$ifdef LARGEINT}
+      Cell.NodePtr := NativeUInt(NativeInt(Result) + FInfo.NodeStorage.LargeModifier);
+    {$else}
+      Cell.NodePtr := NativeUInt(Result);
+    {$endif}
+
+    // tile, mask --> (0, mask, 0, tile)
+    NodeInfo := PWord(Cell)^;
+    NodeInfo := (NodeInfo + (NodeInfo shl 24)) and Integer($00ff00ff);
+    Result.NodeInfo := NodeInfo;
+
+    // set next allocable node
+    if (Result = FInfo.NodeStorage.MaximumNode) then
+    begin
+      // todo call some realloc
+    end else
+    begin
+      Inc(Result);
+      FInfo.NodeStorage.NewNode := Result;
+      Dec(Result);
+    end;
+  end else
+  begin
+    Cell.NodePtr := ChildNodePtr;
+
+    {$ifdef LARGEINT}
+      // todo
+      Result := Pointer(ChildNodePtr);
+    {$else}
+      Result := Pointer(ChildNodePtr);
+    {$endif}
+  end;
+end;
 
 function TPathMap.FindPath(const Start, Finish: TPoint;
   const Weights: TPathMapWeightsPtr; const ExcludedPoints: PPoint;
   const ExcludedPointsCount: NativeUInt): PPathMapResult;
+label
+  calculate_result;
 var
-  StartNode, Node: PPathMapNode;
+  StartNode, FinishNode, Node: PPathMapNode;
+  FailureNode: TPathMapNode;
 begin
   {$ifNdef CPFLIB}
     FCallAddress := ReturnAddress;
   {$endif}
 
-  StartNode := nil;
   // todo
 
-  Node := DoFindPath({$ifdef CPFLIB}@Self{$else}Self{$endif}, StartNode);
-  if (Node = nil) then
+  // get and inspect/fill start node
+  StartNode := AllocateNode(Start.X, Start.Y);
+  if (StartNode.NodeInfo and FLAG_KNOWN_PATH <> 0) then
   begin
-    Result := nil;
-    Exit;
+    Node := StartNode;
+    goto calculate_result;
+  end;
+  // todo
+  StartNode.Path := 0;
+  StartNode.SortValue := 0{Path} + 0{CalculateHeuristics};
+
+  // cache finish point and mark as known attainable
+  FinishNode := AllocateNode(Start.X, Start.Y);
+  FinishNode.NodeInfo := FLAG_KNOWN_PATH or FLAG_ATTAINABLE;
+
+  // run finding loop
+  FailureNode.NodeInfo := FLAG_KNOWN_PATH {+ !FLAG_ATTAINABLE};
+  StartNode.Next := @FailureNode;
+  FailureNode.Prev := StartNode;
+  Node := DoFindPath({$ifdef CPFLIB}@Self{$else}Self{$endif}, StartNode);
+  if (FCaching) then
+  begin
+    // MarkCachedPath(StartNode,
+  end else
+  begin
+    // ?
   end;
 
-  Result := @FFindResult;
-  // todo calculate
-end;
+calculate_result:
+  if (Node.NodeInfo and FLAG_ATTAINABLE = 0) then
+  begin
+    Result := nil;
+  end else
+  begin
+    Result := @FFindResult;
+    // ToDo
 
+    // todo calculate
+  end;
+end;
 
 
 
