@@ -291,6 +291,7 @@ type
     procedure SetCaching(const Value: Boolean);
     procedure CachingChanged;
     function AllocateNode(const X, Y: NativeInt): PPathMapNode;
+    function CalculateHeuristics(const Start, Finish: TPoint): NativeInt;
     function DoFindPath(MapSelf: Pointer; StartNode: PPathMapNode): PPathMapNode;
   {$ifdef CPFLIB}
   public
@@ -922,6 +923,12 @@ const
   _6 = (1 shl 6);
   _7 = (1 shl 7);
 
+  {$ifdef LARGEINT}
+    HIGH_NATIVE_BIT = 63;
+  {$else}
+    HIGH_NATIVE_BIT = 31;
+  {$endif}
+
   UNSUPPORTED_TILE_WEIGHT = High(Cardinal) shr 1;
 
   FLAG_ATTAINABLE = 1 shl 6;
@@ -1469,6 +1476,39 @@ begin
   end;
 end;
 
+function TPathMap.CalculateHeuristics(const Start, Finish: TPoint): NativeInt;
+var
+  dX, dY, X, Y: NativeInt;
+  Mask: NativeInt;
+begin
+  dY := Start.Y - Finish.Y;
+  dX := Start.X - Finish.X;
+
+  // Y := Abs(dY)
+  Mask := -(dY shr HIGH_NATIVE_BIT);
+  Y := (dY xor Mask) - Mask;
+
+  // X := Abs(dY)
+  Mask := -(dX shr HIGH_NATIVE_BIT);
+  X := (dX xor Mask) - Mask;
+
+  if (Self.FKind < mkHexagonal) then
+  begin
+    if (X <= Y) then
+    begin
+      Result := X * FInfo.HeuristicsDiagonal + (Y - X) * FInfo.HeuristicsLine;
+    end else
+    begin
+      Result := Y * FInfo.HeuristicsDiagonal + (X - Y) * FInfo.HeuristicsLine;
+    end;
+  end else
+  begin
+    X := X - ((Mask xor Finish.Y) and Y and 1) - (Y shr 1);
+    Result := Y + (X and ((X shr HIGH_NATIVE_BIT) - 1));
+    Result := Result * FInfo.HeuristicsLine;
+  end;
+end;
+
 function TPathMap.FindPath(const Start, Finish: TPoint;
   const Weights: TPathMapWeightsPtr; const ExcludedPoints: PPoint;
   const ExcludedPointsCount: NativeUInt): PPathMapResult;
@@ -1493,7 +1533,7 @@ begin
   end;
   // todo
   StartNode.Path := 0;
-  StartNode.SortValue := 0{Path} + 0{CalculateHeuristics};
+  StartNode.SortValue := 0{Path} + CalculateHeuristics(Start, Finish);
 
   // cache finish point and mark as known attainable
   FinishNode := AllocateNode(Start.X, Start.Y);
