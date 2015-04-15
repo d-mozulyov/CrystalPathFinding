@@ -5,7 +5,7 @@ unit TestUnit;
 interface
   uses
   {$ifdef MSWINDOWS}
-  Winapi.Windows,
+    {$if Defined(FPC) or (CompilerVersion < 23)}Windows{$else}Winapi.Windows{$ifend},
   {$endif}
   SysUtils,
   CrystalPathFinding;
@@ -33,7 +33,7 @@ begin
   BreakPoint := S;
 
   {$ifdef MSWINDOWS}
-    Winapi.Windows.MessageBox(0, PChar(BreakPoint), 'Сообщение:', 0);
+    MessageBox(0, PChar(BreakPoint), 'Сообщение:', 0);
   {$endif}
 
   Halt;
