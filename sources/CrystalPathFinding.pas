@@ -159,16 +159,16 @@ type
   PPathMapResult = ^TPathMapResult;
 
   // internal class
-  TExceptionString = {$ifdef CPFLIB}PWideChar{$else}string{$endif};
+  TCPFExceptionString = {$ifdef CPFLIB}PWideChar{$else}string{$endif};
   TCPFClass = {$ifdef CPFLIB}object{$else}class(TObject){$endif}
   protected
     FCallAddress: Pointer;
 
-    procedure CPFException(const Message: TExceptionString);
+    procedure CPFException(const Message: TCPFExceptionString);
     procedure CPFExceptionFmt(const Fmt: PWideChar; const Args: array of {$ifdef CPFLIB}Integer{$else}const{$endif});
-    function CPFAlloc(const Size: NativeUInt): Pointer;
-    procedure CPFFree(const P: Pointer);
-    function CPFRealloc(const P: Pointer; const Size: NativeUInt): Pointer;
+    procedure CPFGetMem(var P: Pointer; const Size: NativeUInt);
+    procedure CPFFreeMem(var P: Pointer);
+    procedure CPFReallocMem(var P: Pointer; const NewSize: NativeUInt);
   end;
   TCPFClassPtr = {$ifdef CPFLIB}^{$endif}TCPFClass;
 
@@ -216,7 +216,7 @@ type
   // node type
   PPathMapNode = ^TPathMapNode;
   TPathMapNode = packed record
-    SortValue: Cardinal; // path + heuristics to start point
+    SortValue: Cardinal; // path + heuristics to finish point
     Path: Cardinal; // path from start point to the cell
     Coordinates: TCPFPoint;
     Prev, Next: PPathMapNode;
@@ -243,14 +243,14 @@ type
     NewNode: PPathMapNode;
     MaximumNode: PPathMapNode;
 
-    Buffers: array[0..31] of Pointer;
-    Current: NativeUInt;
-    Allocated: NativeUInt;
-
     {$ifdef LARGEINT}
     // todo
     LargeModifier: NativeInt;
     {$endif}
+
+    Allocated: NativeUInt;
+    Number: NativeUInt;
+    Buffers: array[0..31] of NativeUInt{Pointer};
   end;
 
   PCardinalList = ^TCardinalList;
@@ -263,13 +263,8 @@ type
     HeuristicsDiagonal: NativeInt;
     TileWeights: array[0..1] of PCardinalList;
     CellOffsets: array[0..7] of NativeInt;
-
-    //Nodes
-
-    NodeStorage: TPathMapNodeStorage;
-
-    StartPoint: TCPFPoint;
     FinishPoint: TCPFPoint;
+    NodeStorage: TPathMapNodeStorage;
   end;
 
   // main path finding class
@@ -290,9 +285,10 @@ type
     procedure SectorTestChanged;
     procedure SetCaching(const Value: Boolean);
     procedure CachingChanged;
+    procedure GrowNodeStorage(var Buffer: TPathMapNodeStorage);
     function AllocateNode(const X, Y: NativeInt): PPathMapNode;
     function CalculateHeuristics(const Start, Finish: TPoint): NativeInt;
-    function DoFindPath(MapSelf: Pointer; StartNode: PPathMapNode): PPathMapNode;
+    function DoFindPath(StartNode: PPathMapNode): PPathMapNode;
   {$ifdef CPFLIB}
   public
     procedure Destroy;
@@ -442,7 +438,9 @@ end;
 {$ifend}
 
 procedure ZeroMemory(Destination: Pointer; Length: NativeUInt);
-{$ifdef CPFLIB}
+{$if Defined(CPFLIB)}
+label
+  _2, done;
 var
   P: PByte;
 begin
@@ -466,23 +464,108 @@ begin
   end;
   {$endif}
 
-  case Length of
-    3:
+  if (Length <> 0) then
+  begin
+    if (Length and 1 <> 0) then
     begin
-      PWord(P)^ := 0;
-      Inc(P, SizeOf(Word));
       P^ := 0;
+      Inc(P);
+      if (Length and 2 = 0) then goto done;
+      goto _2;
+    end else
+    begin
+      _2:
+      PWord(P)^ := 0;
     end;
-    2: PWord(P)^ := 0;
-    1: P^ := 0;
   end;
+done:
 end;
-{$else}
-  {$ifdef INLINESUPPORT}inline;{$endif}
+{$elseif Defined(INLINESUPPORT)} inline;
 begin
   FillChar(Destination^, Length, 0);
 end;
+{$else .CPUX86}
+asm
+  xor ecx, ecx
+  jmp System.@FillChar
+end;
+{$ifend}
+
+{$ifdef CPFLIB}
+procedure Move(const Source; var Dest; Count: NativeUInt);
+label
+  _2, done;
+var
+  S, D: PByte;
+begin
+  S := @Source;
+  D := @Dest;
+
+  while (Count >= SizeOf(NativeUInt)) do
+  begin
+    PNativeUInt(D)^ := PNativeUInt(S)^;
+
+    Dec(Count, SizeOf(NativeUInt));
+    Inc(S, SizeOf(NativeUInt));
+    Inc(D, SizeOf(NativeUInt));
+  end;
+
+  {$ifdef LARGEINT}
+  if (Count >= SizeOf(Cardinal)) then
+  begin
+    PCardinal(D)^ := PCardinal(S)^;
+
+    Dec(Count, SizeOf(Cardinal));
+    Inc(S, SizeOf(Cardinal));
+    Inc(D, SizeOf(Cardinal));
+  end;
+  {$endif}
+
+  if (Count <> 0) then
+  begin
+    if (Count and 1 <> 0) then
+    begin
+      D^ := S^;
+      Inc(S);
+      Inc(D);
+      if (Count and 2 = 0) then goto done;
+      goto _2;
+    end else
+    begin
+      _2:
+      PWord(D)^ := PWord(S)^;
+    end;
+  end;
+
+done:
+end;
 {$endif}
+
+procedure FillCardinal(Destination: PCardinal; Count, Value: NativeUInt);
+begin
+  {$ifdef LARGEINT}
+    Value := Value or (Value shl 32);
+
+    while (Count > 1) do
+    begin
+      PNativeUInt(Destination)^ := Value;
+
+      Dec(Count, 2);
+      Inc(Destination, 2);
+    end;
+
+    if (Count <> 0) then
+      Destination^ := Value;
+  {$else .SMALLINT}
+    while (Count <> 0) do
+    begin
+      Destination^ := Value;
+
+      Dec(Count);
+      Inc(Destination);
+    end;
+  {$endif}
+end;
 
 
 {$ifdef CPFLIB}
@@ -490,7 +573,7 @@ var
   CPFCallbacks: TCPFCallbacks;
 {$endif}
 
-procedure CPFException(const Message: TExceptionString; const Address: Pointer);
+procedure CPFException(const Message: TCPFExceptionString; const Address: Pointer);
 begin
   {$ifdef CPFLIB}
     if Assigned(CPFCallbacks.Exception) then
@@ -876,7 +959,7 @@ end;
 
 { TCPFClass }
 
-procedure TCPFClass.CPFException(const Message: TExceptionString);
+procedure TCPFClass.CPFException(const Message: TCPFExceptionString);
 begin
   CrystalPathFinding.CPFException(Message, FCallAddress);
 end;
@@ -887,20 +970,94 @@ begin
   CrystalPathFinding.CPFExceptionFmt(Fmt, Args, FCallAddress);
 end;
 
-function TCPFClass.CPFAlloc(const Size: NativeUInt): Pointer;
+type
+  PAligned16Info = ^TAligned16Info;
+  TAligned16Info = record
+    Handle: Pointer;
+    Size: NativeUInt;
+  end;
+
+// aligned 16 alloc
+procedure TCPFClass.CPFGetMem(var P: Pointer; const Size: NativeUInt);
+var
+  Handle: Pointer;
+  V: PAligned16Info;
 begin
-  Result := CrystalPathFinding.CPFAlloc(Size, FCallAddress);
+  if (Size = 0) then
+  begin
+    P := nil;
+  end else
+  begin
+    // allocate
+    Handle := CrystalPathFinding.CPFAlloc(Size + SizeOf(TAligned16Info) + 16, FCallAddress);
+
+    // allocate and align 16
+    V := Pointer((NativeInt(Handle) + SizeOf(TAligned16Info) + 15) and -16);
+    P := V;
+
+    // store information
+    Dec(V);
+    V.Handle := Handle;
+    V.Size := Size;
+  end;
 end;
 
-procedure TCPFClass.CPFFree(const P: Pointer);
+// aligned 16 free
+procedure TCPFClass.CPFFreeMem(var P: Pointer);
+var
+  V: PAligned16Info;
 begin
-  CrystalPathFinding.CPFFree(P, FCallAddress);
+  V := P;
+  if (V <> nil) then
+  begin
+    P := nil;
+    Dec(V);
+    CrystalPathFinding.CPFFree(V.Handle, FCallAddress);
+  end;
 end;
 
-function TCPFClass.CPFRealloc(const P: Pointer;
-  const Size: NativeUInt): Pointer;
+// aligned 16 realloc
+procedure TCPFClass.CPFReallocMem(var P: Pointer; const NewSize: NativeUInt);
+var
+  V: PAligned16Info;
+  Info: TAligned16Info;
+  Handle: Pointer;
+  CopySize: NativeUInt;
 begin
-  Result := CrystalPathFinding.CPFRealloc(P, Size, FCallAddress);
+  V := P;
+  if (V = nil) then
+  begin
+    CPFGetMem(P, NewSize);
+  end else
+  if (NewSize = 0) then
+  begin
+    CPFFreeMem(P);
+  end else
+  begin
+    // store last information
+    Dec(V);
+    Info := V^;
+
+    // try to realloc
+    Handle := CrystalPathFinding.CPFRealloc(Info.Handle, NewSize + SizeOf(TAligned16Info) + 16, FCallAddress);
+    V := Pointer(NativeUInt(Handle) + (NativeUInt(V) - NativeUInt(Info.Handle)));
+    V.Handle := Handle;
+    V.Size := NewSize;
+    Inc(V);
+    P := V;
+
+    // failure align 16
+    if ((NativeUInt(Handle) and 15) <> (NativeUInt(Info.Handle) and 15)) then
+    begin
+      CPFGetMem(P, NewSize);
+
+      CopySize := Info.Size;
+      if (NewSize < CopySize) then CopySize := NewSize;
+      Move(V^, P^, CopySize);
+
+      CrystalPathFinding.CPFFree(Handle, FCallAddress);
+    end;
+  end;
 end;
 
 
@@ -929,10 +1086,16 @@ const
     HIGH_NATIVE_BIT = 31;
   {$endif}
 
-  UNSUPPORTED_TILE_WEIGHT = High(Cardinal) shr 1;
+  {$ifdef LARGEINT}
+    LARGE_NODEPTR_OFFSET = 32 - {0..31}5;
+  {$endif}
+
+  NODEPTR_MASK = Integer((not 7) {$ifdef LARGEINT} and ((1 shl LARGE_NODEPTR_OFFSET) - 1){$endif});
 
   FLAG_ATTAINABLE = 1 shl 6;
   FLAG_KNOWN_PATH = 1 shl 7;
+
+  UNSUPPORTED_TILE_WEIGHT = High(Cardinal) shr 1;
 
   POINT_OFFSETS: array[0..7] of TYXSmallPoint = (
     {0} (y: -1; x: -1),
@@ -1187,12 +1350,7 @@ begin
   // todo
 end;
 
-procedure CopyInfo(var Dest, Src: TPathMapInfo);
-begin
-  Dest := Src;
-end;
-
-function TPathMap.DoFindPath(MapSelf: Pointer; StartNode: PPathMapNode): PPathMapNode;
+function TPathMap.DoFindPath(StartNode: PPathMapNode): PPathMapNode;
 label
   nextchild_continue, nextchild, child_tobuffer, next_current, current_initialize;
 const
@@ -1240,9 +1398,11 @@ var
     Buffer: ^TMapNodeBuffer;
   {$endif}
 begin
-  Store.Self := MapSelf;
-  Store.HexagonalFlag := NativeUInt(TPathMapPtr(MapSelf).FKind = mkHexagonal) * 2;
-  CopyInfo(Store.Info, TPathMapPtr(MapSelf).FInfo);
+  Store.Self := Pointer({$ifdef CPFLIB}@Self{$else}Self{$endif});
+  Store.HexagonalFlag := NativeUInt(Self.FKind = mkHexagonal) * 2;
+  Move(Self.FInfo, Store.Info,
+    (SizeOf(Store.Info) - 32 * SizeOf(Pointer)) +
+    (Self.FInfo.NodeStorage.Allocated * SizeOf(Pointer)) );
 
   {$ifNdef CPUX86}
   Buffer := @Store.Buffer;
@@ -1329,10 +1489,11 @@ begin
       if (ChildNodePtr <> 0) then
       begin
         {$ifdef LARGEINT}
-          // todo
-          ChildNode := Pointer(ChildNodePtr);
+          ChildNode := Pointer(
+            (FInfo.NodeStorage.Buffers[ChildNodePtr shr LARGE_NODEPTR_OFFSET]) +
+            (ChildNodePtr and NODEPTR_MASK) );
         {$else}
-          ChildNode := Pointer(ChildNodePtr);
+          ChildNode := Pointer(ChildNodePtr and NODEPTR_MASK);
         {$endif}
 
         if (Path >= ChildNode.Path) then
@@ -1376,8 +1537,7 @@ begin
       // set next allocable node
       if (ChildNode = Store.Info.NodeStorage.MaximumNode) then
       begin
-        // todo call some realloc
-        CopyInfo(Store.Info, TPathMapPtr(Store.Self).FInfo);
+        TPathMapPtr(Store.Self).GrowNodeStorage(Store.Info.NodeStorage);
       end else
       begin
         Inc(ChildNode);
@@ -1423,8 +1583,17 @@ begin
   // Result
   Result := Node;
 
-  // store current Info
-  CopyInfo(TPathMapPtr(Store.Self).FInfo, Store.Info);
+  // actualize node storage (new node pointer)
+  TPathMapPtr(Store.Self).FInfo.NodeStorage.NewNode := Store.Info.NodeStorage.NewNode;
+end;
+
+procedure TPathMap.GrowNodeStorage(var Buffer: TPathMapNodeStorage);
+begin
+  FInfo.NodeStorage := Buffer;
+  // todo
+
+
+  Buffer := FInfo.NodeStorage;
 end;
 
 function TPathMap.AllocateNode(const X, Y: NativeInt): PPathMapNode;
@@ -1465,13 +1634,12 @@ begin
     end;
   end else
   begin
-    Cell.NodePtr := ChildNodePtr;
-
     {$ifdef LARGEINT}
-      // todo
-      Result := Pointer(ChildNodePtr);
+      Result := Pointer(
+        (FInfo.NodeStorage.Buffers[ChildNodePtr shr LARGE_NODEPTR_OFFSET]) +
+        (ChildNodePtr and NODEPTR_MASK) );
     {$else}
-      Result := Pointer(ChildNodePtr);
+      Result := Pointer(ChildNodePtr and NODEPTR_MASK);
     {$endif}
   end;
 end;
@@ -1543,7 +1711,7 @@ begin
   FailureNode.NodeInfo := FLAG_KNOWN_PATH {+ !FLAG_ATTAINABLE};
   StartNode.Next := @FailureNode;
   FailureNode.Prev := StartNode;
-  Node := DoFindPath({$ifdef CPFLIB}@Self{$else}Self{$endif}, StartNode);
+  Node := DoFindPath(StartNode);
   if (FCaching) then
   begin
     // MarkCachedPath(StartNode,
@@ -1579,7 +1747,7 @@ initialization
     System.GetMemoryManager(MemoryManager);
   {$endif}
   {$if Defined(DEBUG) and not Defined(CPFLIB)}
-  TPathMap(nil).DoFindPath(nil, nil);
+  TPathMapPtr(nil).DoFindPath(nil);
   {$ifend}
 
 end.
