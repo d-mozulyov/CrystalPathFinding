@@ -244,12 +244,10 @@ type
     MaximumNode: PPathMapNode;
 
     {$ifdef LARGEINT}
-    // todo
     LargeModifier: NativeInt;
     {$endif}
 
     Allocated: NativeUInt;
-    Number: NativeUInt;
     Buffers: array[0..31] of NativeUInt{Pointer};
   end;
 
@@ -274,8 +272,10 @@ type
     FInfo: TPathMapInfo;
     FWidth: Word;
     FHeight: Word;
+    FCellCount: NativeUInt;
     FKind: TPathMapKind;
     FHighTile: TPathMapTile;
+    FSectors: PByte;
     FSectorTest: Boolean;
     FCaching: Boolean;
 
@@ -288,6 +288,8 @@ type
     procedure GrowNodeStorage(var Buffer: TPathMapNodeStorage);
     function AllocateNode(const X, Y: NativeInt): PPathMapNode;
     function CalculateHeuristics(const Start, Finish: TPoint): NativeInt;
+//    procedure ClearMapCells(Node: PPathMapNode; Count: NativeUInt); overload;
+//    procedure ClearMapCells(Node: PPathMapNode{as list}); overload;
     function DoFindPath(StartNode: PPathMapNode): PPathMapNode;
   {$ifdef CPFLIB}
   public
@@ -565,6 +567,70 @@ begin
       Inc(Destination);
     end;
   {$endif}
+end;
+
+{$if Defined(CPFLIB) or Defined(KOL)}
+function CompareMem(_P1, _P2: Pointer; Length: NativeUInt): Boolean;
+label
+  _2, done, fail;
+var
+  P1, P2: PByte;
+begin
+  P1 := _P1;
+  P2 := _P2;
+
+  while (Length >= SizeOf(NativeUInt)) do
+  begin
+    if (PNativeUInt(P1)^ <> PNativeUInt(P2)^) then goto fail;
+
+    Dec(Length, SizeOf(NativeUInt));
+    Inc(P2, SizeOf(NativeUInt));
+    Inc(P1, SizeOf(NativeUInt));
+  end;
+
+  {$ifdef LARGEINT}
+  if (Length >= SizeOf(Cardinal)) then
+  begin
+    if (PCardinal(P1)^ <> PCardinal(P2)^) then goto fail;
+
+    Dec(Length, SizeOf(Cardinal));
+    Inc(P2, SizeOf(Cardinal));
+    Inc(P1, SizeOf(Cardinal));
+  end;
+  {$endif}
+
+  if (Length <> 0) then
+  begin
+    if (Length and 1 <> 0) then
+    begin
+      if (P1^ <> P2^) then goto fail;
+      Inc(P2);
+      Inc(P1);
+      if (Length and 2 = 0) then goto done;
+      goto _2;
+    end else
+    begin
+      _2:
+      if (PWord(P1)^ <> PWord(P2)^) then goto fail;
+    end;
+  end;
+
+done:
+  Result := True;
+  Exit;
+fail:
+  Result := False;
+end;
+{$ifend}
+
+function CPFRound(const X: Double): Integer; {$ifdef INLINESUPPORT}inline;{$endif}
+const
+  ROUND_CONST: Double = 6755399441055744.0;
+var
+  Buffer: Double;
+begin
+  Buffer := X + ROUND_CONST;
+  Result := PInteger(@Buffer)^;
 end;
 
 
@@ -1071,6 +1137,57 @@ type
   PChildArray = ^TChildArray;
 
 const
+  NODESTORAGE_INFO: array[0..31] of packed record
+    Count: Cardinal;
+    Previous: Cardinal;
+  end = (
+    { 0} (Count: 512; Previous: 0),
+    { 1} (Count: 512; Previous: 512),
+    { 2} (Count: 1024; Previous: 1024),
+    { 3} (Count: 1024; Previous: 2048),
+    { 4} (Count: 2048; Previous: 3072),
+    { 5} (Count: 2048; Previous: 5120),
+    { 6} (Count: 4096; Previous: 7168),
+    { 7} (Count: 8192; Previous: 11264),
+    { 8} (Count: 16384; Previous: 19456),
+    { 9} (Count: 32768; Previous: 35840),
+    {10} (Count: 65536; Previous: 68608),
+    {11} (Count: 131072; Previous: 134144),
+    {12} (Count: 262144; Previous: 265216),
+    {13} (Count: 524288; Previous: 527360),
+    {14} (Count: 1048576; Previous: 1051648),
+    {15} (Count: 1276672; Previous: 2100224),
+    {16} (Count: 2097152; Previous: 3376896),
+    {17} (Count: 2097152; Previous: 5474048),
+    {18} (Count: 2097152; Previous: 7571200),
+    {19} (Count: 2097152; Previous: 9668352),
+    {20} (Count: 2097152; Previous: 11765504),
+    {21} (Count: 4194304; Previous: 13862656),
+    {22} (Count: 4194304; Previous: 18056960),
+    {23} (Count: 4194304; Previous: 22251264),
+    {24} (Count: 4194304; Previous: 26445568),
+    {25} (Count: 4194304; Previous: 30639872),
+    {26} (Count: 4194304; Previous: 34834176),
+    {27} (Count: 4194304; Previous: 39028480),
+    {28} (Count: 4194304; Previous: 43222784),
+    {29} (Count: 4194304; Previous: 47417088),
+    {30} (Count: 4194304; Previous: 51611392),
+    {31} (Count: 4194304; Previous: 55805696)
+  );
+
+  CELLCOUNT_LIMIT = 60*1000*1000;
+
+  {$ifdef LARGEINT}
+  LARGE_NODEPTR_OFFSET = 32 - {0..31}5;
+  {$endif}
+  NODEPTR_MASK = Integer((not 7) {$ifdef LARGEINT} and ((1 shl LARGE_NODEPTR_OFFSET) - 1){$endif});
+
+  {$ifdef LARGEINT}
+    HIGH_NATIVE_BIT = 63;
+  {$else}
+    HIGH_NATIVE_BIT = 31;
+  {$endif}
+
   _0 = (1 shl 0);
   _1 = (1 shl 1);
   _2 = (1 shl 2);
@@ -1079,18 +1196,6 @@ const
   _5 = (1 shl 5);
   _6 = (1 shl 6);
   _7 = (1 shl 7);
-
-  {$ifdef LARGEINT}
-    HIGH_NATIVE_BIT = 63;
-  {$else}
-    HIGH_NATIVE_BIT = 31;
-  {$endif}
-
-  {$ifdef LARGEINT}
-    LARGE_NODEPTR_OFFSET = 32 - {0..31}5;
-  {$endif}
-
-  NODEPTR_MASK = Integer((not 7) {$ifdef LARGEINT} and ((1 shl LARGE_NODEPTR_OFFSET) - 1){$endif});
 
   FLAG_ATTAINABLE = 1 shl 6;
   FLAG_KNOWN_PATH = 1 shl 7;
@@ -1256,22 +1361,72 @@ end;
 {$ifdef CPFLIB}procedure{$else}constructor{$endif}
   TPathMap.Create(const AWidth, AHeight: Word; const AKind: TPathMapKind;
     const AHighTile: TPathMapTile);
+var
+  i: NativeInt;
+  Size: NativeUInt;
 begin
   {$ifNdef CPFLIB}
     FCallAddress := ReturnAddress;
     inherited Create;
   {$endif}
 
+  // arguments test
+  begin
+    FCellCount := NativeUInt(AWidth) * NativeUInt(AHeight);
 
+    if (FCellCount = 0) then
+      CPFExceptionFmt('Incorrect map size: %dx%d', [AWidth, AHeight]);
+
+    if (FCellCount > CELLCOUNT_LIMIT) then
+      CPFExceptionFmt('Too large map size %dx%d, cell count limit is %d', [AWidth, AHeight, CELLCOUNT_LIMIT]);
+
+    if (Ord(AKind) > Ord(High(TPathMapKind))) then
+      CPFExceptionFmt('Incorrect map kind: %d, high value mkHexagonal is %d', [Ord(AKind), Ord(High(TPathMapKind))]);
+
+    if (AHighTile = $FF) then
+      CPFException('High tile can''t be equal 255(0xFF), it means barrier');
+  end;
+
+  // fill parameters
+  FWidth := AWidth;
+  FHeight := AHeight;
+  FKind := AKind;
+  FHighTile := AHighTile;
+  FInfo.MapWidth := AWidth;
+
+  // offsets
+  for i := 0 to 7 do
+  FInfo.CellOffsets[i] := SizeOf(TPathMapCell) *
+    (POINT_OFFSETS[i].y * FInfo.MapWidth + POINT_OFFSETS[i].x);
+
+  // allocate and fill cells
+  Size := FCellCount * SizeOf(TPathMapCell);
+  CPFGetMem(Pointer(FInfo.Cells), Size);
+  ZeroMemory(FInfo.Cells, Size);
+  Clear;
+
+  // allocate first
+  GrowNodeStorage(FInfo.NodeStorage);
 end;
 
 {$ifdef CPFLIB}procedure{$else}destructor{$endif}
   TPathMap.Destroy;
+var
+  i: NativeInt;
 begin
   {$ifNdef CPFLIB}
     FCallAddress := ReturnAddress;
   {$endif}
 
+  // node storage
+  for i := FInfo.NodeStorage.Allocated - 1 downto 0 do
+    CPFFreeMem(Pointer(FInfo.NodeStorage.Buffers[i]));
+
+  // cells
+  CPFFreeMem(Pointer(FInfo.Cells));
+
+  // sectors
+  CPFFreeMem(Pointer(FSectors));
 
   {$ifNdef CPFLIB}
     inherited;
@@ -1350,6 +1505,174 @@ begin
   // todo
 end;
 
+procedure TPathMap.GrowNodeStorage(var Buffer: TPathMapNodeStorage);
+var
+  Allocated: NativeUInt;
+  Count: NativeUInt;
+  LastAllocation: Boolean;
+  Node: PPathMapNode;
+begin
+  Allocated := Buffer.Allocated;
+  if (@Buffer <> @FInfo.NodeStorage) then
+  if (Buffer.NewNode <> FInfo.NodeStorage.MaximumNode) or
+     (Allocated <> FInfo.NodeStorage.Allocated) then
+    CPFException('Incorrect node storage data');
+
+  if (Allocated >= High(FInfo.NodeStorage.Buffers)) then
+    RaiseOutOfMemory(FCallAddress);
+
+  Count := NODESTORAGE_INFO[Allocated].Previous + NODESTORAGE_INFO[Allocated].Count;
+  LastAllocation := (Count >= FCellCount);
+  if (LastAllocation) then Count := FCellCount;
+  Dec(Count, NODESTORAGE_INFO[Allocated].Previous);
+
+  CPFGetMem(Pointer(FInfo.NodeStorage.Buffers[Allocated]), Count * SizeOf(TPathMapNode));
+  FInfo.NodeStorage.Allocated := Allocated + 1;
+  Node := Pointer(FInfo.NodeStorage.Buffers[Allocated]);
+  FInfo.NodeStorage.NewNode := Node;
+
+  {$ifdef LARGEINT}
+    FInfo.NodeStorage.LargeModifier :=
+      (NativeInt(Allocated) shl LARGE_NODEPTR_OFFSET) - NativeInt(Node);
+  {$endif}
+
+  Inc(Node, NativeInt(Count) - 1 + Ord(LastAllocation));
+  FInfo.NodeStorage.MaximumNode := Node;
+
+  //  copy to buffer
+  if (@Buffer <> @FInfo.NodeStorage) then
+  begin
+    Buffer.NewNode := FInfo.NodeStorage.NewNode;
+    Buffer.MaximumNode := FInfo.NodeStorage.MaximumNode;
+    Buffer.Allocated := Allocated + 1{FInfo.NodeStorage.Allocated};
+    {$ifdef LARGEINT}
+      Buffer.LargeModifier := FInfo.NodeStorage.LargeModifier;
+    {$endif}
+    Buffer.Buffers[Allocated] := FInfo.NodeStorage.Buffers[Allocated];
+  end;
+end;
+
+function TPathMap.AllocateNode(const X, Y: NativeInt): PPathMapNode;
+var
+  Coordinates: NativeUInt;
+  Cell: PPathMapCell;
+  ChildNodePtr: NativeUInt;
+  NodeInfo: NativeUInt;
+begin
+  Coordinates := Y + (X shl 16);
+  Cell := @FInfo.Cells[X + FInfo.MapWidth * Y];
+
+  ChildNodePtr := Cell.NodePtr; // clear bits?
+  if (ChildNodePtr = 0) then
+  begin
+    Result := FInfo.NodeStorage.NewNode;
+    Cardinal(Result.Coordinates) := Coordinates;
+    {$ifdef LARGEINT}
+      Cell.NodePtr := NativeUInt(NativeInt(Result) + FInfo.NodeStorage.LargeModifier);
+    {$else}
+      Cell.NodePtr := NativeUInt(Result);
+    {$endif}
+
+    // tile, mask --> (0, mask, 0, tile)
+    NodeInfo := PWord(Cell)^;
+    NodeInfo := (NodeInfo + (NodeInfo shl 24)) and Integer($00ff00ff);
+    Result.NodeInfo := NodeInfo;
+
+    // set next allocable node
+    if (Result = FInfo.NodeStorage.MaximumNode) then
+    begin
+      GrowNodeStorage(FInfo.NodeStorage);
+    end else
+    begin
+      Inc(Result);
+      FInfo.NodeStorage.NewNode := Result;
+      Dec(Result);
+    end;
+  end else
+  begin
+    {$ifdef LARGEINT}
+      Result := Pointer(
+        (FInfo.NodeStorage.Buffers[ChildNodePtr shr LARGE_NODEPTR_OFFSET]) +
+        (ChildNodePtr and NODEPTR_MASK) );
+    {$else}
+      Result := Pointer(ChildNodePtr and NODEPTR_MASK);
+    {$endif}
+  end;
+end;
+
+function TPathMap.CalculateHeuristics(const Start, Finish: TPoint): NativeInt;
+var
+  dX, dY, X, Y: NativeInt;
+  Mask: NativeInt;
+begin
+  dY := Start.Y - Finish.Y;
+  dX := Start.X - Finish.X;
+
+  // Y := Abs(dY)
+  Mask := -(dY shr HIGH_NATIVE_BIT);
+  Y := (dY xor Mask) - Mask;
+
+  // X := Abs(dY)
+  Mask := -(dX shr HIGH_NATIVE_BIT);
+  X := (dX xor Mask) - Mask;
+
+  if (Self.FKind < mkHexagonal) then
+  begin
+    if (X <= Y) then
+    begin
+      Result := X * FInfo.HeuristicsDiagonal + (Y - X) * FInfo.HeuristicsLine;
+    end else
+    begin
+      Result := Y * FInfo.HeuristicsDiagonal + (X - Y) * FInfo.HeuristicsLine;
+    end;
+  end else
+  begin
+    X := X - ((Mask xor Finish.Y) and Y and 1) - (Y shr 1);
+    Result := Y + (X and ((X shr HIGH_NATIVE_BIT) - 1));
+    Result := Result * FInfo.HeuristicsLine;
+  end;
+end;
+
+(*procedure TPathMap.ClearMapCells(Node: PPathMapNode; Count: NativeUInt);
+var
+  TopNode: PPathMapNode;
+  NodeInfo{XY}: NativeUInt;
+  MapWidth: NativeInt;
+  Cells: PPathMapCellArray;
+begin
+  TopNode := Node;
+  Inc(TopNode, Count);
+
+  Cells := FInfo.Cells;
+  MapWidth := FInfo.MapWidth;
+
+  while (Node <> TopNode) do
+  begin
+    NodeInfo{XY} := Cardinal(Node.Coordinates);
+    Cells[(NativeInt(NodeInfo) shr 16){X} + MapWidth * {Y}Word(NodeInfo)].NodePtr := 0;
+
+    Inc(Node);
+  end;
+end;
+
+procedure TPathMap.ClearMapCells(Node: PPathMapNode{as list});
+var
+  NodeInfo{XY}: NativeUInt;
+  MapWidth: NativeInt;
+  Cells: PPathMapCellArray;
+begin
+  Cells := FInfo.Cells;
+  MapWidth := FInfo.MapWidth;
+
+  while (Node <> nil) do
+  begin
+    NodeInfo{XY} := Cardinal(Node.Coordinates);
+    Cells[(NativeInt(NodeInfo) shr 16){X} + MapWidth * {Y}Word(NodeInfo)].NodePtr := 0;
+
+    Node := Node.Next;
+  end;
+end; *)
+
 function TPathMap.DoFindPath(StartNode: PPathMapNode): PPathMapNode;
 label
   nextchild_continue, nextchild, child_tobuffer, next_current, current_initialize;
@@ -1358,6 +1681,7 @@ const
   COUNTER_OFFSET = 16;
 type
   TMapNodeBuffer = array[0..7] of PPathMapNode;
+  TNodeStorageBuffers = array[0..31] of NativeUInt;
 var
   Node: PPathMapNode;
   NodeInfo: NativeUInt;
@@ -1397,6 +1721,11 @@ var
   {$ifNdef CPUX86}
     Buffer: ^TMapNodeBuffer;
   {$endif}
+
+  {$ifdef LARGEINT}
+    NodeStorageBuffers: ^TNodeStorageBuffers;
+    LargeModifier: NativeInt;
+  {$endif}
 begin
   Store.Self := Pointer({$ifdef CPFLIB}@Self{$else}Self{$endif});
   Store.HexagonalFlag := NativeUInt(Self.FKind = mkHexagonal) * 2;
@@ -1406,6 +1735,10 @@ begin
 
   {$ifNdef CPUX86}
   Buffer := @Store.Buffer;
+  {$endif}
+
+  {$ifdef LARGEINT}
+  LargeModifier := Store.Info.NodeStorage.LargeModifier;
   {$endif}
 
   // Top initialization
@@ -1489,8 +1822,9 @@ begin
       if (ChildNodePtr <> 0) then
       begin
         {$ifdef LARGEINT}
+          NodeStorageBuffers := Pointer(@Store.Info.NodeStorage.Buffers);
           ChildNode := Pointer(
-            (FInfo.NodeStorage.Buffers[ChildNodePtr shr LARGE_NODEPTR_OFFSET]) +
+            (NodeStorageBuffers[ChildNodePtr shr LARGE_NODEPTR_OFFSET]) +
             (ChildNodePtr and NODEPTR_MASK) );
         {$else}
           ChildNode := Pointer(ChildNodePtr and NODEPTR_MASK);
@@ -1517,7 +1851,7 @@ begin
       // allocate new node
       ChildNode := Store.Info.NodeStorage.NewNode;
       {$ifdef LARGEINT}
-        Cell.NodePtr := NativeUInt(NativeInt(ChildNode) + Store.Info.NodeStorage.LargeModifier);
+        Cell.NodePtr := NativeUInt(NativeInt(ChildNode) + LargeModifier);
       {$else}
         Cell.NodePtr := NativeUInt(ChildNode);
       {$endif}
@@ -1538,6 +1872,9 @@ begin
       if (ChildNode = Store.Info.NodeStorage.MaximumNode) then
       begin
         TPathMapPtr(Store.Self).GrowNodeStorage(Store.Info.NodeStorage);
+        {$ifdef LARGEINT}
+        LargeModifier := Store.Info.NodeStorage.LargeModifier;
+        {$endif}
       end else
       begin
         Inc(ChildNode);
@@ -1585,96 +1922,6 @@ begin
 
   // actualize node storage (new node pointer)
   TPathMapPtr(Store.Self).FInfo.NodeStorage.NewNode := Store.Info.NodeStorage.NewNode;
-end;
-
-procedure TPathMap.GrowNodeStorage(var Buffer: TPathMapNodeStorage);
-begin
-  FInfo.NodeStorage := Buffer;
-  // todo
-
-
-  Buffer := FInfo.NodeStorage;
-end;
-
-function TPathMap.AllocateNode(const X, Y: NativeInt): PPathMapNode;
-var
-  Coordinates: NativeUInt;
-  Cell: PPathMapCell;
-  ChildNodePtr: NativeUInt;
-  NodeInfo: NativeUInt;
-begin
-  Coordinates := Y + (X shl 16);
-  Cell := @FInfo.Cells[X + FInfo.MapWidth * Y];
-
-  ChildNodePtr := Cell.NodePtr; // clear bits?
-  if (ChildNodePtr = 0) then
-  begin
-    Result := FInfo.NodeStorage.NewNode;
-    Cardinal(Result.Coordinates) := Coordinates;
-    {$ifdef LARGEINT}
-      Cell.NodePtr := NativeUInt(NativeInt(Result) + FInfo.NodeStorage.LargeModifier);
-    {$else}
-      Cell.NodePtr := NativeUInt(Result);
-    {$endif}
-
-    // tile, mask --> (0, mask, 0, tile)
-    NodeInfo := PWord(Cell)^;
-    NodeInfo := (NodeInfo + (NodeInfo shl 24)) and Integer($00ff00ff);
-    Result.NodeInfo := NodeInfo;
-
-    // set next allocable node
-    if (Result = FInfo.NodeStorage.MaximumNode) then
-    begin
-      // todo call some realloc
-    end else
-    begin
-      Inc(Result);
-      FInfo.NodeStorage.NewNode := Result;
-      Dec(Result);
-    end;
-  end else
-  begin
-    {$ifdef LARGEINT}
-      Result := Pointer(
-        (FInfo.NodeStorage.Buffers[ChildNodePtr shr LARGE_NODEPTR_OFFSET]) +
-        (ChildNodePtr and NODEPTR_MASK) );
-    {$else}
-      Result := Pointer(ChildNodePtr and NODEPTR_MASK);
-    {$endif}
-  end;
-end;
-
-function TPathMap.CalculateHeuristics(const Start, Finish: TPoint): NativeInt;
-var
-  dX, dY, X, Y: NativeInt;
-  Mask: NativeInt;
-begin
-  dY := Start.Y - Finish.Y;
-  dX := Start.X - Finish.X;
-
-  // Y := Abs(dY)
-  Mask := -(dY shr HIGH_NATIVE_BIT);
-  Y := (dY xor Mask) - Mask;
-
-  // X := Abs(dY)
-  Mask := -(dX shr HIGH_NATIVE_BIT);
-  X := (dX xor Mask) - Mask;
-
-  if (Self.FKind < mkHexagonal) then
-  begin
-    if (X <= Y) then
-    begin
-      Result := X * FInfo.HeuristicsDiagonal + (Y - X) * FInfo.HeuristicsLine;
-    end else
-    begin
-      Result := Y * FInfo.HeuristicsDiagonal + (X - Y) * FInfo.HeuristicsLine;
-    end;
-  end else
-  begin
-    X := X - ((Mask xor Finish.Y) and Y and 1) - (Y shr 1);
-    Result := Y + (X and ((X shr HIGH_NATIVE_BIT) - 1));
-    Result := Result * FInfo.HeuristicsLine;
-  end;
 end;
 
 function TPathMap.FindPath(const Start, Finish: TPoint;
