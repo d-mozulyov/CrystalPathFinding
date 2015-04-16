@@ -5,7 +5,11 @@ unit TestUnit;
 interface
   uses
   {$ifdef MSWINDOWS}
-    {$if Defined(FPC) or (CompilerVersion < 23)}Windows{$else}Winapi.Windows{$ifend},
+    {$if Defined(FPC) or (CompilerVersion < 23)}
+      Windows, ClipBrd,
+    {$else}
+      Winapi.Windows, Vcl.ClipBrd,
+    {$ifend}
   {$endif}
   SysUtils,
   CrystalPathFinding;
@@ -33,6 +37,7 @@ begin
   BreakPoint := S;
 
   {$ifdef MSWINDOWS}
+    Clipboard.AsText := S;
     MessageBox(0, PChar(BreakPoint), 'Сообщение:', 0);
   {$endif}
 
