@@ -102,6 +102,7 @@ var
   Points: PPointList;
   i: integer;
   RedValue: byte;
+  FindParameters: TPathMapFindParameters;
   FindResult: PPathMapResult;
 
 
@@ -168,7 +169,7 @@ try
   // загрузка карты
   InvertBitmap();
   Map := cpfCreateMap(BitmapWidth, BitmapHeight, mkSimple, 0);
-  cpfMapUpdate(Map, BitmapPixel(0, 0), 0, 0, BitmapWidth, BitmapHeight, -BitmapPitch);
+  cpfMapUpdate(Map, PPathMapTile(BitmapPixel(0, 0)), 0, 0, BitmapWidth, BitmapHeight, -BitmapPitch);
 
   
   // поиск точек Start/Finish
@@ -203,7 +204,13 @@ try
 
   // расчёт
   Time := GetTickCount;
-    FindResult := cpfFindPath(Map, Start, Finish, 0, nil, 0, false);
+    FindParameters.StartPoints := @Start;
+    FindParameters.StartPointsCount := 1;
+    FindParameters.Finish := Finish;
+    FindParameters.Weights := 0;
+    FindParameters.ExcludedPoints := nil;
+    FindParameters.ExcludedPointsCount := 0;
+    FindResult := cpfFindPath(Map, @FindParameters, false, false);
   Time := GetTickCount-Time;
 
   // результат

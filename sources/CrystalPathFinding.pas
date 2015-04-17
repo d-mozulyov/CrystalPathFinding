@@ -153,7 +153,7 @@ type
   // result of find path function
   TPathMapResult = record
     Points: PPointList;
-    Count: Cardinal;
+    PointsCount: NativeUInt;
     Distance: Double;
   end;
   PPathMapResult = ^TPathMapResult;
@@ -265,6 +265,17 @@ type
     NodeStorage: TPathMapNodeStorage;
   end;
 
+  // path finding parameters
+  TPathMapFindParameters = record
+    StartPoints: PPoint;
+    StartPointsCount: NativeUInt;
+    Finish: TPoint;
+    Weights: TPathMapWeightsPtr;
+    ExcludedPoints: PPoint;
+    ExcludedPointsCount: NativeUInt;
+  end;
+  PPathMapFindParameters = ^TPathMapFindParameters;
+
   // main path finding class
   TPathMap = {$ifdef CPFLIB}object{$else}class{$endif}(TCPFClass)
   private
@@ -281,16 +292,13 @@ type
 
     function GetTile(const X, Y: Word): TPathMapTile;
     procedure SetTile(const X, Y: Word; const Value: TPathMapTile);
-    procedure SetSectorTest(const Value: Boolean);
-    procedure SectorTestChanged;
-    procedure SetCaching(const Value: Boolean);
-    procedure CachingChanged;
     procedure GrowNodeStorage(var Buffer: TPathMapNodeStorage);
     function AllocateNode(const X, Y: NativeInt): PPathMapNode;
     function CalculateHeuristics(const Start, Finish: TPoint): NativeInt;
 //    procedure ClearMapCells(Node: PPathMapNode; Count: NativeUInt); overload;
 //    procedure ClearMapCells(Node: PPathMapNode{as list}); overload;
-    function DoFindPath(StartNode: PPathMapNode): PPathMapNode;
+    function DoFindPathLoop(StartNode: PPathMapNode): PPathMapNode;
+    function DoFindPath(const Parameters: TPathMapFindParameters): PPathMapResult;
   {$ifdef CPFLIB}
   public
     procedure Destroy;
@@ -308,14 +316,19 @@ type
     property Height: Word read FHeight;
     property Kind: TPathMapKind read FKind;
     property HighTile: TPathMapTile read FHighTile;
-    property SectorTest: Boolean read FSectorTest write SetSectorTest;
-    property Caching: Boolean read FCaching write SetCaching;
+    property SectorTest: Boolean read FSectorTest write FSectorTest;
+    property Caching: Boolean read FCaching write FCaching;
     property Tiles[const X, Y: Word]: TPathMapTile read GetTile write SetTile; default;
 
+    function FindPath(const Parameters: TPathMapFindParameters): PPathMapResult; overload;
     function FindPath(const Start, Finish: TPoint; const Weights: TPathMapWeightsPtr = nil;
-      const ExcludedPoints: PPoint = nil; const ExcludedPointsCount: NativeUInt = 0): PPathMapResult;
+      const ExcludedPoints: PPoint = nil; const ExcludedPointsCount: NativeUInt = 0): PPathMapResult; overload;
+    function FindPath(const StartPoints: PPoint; const StartPointsCount: NativeUInt;
+      const Finish: TPoint; const Weights: TPathMapWeightsPtr = nil;
+      const ExcludedPoints: PPoint = nil; const ExcludedPointsCount: NativeUInt = 0): PPathMapResult; overload;
   end;
   TPathMapPtr = {$ifdef CPFLIB}^{$endif}TPathMap;
+
 
 {$ifdef CPFAPI}
 type
@@ -346,7 +359,7 @@ type
   procedure cpfMapUpdate(HMap: TCPFHandle; Tiles: PPathMapTile; X, Y, Width, Height: Word; Pitch: NativeInt = 0); cdecl;
   function  cpfMapGetTile(HMap: TCPFHandle; X, Y: Word): TPathMapTile; cdecl;
   procedure cpfMapSetTile(HMap: TCPFHandle; X, Y: Word; Value: TPathMapTile); cdecl;
-  function  cpfFindPath(HMap: TCPFHandle; Start, Finish: TPoint; HWeights: TCPFHandle = 0; ExcludedPoints: PPoint = nil; ExcludedPointsCount: NativeUInt = 0; SectorTest: Boolean = True; Caching: Boolean = True): PPathMapResult; cdecl;
+  function  cpfFindPath(HMap: TCPFHandle; Parameters: PPathMapFindParameters; SectorTest: Boolean = False; Caching: Boolean = True): PPathMapResult; cdecl;
 {$endif}
 
 implementation
@@ -998,27 +1011,24 @@ begin
   TPathMapPtr(HMap).Tiles[X, Y] := Value;
 end;
 
-function  cpfFindPath(HMap: TCPFHandle; Start, Finish: TPoint; HWeights: TCPFHandle = 0; ExcludedPoints: PPoint = nil; ExcludedPointsCount: NativeUInt = 0; SectorTest: Boolean = True; Caching: Boolean = True): PPathMapResult; cdecl;
+function  cpfFindPath(HMap: TCPFHandle; Parameters: PPathMapFindParameters; SectorTest: Boolean = False; Caching: Boolean = True): PPathMapResult; cdecl;
 var
   Address: Pointer;
 begin
   Address := ReturnAddress;
   if (HMap <= $ffff) then RaiseInvalidPointer(Address);
-  TCPFClassPtr(HMap).FCallAddress := Address;
-  if (HWeights <> 0) then
+
+  if (Parameters = nil) then
   begin
-    if (HWeights <= $ffff) then RaiseInvalidPointer(Address);
-    TCPFClassPtr(HWeights).FCallAddress := Address;
+    Result := nil;
+    Exit;
   end;
+  if (NativeUInt(Parameters) <= $ffff) then RaiseInvalidPointer(Address);
 
-  if (TPathMapPtr(HMap).SectorTest <> SectorTest) then
-    TPathMapPtr(HMap).SectorTestChanged;
-
-  if (TPathMapPtr(HMap).Caching <> Caching) then
-    TPathMapPtr(HMap).CachingChanged;
-
-  Result := TPathMapPtr(HMap).FindPath(Start, Finish, TPathMapWeightsPtr(HWeights),
-    ExcludedPoints, ExcludedPointsCount);
+  TCPFClassPtr(HMap).FCallAddress := Address;
+  TPathMapPtr(HMap).SectorTest := SectorTest;
+  TPathMapPtr(HMap).Caching := Caching;
+  Result := TPathMapPtr(HMap).DoFindPath(Parameters^);
 end;
 {$endif .CPFAPI}
 
@@ -1393,6 +1403,8 @@ begin
   FKind := AKind;
   FHighTile := AHighTile;
   FInfo.MapWidth := AWidth;
+  FSectorTest := False;
+  FCaching := True;
 
   // offsets
   for i := 0 to 7 do
@@ -1467,42 +1479,6 @@ begin
     FCallAddress := ReturnAddress;
   {$endif}
 
-end;
-
-procedure TPathMap.SetSectorTest(const Value: Boolean);
-begin
-  if (FSectorTest <> Value) then
-  begin
-    {$ifNdef CPFLIB}
-      FCallAddress := ReturnAddress;
-    {$endif}
-
-    SectorTestChanged;
-  end;
-end;
-
-procedure TPathMap.SectorTestChanged;
-begin
-  FSectorTest := not FSectorTest;
-  // todo
-end;
-
-procedure TPathMap.SetCaching(const Value: Boolean);
-begin
-  if (FCaching <> Value) then
-  begin
-    {$ifNdef CPFLIB}
-      FCallAddress := ReturnAddress;
-    {$endif}
-
-    CachingChanged;
-  end;
-end;
-
-procedure TPathMap.CachingChanged;
-begin
-  FCaching := not FCaching;
-  // todo
 end;
 
 procedure TPathMap.GrowNodeStorage(var Buffer: TPathMapNodeStorage);
@@ -1673,7 +1649,7 @@ begin
   end;
 end; *)
 
-function TPathMap.DoFindPath(StartNode: PPathMapNode): PPathMapNode;
+function TPathMap.DoFindPathLoop(StartNode: PPathMapNode): PPathMapNode;
 label
   nextchild_continue, nextchild, child_tobuffer, next_current, current_initialize;
 const
@@ -1924,18 +1900,17 @@ begin
   TPathMapPtr(Store.Self).FInfo.NodeStorage.NewNode := Store.Info.NodeStorage.NewNode;
 end;
 
-function TPathMap.FindPath(const Start, Finish: TPoint;
-  const Weights: TPathMapWeightsPtr; const ExcludedPoints: PPoint;
-  const ExcludedPointsCount: NativeUInt): PPathMapResult;
+function TPathMap.DoFindPath(const Parameters: TPathMapFindParameters): PPathMapResult;
 label
   calculate_result;
 var
   StartNode, FinishNode, Node: PPathMapNode;
   FailureNode: TPathMapNode;
+  Start: PPoint;
 begin
-  {$ifNdef CPFLIB}
-    FCallAddress := ReturnAddress;
-  {$endif}
+  // todo
+
+  Start := Parameters.StartPoints;
 
   // todo
 
@@ -1948,7 +1923,7 @@ begin
   end;
   // todo
   StartNode.Path := 0;
-  StartNode.SortValue := 0{Path} + CalculateHeuristics(Start, Finish);
+  StartNode.SortValue := 0{Path} + CalculateHeuristics(Start^, Parameters.Finish);
 
   // cache finish point and mark as known attainable
   FinishNode := AllocateNode(Start.X, Start.Y);
@@ -1958,7 +1933,7 @@ begin
   FailureNode.NodeInfo := FLAG_KNOWN_PATH {+ !FLAG_ATTAINABLE};
   StartNode.Next := @FailureNode;
   FailureNode.Prev := StartNode;
-  Node := DoFindPath(StartNode);
+  Node := DoFindPathLoop(StartNode);
   if (FCaching) then
   begin
     // MarkCachedPath(StartNode,
@@ -1980,6 +1955,53 @@ calculate_result:
   end;
 end;
 
+function TPathMap.FindPath(const Parameters: TPathMapFindParameters): PPathMapResult;
+begin
+  {$ifNdef CPFLIB}
+    FCallAddress := ReturnAddress;
+  {$endif}
+
+  Result := DoFindPath(Parameters);
+end;
+
+function TPathMap.FindPath(const Start, Finish: TPoint;
+  const Weights: TPathMapWeightsPtr; const ExcludedPoints: PPoint;
+  const ExcludedPointsCount: NativeUInt): PPathMapResult;
+var
+  Parameters: TPathMapFindParameters;
+begin
+  {$ifNdef CPFLIB}
+    FCallAddress := ReturnAddress;
+  {$endif}
+
+  Parameters.StartPoints := @Start;
+  Parameters.StartPointsCount := 1;
+  Parameters.Finish := Finish;
+  Parameters.Weights := Weights;
+  Parameters.ExcludedPoints := ExcludedPoints;
+  Parameters.ExcludedPointsCount := ExcludedPointsCount;
+  Result := FindPath(Parameters);
+end;
+
+function TPathMap.FindPath(const StartPoints: PPoint; const StartPointsCount: NativeUInt;
+   const Finish: TPoint; const Weights: TPathMapWeightsPtr = nil;
+   const ExcludedPoints: PPoint = nil; const ExcludedPointsCount: NativeUInt = 0): PPathMapResult;
+var
+  Parameters: TPathMapFindParameters;
+begin
+  {$ifNdef CPFLIB}
+    FCallAddress := ReturnAddress;
+  {$endif}
+
+  Parameters.StartPoints := StartPoints;
+  Parameters.StartPointsCount := StartPointsCount;
+  Parameters.Finish := Finish;
+  Parameters.Weights := Weights;
+  Parameters.ExcludedPoints := ExcludedPoints;
+  Parameters.ExcludedPointsCount := ExcludedPointsCount;
+  Result := FindPath(Parameters);
+end;
+
 
 
 
@@ -1994,7 +2016,7 @@ initialization
     System.GetMemoryManager(MemoryManager);
   {$endif}
   {$if Defined(DEBUG) and not Defined(CPFLIB)}
-  TPathMapPtr(nil).DoFindPath(nil);
+  TPathMapPtr(nil).DoFindPathLoop(nil);
   {$ifend}
 
 end.

@@ -68,17 +68,6 @@ type
     {$ifend}
   {$endif}
 
-  // map tile
-  TPathMapTile = type Byte;
-  PPathMapTile = ^TPathMapTile;
-
-  // kind of map
-  TPathMapKind = (mkSimple, mkDiagonal, mkDiagonalEx, mkHexagonal);
-
-  // points as array
-  PPointList = ^TPointList;
-  TPointList = array[0..High(Integer) div SizeOf(TPoint) - 1] of TPoint;
-
   // exception class
   {$ifNdef NOEXCEPTIONS}
   ECrystalPathFinding = class(Exception)
@@ -90,10 +79,25 @@ type
     constructor CreateResFmt(Ident: NativeUInt; const Args: array of const); overload;
     constructor CreateResFmt(ResStringRec: PResStringRec; const Args: array of const); overload;
   {$endif}
-  end;  
+  end;
   {$endif}
-  
-  // Result of FindPath() function
+
+  // handle type
+  PCPFHandle = ^TCPFHandle;
+  TCPFHandle = type NativeUInt;
+
+  // map tile
+  TPathMapTile = type Byte;
+  PPathMapTile = ^TPathMapTile;
+
+  // kind of map
+  TPathMapKind = (mkSimple, mkDiagonal, mkDiagonalEx, mkHexagonal);
+
+  // points as array
+  PPointList = ^TPointList;
+  TPointList = array[0..High(Integer) div SizeOf(TPoint) - 1] of TPoint;
+
+  // result of find path function
   TPathMapResult = packed record
     Points: PPointList;
     PointsCount: NativeUInt;
@@ -101,9 +105,16 @@ type
   end;
   PPathMapResult = ^TPathMapResult;
 
-  // handle type
-  PCPFHandle = ^TCPFHandle;
-  TCPFHandle = type NativeUInt;
+  // path finding parameters
+  TPathMapFindParameters = record
+    StartPoints: PPoint;
+    StartPointsCount: NativeUInt;
+    Finish: TPoint;
+    Weights: TCPFHandle;
+    ExcludedPoints: PPoint;
+    ExcludedPointsCount: NativeUInt;
+  end;
+  PPathMapFindParameters = ^TPathMapFindParameters;
 
   // object oriented Weights interface
   TPathMapWeights = class(TObject)
@@ -152,8 +163,12 @@ type
     property Handle: TCPFHandle read FHandle;
     property Tiles[const X, Y: Word]: TPathMapTile read GetTile write SetTile; default;
 
-    function FindPath(const Start, Finish: TPoint; const Weights: TPathMapWeights = nil;
-      const ExcludedPoints: PPoint = nil; const ExcludedPointsCount: NativeUInt = 0): PPathMapResult; {$ifdef INLINESUPPORT}inline;{$endif}
+    function FindPath(const Parameters: TPathMapFindParameters): PPathMapResult; overload; {$ifdef INLINESUPPORT}inline;{$endif}
+    function FindPath(const Start, Finish: TPoint; const Weights: TCPFHandle = 0;
+      const ExcludedPoints: PPoint = nil; const ExcludedPointsCount: NativeUInt = 0): PPathMapResult; overload; {$ifdef INLINESUPPORT}inline;{$endif}
+    function FindPath(const StartPoints: PPoint; const StartPointsCount: NativeUInt;
+      const Finish: TPoint; const Weights: TCPFHandle = 0;
+      const ExcludedPoints: PPoint = nil; const ExcludedPointsCount: NativeUInt = 0): PPathMapResult; overload; {$ifdef INLINESUPPORT}inline;{$endif}
   end;
 
 
@@ -163,16 +178,16 @@ const
   cpf_lib = 'cpf.dll';
 
 function  cpfCreateWeights(HighTile: TPathMapTile): TCPFHandle; cdecl; external cpf_lib;
-procedure cpfDestroyWeights(var HWeights: TCPFHandle); cdecl; external cpf_lib;  
+procedure cpfDestroyWeights(var HWeights: TCPFHandle); cdecl; external cpf_lib;
 function  cpfWeightGet(HWeights: TCPFHandle; Tile: TPathMapTile): Single; cdecl; external cpf_lib;
 procedure cpfWeightSet(HWeights: TCPFHandle; Tile: TPathMapTile; Value: Single); cdecl; external cpf_lib;
 function  cpfCreateMap(Width, Height: Word; Kind: TPathMapKind = mkSimple; HighTile: TPathMapTile = 0): TCPFHandle; cdecl; external cpf_lib;
-procedure cpfDestroyMap(var HMap: TCPFHandle); cdecl; external cpf_lib;  
-procedure cpfMapClear(HMap: TCPFHandle); cdecl; external cpf_lib;  
+procedure cpfDestroyMap(var HMap: TCPFHandle); cdecl; external cpf_lib;
+procedure cpfMapClear(HMap: TCPFHandle); cdecl; external cpf_lib;
 procedure cpfMapUpdate(HMap: TCPFHandle; Tiles: PPathMapTile; X, Y, Width, Height: Word; Pitch: NativeInt = 0); cdecl; external cpf_lib;
 function  cpfMapGetTile(HMap: TCPFHandle; X, Y: Word): TPathMapTile; cdecl; external cpf_lib;
 procedure cpfMapSetTile(HMap: TCPFHandle; X, Y: Word; Value: TPathMapTile); cdecl; external cpf_lib;
-function  cpfFindPath(HMap: TCPFHandle; Start, Finish: TPoint; HWeights: TCPFHandle = 0; ExcludePoints: PPoint = nil; ExcludePointsCount: NativeUInt = 0; SectorTest: Boolean = True; Caching: Boolean = True): PPathMapResult; cdecl; external cpf_lib;
+function  cpfFindPath(HMap: TCPFHandle; Parameters: PPathMapFindParameters; SectorTest: Boolean = False; Caching: Boolean = True): PPathMapResult; cdecl; external cpf_lib;
 
 implementation
 var
@@ -291,6 +306,7 @@ begin
   FHeight := AHeight;
   FKind := AKind;
   FHighTile := AHighTile;
+  FSectorTest := False;
   FCaching := True;
 
   FHandle := cpfCreateMap(AWidth, AHeight, AKind, AHighTile);
@@ -323,12 +339,41 @@ begin
   cpfMapClear(FHandle);
 end;
 
-function TPathMap.FindPath(const Start, Finish: TPoint;
-  const Weights: TPathMapWeights; const ExcludedPoints: PPoint;
-  const ExcludedPointsCount: NativeUInt): PPathMapResult;
+function TPathMap.FindPath(const Parameters: TPathMapFindParameters): PPathMapResult;
 begin
-  Result := cpfFindPath(FHandle, Start, Finish, TCPFHandle(Weights),
-    ExcludedPoints, ExcludedPointsCount, FSectorTest, FCaching);
+  Result := cpfFindPath(FHandle, @Parameters, FSectorTest, FCaching);
+end;
+
+function TPathMap.FindPath(const Start, Finish: TPoint;
+  const Weights: TCPFHandle; const ExcludedPoints: PPoint;
+  const ExcludedPointsCount: NativeUInt): PPathMapResult;
+var
+  Parameters: TPathMapFindParameters;
+begin
+  Parameters.StartPoints := @Start;
+  Parameters.StartPointsCount := 1;
+  Parameters.Finish := Finish;
+  Parameters.Weights := Weights;
+  Parameters.ExcludedPoints := ExcludedPoints;
+  Parameters.ExcludedPointsCount := ExcludedPointsCount;
+
+  Result := cpfFindPath(FHandle, @Parameters, FSectorTest, FCaching);
+end;
+
+function TPathMap.FindPath(const StartPoints: PPoint; const StartPointsCount: NativeUInt;
+   const Finish: TPoint; const Weights: TCPFHandle = 0;
+   const ExcludedPoints: PPoint = nil; const ExcludedPointsCount: NativeUInt = 0): PPathMapResult;
+var
+  Parameters: TPathMapFindParameters;
+begin
+  Parameters.StartPoints := StartPoints;
+  Parameters.StartPointsCount := StartPointsCount;
+  Parameters.Finish := Finish;
+  Parameters.Weights := Weights;
+  Parameters.ExcludedPoints := ExcludedPoints;
+  Parameters.ExcludedPointsCount := ExcludedPointsCount;
+
+  Result := cpfFindPath(FHandle, @Parameters, FSectorTest, FCaching);
 end;
 
 

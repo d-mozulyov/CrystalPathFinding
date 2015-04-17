@@ -10,23 +10,41 @@
 #ifndef CRYSTAL_PATH_FINDING_H
 #define CRYSTAL_PATH_FINDING_H
 
-#include <Windows.h>
+#include <Windows.h> // Cross Platform todo
 
-// used types
-typedef POINT TPoint;
-typedef unsigned short word;
-typedef size_t TCPFHandle;
-typedef unsigned char TPathMapTile;
-typedef unsigned char TPathMapKind; enum {mkSimple, mkDiagonal, mkDiagonalEx, mkHexagonal}; /*sizeof(TPathMapKind) = 1*/
+  typedef POINT TPoint;
+  typedef unsigned short word;
 
-struct TPathMapResult
-{
-	TPoint* Points;
-    size_t  PointsCount;
-    double  Distance;
-};
+  // handle type
+  typedef size_t TCPFHandle;
+  
+  // map tile
+  typedef unsigned char TPathMapTile;
+  
+  // kind of map
+  typedef unsigned char TPathMapKind; enum {mkSimple, mkDiagonal, mkDiagonalEx, mkHexagonal}; /*sizeof(TPathMapKind) = 1*/
 
-ToDo: cpfInitialize
+  // result of find path function
+  struct TPathMapResult
+  {
+	  TPoint* Points;
+      size_t  PointsCount;
+      double  Distance;
+  };
+
+  // path finding parameters
+  struct TPathMapFindParameters
+  {
+      TPoint* StartPoints;
+      size_t StartPointsCount;
+      TPoint Finish;
+      TCPFHandle Weights;
+      TPoint* ExcludedPoints;
+      size_t ExcludedPointsCount;
+  };
+  
+  
+ToDo: object oriented interface & Memory/Exception callbacks (cpfInitialize)
 
 //  initialization/finalization  routine
 namespace cpf_routine
@@ -43,7 +61,7 @@ namespace cpf_routine
   typedef TPathMapTile (*CPF_PROC_MAP_GET_TILE)(TCPFHandle HMap, word X, word Y);
   typedef void (*CPF_PROC_MAP_SET_TILE)(TCPFHandle HMap, word X, word Y, TPathMapTile Value);
   typedef void (*CPF_PROC_MAP_UPDATE)(TCPFHandle HMap, TPathMapTile* Tiles, word X, word Y, word Width, word Height, signed size_t Pitch);
-  typedef TPathMapResult* (*CPF_PROC_FIND_PATH)(TCPFHandle HMap, TPoint Start, TPoint Finish, TCPFHandle Weights, TPoint* ExcludedPoints, size_t ExcludedPointsCount, bool SectorTest, bool Caching);
+  typedef TPathMapResult* (*CPF_PROC_FIND_PATH)(TCPFHandle HMap, TPathMapFindParameters* Parameters, bool SectorTest, bool Caching);
 
   CPF_PROC_CREATE_WEIGHTS __cpfCreateWeights = NULL;
   CPF_PROC_DESTROY_WEIGHTS __cpfDestroyWeights = NULL;
@@ -106,7 +124,7 @@ void    cpfMapClear(TCPFHandle HMap)/*;*/{cpf_routine::__cpfMapClear(HMap);}
 TPathMapTile cpfMapGetTile(TCPFHandle HMap, word X, word Y)/*;*/{return cpf_routine::__cpfMapGetTile(HMap, X, Y);}
 void    cpfMapSetTile(TCPFHandle HMap, word X, word Y, TPathMapTile Value)/*;*/{cpf_routine::__cpfMapSetTile(HMap, X, Y, Value);};
 void    cpfMapUpdate(TCPFHandle HMap, TPathMapTile* Tiles, word X, word Y, word Width, word Height, signed size_t Pitch=0)/*;*/{cpf_routine::__cpfMapUpdate(HMap, Tiles, X, Y, Width, Height, Pitch);}
-TPathMapResult* cpfFindPath(TCPFHandle HMap, TPoint Start, TPoint Finish, TCPFHandle Weights=0, TPoint* ExcludedPoints=NULL, size_t ExcludedPointsCount=0, bool SectorTest=true, bool Caching=true)/*;*/{return cpf_routine::__cpfFindPath(HMap, Start, Finish, Weights, ExcludedPoints, ExcludedPointsCount, SectorTest, Caching);}
+TPathMapResult* cpfFindPath(TCPFHandle HMap, TPathMapFindParameters* Parameters, bool SectorTest=true, bool Caching=true)/*;*/{return cpf_routine::__cpfFindPath(HMap, Parameters, SectorTest, Caching);}
 
 
 

@@ -62,14 +62,15 @@ object Form1: TForm1
       TabOrder = 0
       OnClick = cbSectorTestClick
     end
-    object cbUseCache: TCheckBox
+    object cbCaching: TCheckBox
       Left = 8
       Top = 20
       Width = 97
       Height = 17
       Hint = #1059#1084#1085#1099#1081' '#1088#1072#1089#1095#1105#1090' '#1074#1077#1089#1086#1074
-      Caption = ' UseCache'
+      Caption = ' Caching'
       Checked = True
+      Enabled = False
       ParentShowHint = False
       ShowHint = True
       State = cbChecked
