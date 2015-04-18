@@ -228,10 +228,11 @@ type
                    {
                      Parent:3;
                      case Boolean of
-                       False: (Way:3; -FreeBit-:1);
-                        True: (Child:3; Attainable:1);
+                       False: (Way:3);
+                        True: (KnownChild:3);
                      end;
                      KnownPath:1;
+                     Attainable:1;
                    };
                    Mask: Byte;
                    ParentMask: Byte;
@@ -240,7 +241,7 @@ type
               1: (NodeInfo: Cardinal);
             );
     True:  (
-              nAttainableCount, _{Path}: Cardinal;
+              nAttainableLength, _{Path}: Cardinal;
               AttainableDistance: Double;
            );
   end;
@@ -291,6 +292,7 @@ type
     FWidth: Word;
     FHeight: Word;
     FCellCount: NativeUInt;
+    FPathLengthLimit: NativeUInt;
     FKind: TPathMapKind;
     FHighTile: TPathMapTile;
     FSectors: PByte;
@@ -1193,6 +1195,13 @@ const
   );
 
   CELLCOUNT_LIMIT = 60*1000*1000;
+  PATHLENGTH_LIMIT = (CELLCOUNT_LIMIT div 2) + 1;
+  NATTANABLE_LENGTH_LIMIT = not Cardinal(PATHLENGTH_LIMIT);
+
+  PATHLESS_TILE_WEIGHT = High(Cardinal) shr 1;
+
+  FLAG_KNOWN_PATH = 1 shl 6;
+  FLAG_ATTAINABLE = 1 shl 7;
 
   {$ifdef LARGEINT}
     LARGE_NODEPTR_OFFSET = 32 - {0..31}5;
@@ -1216,11 +1225,6 @@ const
   _5 = (1 shl 5);
   _6 = (1 shl 6);
   _7 = (1 shl 7);
-
-  FLAG_ATTAINABLE = 1 shl 6;
-  FLAG_KNOWN_PATH = 1 shl 7;
-
-  PATHLESS_TILE_WEIGHT = High(Cardinal) shr 1;
 
   POINT_OFFSETS: array[0..7] of TYXSmallPoint = (
     {0} (y: -1; x: -1),
@@ -1374,7 +1378,8 @@ begin
   begin
     FCellCount := NativeUInt(AWidth) * NativeUInt(AHeight);
 
-    if (FCellCount = 0) then
+    if (AWidth <= 1) or (AHeight <= 1) then
+      // ToDo: 1 line map
       CPFExceptionFmt('Incorrect map size: %dx%d', [AWidth, AHeight]);
 
     if (FCellCount > CELLCOUNT_LIMIT) then
@@ -1384,7 +1389,7 @@ begin
       CPFExceptionFmt('Incorrect map kind: %d, high value mkHexagonal is %d', [Ord(AKind), Ord(High(TPathMapKind))]);
 
     if (AHighTile = $FF) then
-      CPFException('High tile can''t be equal 255(0xFF), it means barrier');
+      CPFException('High tile can''t be equal 255(0xFF), it means a barrier');
   end;
 
   // fill parameters
@@ -1392,6 +1397,7 @@ begin
   FHeight := AHeight;
   FKind := AKind;
   FHighTile := AHighTile;
+  FPathLengthLimit := (FCellCount div 2) + 1;
   FInfo.MapWidth := AWidth;
   FSectorTest := False;
   FCaching := True;
@@ -1661,10 +1667,9 @@ function TPathMap.DoFindPathLoop(StartNode: PPathMapNode): PPathMapNode;
 label
   nextchild_continue, nextchild,
   heuristics_data,
-  child_tobuffer,
   next_current, current_initialize;
 const
-  DELTA_CLEAR_MASK = not Cardinal(((1 shl 4) - 1) shl 3);
+  PARENT_BITS_CLEAR_MASK = not Cardinal(((1 shl 5) - 1) shl 3);
   COUNTER_OFFSET = 16;
 type
   TMapNodeBuffer = array[0..7] of PPathMapNode;
@@ -1682,6 +1687,9 @@ var
   NodeXY, OffsetXY, ChildXY: Cardinal;
   dX, dY, X, Y: NativeInt;
   Mask: NativeInt;
+
+  ChildSortValue, ChildPath: Cardinal;
+  Left, Right: PPathMapNode;
 
   Store: record
     Buffer: TMapNodeBuffer;
@@ -1737,7 +1745,7 @@ begin
   Node := StartNode.Next;
   Store.Top.Node := Node;
   Node.Prev := StartNode;
-  Store.Top.SortValue := PATHLESS_TILE_WEIGHT;
+  Store.Top.SortValue := NATTANABLE_LENGTH_LIMIT - 1;
 
   // finding loop from Start to Finish
   Node := StartNode;
@@ -1792,10 +1800,6 @@ begin
       Child := (Child shl 2) + (NodeInfo and 2) + (NativeUInt(Cardinal(Store.Current.Coordinates)) and 1);
       ChildNodeInfo := ChildNodeInfo or PARENT_BITS[Child];
 
-      // locked & (mask <--> parentmask) test
-      if (ChildNodeInfo and ((ChildNodeInfo and $ff00) shl 8) = 0) then
-        goto nextchild_continue;
-
       // path of current(tile) --> child(tile)
       TileWeights := Store.Info.TileWeights[ChildNodeInfo{parent} and 1];
       Path := TileWeights[NodeInfo shr 24];
@@ -1812,6 +1816,10 @@ begin
       ChildNode := Pointer(NativeUInt(Cell.NodePtr));
       if (NativeInt(ChildNode) and NODEPTR_FLAG_CALCULATED = 0) then
       begin
+        // mask & parentmask test
+        if (ChildNodeInfo and ((ChildNodeInfo and $ff00) shl 8) = 0) then
+          goto nextchild_continue;
+
         if (ChildNode = nil) then
         begin
           // allocate new node
@@ -1876,7 +1884,7 @@ begin
           Inc(Mask, dY shr HIGH_NATIVE_BIT);
           Inc(X, dX shr HIGH_NATIVE_BIT);
           Mask := 3 * Mask;
-          ChildNode.NodeInfo := ChildNode.NodeInfo or ((X - 1 + {3 *} Mask) shl 3);  //WAY_BITS[X + 3 * Mask];
+          ChildNode.NodeInfo := ChildNode.NodeInfo or Cardinal((X - 1 + {3 *} Mask) shl 3);
 
           // Y := Abs(dY)
           Mask := -(dY shr HIGH_NATIVE_BIT);
@@ -1904,8 +1912,6 @@ begin
             ChildNode.SortValue := {$ifdef CPUX86}ChildNode.{$endif}Path +
                Cardinal(Store.Info.HeuristicsLine * (Y + (X and ((X shr HIGH_NATIVE_BIT) - 1))));
           end;
-
-          goto child_tobuffer;
         end;
       end else
       begin
@@ -1918,21 +1924,39 @@ begin
         {$else}
           ChildNode := Pointer(NativeInt(ChildNode) and NODEPTR_CLEAN_MASK);
         {$endif}
+
+        // continue if the path is shorter
+        ChildPath := ChildNode.Path;
+        if (Path >= ChildPath) then
+          goto nextchild_continue;
+
+        // locked & (mask <--> parentmask) + knownpath test
+        ChildNodeInfo := (ChildNode.NodeInfo and PARENT_BITS_CLEAR_MASK) or ChildNodeInfo;
+        if ((ChildNodeInfo and FLAG_KNOWN_PATH) or
+           (ChildNodeInfo and ((ChildNodeInfo and $ff00) shl 8)) = 0) then
+          goto nextchild_continue;
+
+        // sort value as hot knownpath node marker
+        ChildSortValue := ChildNode.SortValue;
+
+        // new parent bits
+        ChildNode.NodeInfo := ChildNodeInfo;
+
+        // new Path and SortValue
+        ChildNode.SortValue := Path + {heuristics}(ChildSortValue - ChildPath);
+        ChildNode.Path := Path;
+
+        // remove from opened list
+        if (ChildSortValue < NATTANABLE_LENGTH_LIMIT) then
+        begin
+          Left := ChildNode.Prev;
+          Right := ChildNode.Next;
+          Left.Next := Right;
+          Right.Prev := Left;
+        end;
       end;
 
-      if (Path >= ChildNode.Path) then
-      begin
-        if (NodeInfo and $ff00 <> 0) then Continue;
-        Break;
-      end;
-
-      // new parent bits
-      ChildNode.NodeInfo := (ChildNode.NodeInfo and DELTA_CLEAR_MASK) or ChildNodeInfo;
-
-      // new Path and SortValue
-      ChildNode.SortValue := Path + (ChildNode.SortValue - ChildNode.Path);
-
-    child_tobuffer:
+      // add child node to buffer
       {$ifdef CPUX86}Store.{$endif}Buffer[(NodeInfo shr COUNTER_OFFSET) and 7] := ChildNode;
       Inc(NodeInfo, (1 shl COUNTER_OFFSET));
 
