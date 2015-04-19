@@ -1248,33 +1248,41 @@ const
     {7 --> 3} (y:  0; x: +1)
   );
 
-  CHILD_ARRAYS: array[0..12{4 diagonal + 4 clockwise optional}-1] of TChildArray = (
-    ($0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000),
-    ($0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000),
-    ($0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000),
-    ($0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000),
-    ($0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000),
-    ($0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000),
-    ($0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000),
-    ($0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000),
-    ($0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000),
-    ($0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000),
-    ($0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000),
-    ($0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000)
+  CHILD_ARRAYS: array[0..11{4 diagonal + 4 clockwise optional}] of TChildArray = (
+   ($0100, $8070, $0210, $4060, $0420, $2050, $0830, $1040),
+   ($0210, $0100, $0420, $8070, $0830, $4060, $1040, $2050),
+   ($0210, $0420, $0100, $0830, $8070, $1040, $4060, $2050),
+   ($0420, $0830, $0210, $1040, $0100, $2050, $8070, $4060),
+   ($0830, $0420, $1040, $0210, $2050, $0100, $4060, $8070),
+   ($0830, $1040, $0420, $2050, $0210, $4060, $0100, $8070),
+   ($1040, $2050, $0830, $4060, $0420, $8070, $0210, $0100),
+   ($2050, $1040, $4060, $0830, $8070, $0420, $0100, $0210),
+   ($2050, $4060, $1040, $8070, $0830, $0100, $0420, $0210),
+   ($4060, $2050, $8070, $1040, $0100, $0830, $0210, $0420),
+   ($8070, $4060, $0100, $2050, $0210, $1040, $0420, $0830),
+   ($8070, $0100, $4060, $0210, $2050, $0420, $1040, $0830)
   );
 
   CHILD_ARRAYS_OFFSETS: array[0..63{parent:3,way:3}] of Byte = (
-    $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00,
-    $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00,
-    $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00,
-    $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+   $B0, $B0, $B0, $A0, $A0, $A0, $A0, $A0,
+   $40, $40, $40, $40, $50, $50, $50, $40,
+   $10, $10, $20, $20, $20, $10, $10, $10,
+   $00, $00, $00, $00, $00, $00, $00, $00,
+   $30, $30, $30, $30, $30, $30, $30, $30,
+   $60, $60, $60, $60, $60, $60, $60, $60,
+   $90, $90, $90, $90, $90, $90, $90, $90,
+   $60, $60, $60, $60, $60, $60, $60, $60
   );
 
-  PARENT_BITS: array[0..{Hexagonal}4*{Child}8 - 1] of NativeUInt = (
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000,
-    $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000
+  PARENT_BITS: array[0..31{oddy:1;hexagonal:1;child:3}] of NativeUInt = (
+   $00C70004, $00C70004, $00C70004, $00000004,
+   $00070005, $00070005, $004F0005, $00970005,
+   $001F0006, $001F0006, $00000006, $001F0006,
+   $001C0007, $001C0007, $003E0007, $005D0007,
+   $007C0000, $007C0000, $00000000, $007C0000,
+   $00700001, $00700001, $00790001, $00F40001,
+   $00F10002, $00F10002, $00F10002, $00000002,
+   $00C10003, $00C10003, $00D50003, $00E30003
   );
 
 
@@ -1297,11 +1305,247 @@ begin
   LookupLine(Format(FmtStr, Args));
 end;
 
+procedure AddChildArray(Base: Integer; Clockwise, Finalize: Boolean);
+const
+  CHILD_VALUES: array[0..7] of Word = (
+    ((1 shl 0) shl 8) or (0 shl 4),
+    ((1 shl 1) shl 8) or (1 shl 4),
+    ((1 shl 2) shl 8) or (2 shl 4),
+    ((1 shl 3) shl 8) or (3 shl 4),
+    ((1 shl 4) shl 8) or (4 shl 4),
+    ((1 shl 5) shl 8) or (5 shl 4),
+    ((1 shl 6) shl 8) or (6 shl 4),
+    ((1 shl 7) shl 8) or (7 shl 4)
+  );
+
+var
+  S: string;
+  i, Sign: integer;
+  ChildArray: TChildArray;
+  Child: PWord;
+
+  procedure AddChild(const N: Integer);
+  begin
+    Child^ := CHILD_VALUES[(N + 8) and 7];
+    Inc(Child);
+  end;
+begin
+  Sign := 1;
+  if (not Clockwise) then Sign := -1;
+
+  Child := @ChildArray[0];
+  AddChild(Base);
+  for i := 1 to 3 do
+  begin
+    AddChild(Base + Sign * i);
+    AddChild(Base - Sign * i);
+  end;
+  AddChild(Base + 4);
+
+  S := Format(' ($%0.4x, $%0.4x, $%0.4x, $%0.4x, $%0.4x, $%0.4x, $%0.4x, $%0.4x)',
+    [ChildArray[0], ChildArray[1], ChildArray[2], ChildArray[3],
+     ChildArray[4], ChildArray[5], ChildArray[6], ChildArray[7]]);
+
+  if (not Finalize) then S := S + ',';
+  LookupLine(S);
+end;
+
+procedure AddTwoChildArrays(Base: Integer; Finalize: Boolean);
+begin
+  AddChildArray(Base, False, False);
+  AddChildArray(Base, True, Finalize);
+end;
+
+procedure AddChildArrayOffsets(WayX, WayY: Integer; Finalize: Boolean);
+var
+  Buffer: array[0..7] of Byte;
+  Offset: PByte;
+  S: string;
+  Parent, WayChild: Integer;
+  N: Byte;
+begin
+  if (WayX = 1) then WayX := -1
+  else
+  if (WayX = 2) then WayX := 1;
+
+  if (WayY = 1) then WayY := -1
+  else
+  if (WayY = 2) then WayY := 1;
+
+
+  if (WayX < 0) then
+  begin
+    if (WayY < 0) then
+    begin
+      WayChild := 0;
+    end else
+    if (WayY = 0) then
+    begin
+      WayChild := 7;
+    end else
+    // (WayY > 0) then
+    begin
+      WayChild := 6;
+    end;
+  end else
+  if (WayX = 0) then
+  begin
+    if (WayY < 0) then WayChild := 1
+    else WayChild := 4;
+  end else
+  // (WayX > 0) then
+  begin
+    if (WayY < 0) then
+    begin
+      WayChild := 2;
+    end else
+    if (WayY = 0) then
+    begin
+      WayChild := 3;
+    end else
+    // (WayY > 0) then
+    begin
+      WayChild := 4;
+    end;
+  end;
+
+  Offset := @Buffer[0];
+  for Parent := 0 to 7 do
+  begin
+    N := (WayChild shr 1) * 3;
+
+    if (WayChild and 1 <> 0) then
+    begin
+      Inc(N);
+
+      if (Parent = ((WayChild - 1 + 4) and 7)) or
+        (Parent = ((WayChild - 2 + 4) and 7)) or
+        (Parent = ((WayChild - 3 + 4) and 7)) then
+        Inc(N);
+    end;
+
+    Offset^ := N * SizeOf(TChildArray);
+    Inc(Offset);
+  end;
+
+  S := Format(' $%0.2x, $%0.2x, $%0.2x, $%0.2x, $%0.2x, $%0.2x, $%0.2x, $%0.2x',
+    [Buffer[0], Buffer[1], Buffer[2], Buffer[3],
+     Buffer[4], Buffer[5], Buffer[6], Buffer[7]]);
+
+  if (not Finalize) then S := S + ',';
+  LookupLine(S);
+end;
+
+procedure AddParentBits(Child: Integer; Finalize: Boolean);
+var
+  Parent: Integer;
+  Buffer: array[0..3] of Cardinal;
+  Hexagonal, OddY: Boolean;
+  Item: PCardinal;
+  S: string;
+
+  procedure AddParentMask(ExcludedChilds: Byte);
+  begin
+    Item^ := (Cardinal(Byte(not ExcludedChilds)) shl 16) or Cardinal(Parent);
+    Inc(Item);
+  end;
+begin
+  Parent := (Child + 4) and 7;
+  Item := @Buffer[0];
+
+  for Hexagonal := False to True do
+  for OddY := False to True do
+  begin
+    if (not Hexagonal) then
+    begin
+      case Child of
+        0: AddParentMask(_3 or _4 or _5);
+        1: AddParentMask(_3 or _4 or _5 or _6 or _7);
+        2: AddParentMask(_5 or _6 or _7);
+        3: AddParentMask(_5 or _6 or _7 or _0 or _1);
+        4: AddParentMask(_7 or _0 or _1);
+        5: AddParentMask(_0 or _1 or _2 or _3 or _7);
+        6: AddParentMask(_1 or _2 or _3);
+        7: AddParentMask(_1 or _2 or _3 or _4 or _5);
+      end;
+    end else
+    if (not OddY) then
+    begin
+      case Child of
+        6: AddParentMask(_1 or _2 or _3);
+        7: AddParentMask(_1 or _3 or _5);
+        0: AddParentMask(_3 or _4 or _5);
+        1: AddParentMask(_4 or _5 or _7);
+        3: AddParentMask(_6 or _7 or _0);
+        5: AddParentMask(_7 or _1 or _2);
+      else
+        AddParentMask($FF);
+      end;
+    end else
+    begin
+      case Child of
+        7: AddParentMask(_2 or _3 or _4);
+        1: AddParentMask(_3 or _5 or _6);
+        2: AddParentMask(_5 or _6 or _7);
+        3: AddParentMask(_1 or _5 or _7);
+        4: AddParentMask(_0 or _1 or _7);
+        5: AddParentMask(_0 or _1 or _3);
+      else
+        AddParentMask($FF);
+      end;
+    end;
+  end;
+
+  S := Format(' $%0.8x, $%0.8x, $%0.8x, $%0.8x',
+    [Buffer[0], Buffer[1], Buffer[2], Buffer[3]]);
+
+  if (not Finalize) then S := S + ',';
+  LookupLine(S);
+end;
+
 procedure GenerateLookups;
+var
+  Way, WayX, WayY: Integer;
+  Child: Integer;
 begin
   LookupsText := TStringList.Create;
   try
     LookupsText.Add('const');
+
+    // CHILD_ARRAYS
+    LookupLine('CHILD_ARRAYS: array[0..11{4 diagonal + 4 clockwise optional}] of TChildArray = (');
+    begin
+      AddChildArray(0, False, False);
+      AddTwoChildArrays(1, False);
+      AddChildArray(2, True, False);
+      AddTwoChildArrays(3, False);
+      AddChildArray(4, True, False);
+      AddTwoChildArrays(5, False);
+      AddChildArray(6, False, False);
+      AddTwoChildArrays(7, True);
+    end;
+    LookupLine(');');
+
+    // CHILD_ARRAYS_OFFSETS
+    LookupLine;
+    LookupLine('CHILD_ARRAYS_OFFSETS: array[0..63{parent:3,way:3}] of Byte = (');
+    for Way := 0 to 7 do
+    begin
+      WayX := (Way + 1) mod 3;
+      WayY := (Way + 1) div 3;
+
+      AddChildArrayOffsets(WayX, WayY, Way = 7);
+    end;
+    LookupLine(');');
+
+    // PARENT_BITS
+    LookupLine;
+    LookupLine('PARENT_BITS: array[0..31{oddy:1;hexagonal:1;child:3}] of NativeUInt = (');
+    for Child := 0 to 7 do
+    begin
+      AddParentBits(Child, Child = 7);
+    end;
+    LookupLine(');');
 
 
     LookupsText.SaveToFile('Lookup.txt');
@@ -1757,7 +2001,7 @@ begin
     // todo next top?
 
     // child list
-    ChildList := Pointer(NativeUInt(CHILD_ARRAYS_OFFSETS[NodeInfo and 127]));
+    ChildList := Pointer(NativeUInt(CHILD_ARRAYS_OFFSETS[NodeInfo and 63]));
     Inc(NativeUInt(ChildList), NativeUInt(@CHILD_ARRAYS));
 
     // reinitialize NodeInfo (from parentflags, mask, parentmask, tile):
