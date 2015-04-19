@@ -1907,6 +1907,155 @@ begin
   end;
 end; *)
 
+
+type
+  TMapNodeBuffer = array[0..7] of PPathMapNode;
+  PMapNodeBuffer = ^TMapNodeBuffer;
+
+  TFindPathLoopStore = record
+    Buffer: TMapNodeBuffer;
+    Self: Pointer;
+    HexagonalFlag: NativeUInt;
+    Info: TPathMapInfo;
+
+    {$ifdef CPUX86}
+    ChildList: PWord;
+    {$endif}
+
+    Current: record
+      Node: PPathMapNode;
+      Cell: PPathMapCell;
+      Coordinates: TCPFPoint;
+      SortValue: Cardinal;
+      Path: Cardinal;
+    end;
+    Top: record
+      Node: PPathMapNode;
+      SortValue: Cardinal;
+    end;
+  end;
+
+
+procedure TestNodesInsert(NodeInfo: NativeUInt{$ifdef TEST_INSERT}; const InitStore: TFindPathLoopStore{$endif});
+label
+  next_current;
+const
+  COUNTER_OFFSET = 16;
+var
+  ChildNode: PPathMapNode;
+  {$ifNdef CPUX86}
+    ChildSortValue: Cardinal;
+  {$endif}
+  Left: PPathMapNode;
+
+  PBufferHigh, PBufferBase, PBufferCurrent: ^PPathMapNode;
+
+  {$ifdef TEST_INSERT}
+  i: Cardinal;
+  {$endif}
+
+  {$ifNdef CPUX86}
+    Buffer: ^TMapNodeBuffer;
+  {$endif}
+
+  Store: TFindPathLoopStore;
+
+begin
+  {$ifdef TEST_INSERT}
+    Store := InitStore;
+  {$else}
+    ZeroMemory(@Store, SizeOf(Store));
+  {$endif}
+
+  {$ifNdef CPUX86}
+    Buffer := @Store.Buffer;
+  {$endif}
+
+    // move buffered nodes to opened list
+    if (NodeInfo and ($f shl COUNTER_OFFSET) = 0) then
+      goto next_current;
+
+    // internal child buffer sort by SortValue
+    {
+       for i = 1 to Count - 1 do
+       begin
+         for j := i-1 downto 0 do
+         if (Buffer[j].SortValue > Buffer[j+1].SortValue) then
+         begin
+           Swap(Buffer[j], Buffer[j+1]);
+         end else
+         begin
+           Break;
+         end;
+       end;
+    }
+    PBufferHigh := @{$ifdef CPUX86}Store.{$endif}Buffer[(NodeInfo shr COUNTER_OFFSET) and $f];
+    PBufferBase := @{$ifdef CPUX86}Store.{$endif}Buffer[1];
+    PBufferCurrent := @{$ifdef CPUX86}Store.{$endif}Buffer[0];
+    while (PBufferBase <> PBufferHigh) do
+    begin
+      ChildNode := PBufferBase^;
+      {$ifNdef CPUX86}ChildSortValue := ChildNode.SortValue;{$endif}
+
+      Left := PBufferCurrent^;
+      if (Left.SortValue > {$ifNdef CPUX86}ChildSortValue{$else}ChildNode.SortValue{$endif}) then
+      begin
+       repeat
+          PMapNodeBuffer(PBufferCurrent)[1] := Left;
+          if (PBufferCurrent = @{$ifdef CPUX86}Store.{$endif}Buffer[0]) then Break;
+
+          Dec(PBufferCurrent);
+          Left := PBufferCurrent^;
+          if (Left.SortValue > {$ifNdef CPUX86}ChildSortValue{$else}ChildNode.SortValue{$endif}) then Continue;
+          Inc(PBufferCurrent);
+          Break;
+        until (False);
+
+        PBufferCurrent^ := ChildNode;
+      end;
+
+      PBufferCurrent := PBufferBase;
+      Inc(PBufferBase);
+    end;
+
+    // insert sorted nodes
+    // todo
+
+
+
+  {$ifdef TEST_INSERT}
+    for i := 0 to ((NodeInfo shr COUNTER_OFFSET) and $f) - 1 do
+    if (Store.Buffer[i].SortValue <> i) then
+      raise Exception.CreateFmt('Store.Buffer[%d].Node.SortValue = %d',
+        [i, Store.Buffer[i].SortValue]);
+
+   raise Exception.Create('Проверка прошла на отлично!');
+  {$endif}
+
+next_current:
+end;
+
+{$ifdef TEST_INSERT}
+procedure TestNodesInsertEx;
+const
+  VALUES: array[0..7] of Cardinal =
+    (5, 6, 4, 0, 1, 7, 2, 3);
+var
+  InitStore: TFindPathLoopStore;
+  NodeBuffer: array[0..7] of TPathMapNode;
+  i: Cardinal;
+begin
+  for i := 0 to 7 do
+  begin
+    NodeBuffer[i].SortValue := VALUES[i];
+    InitStore.Buffer[i] := @NodeBuffer[i];
+  end;
+
+  TestNodesInsert(8 shl 16, InitStore);
+end;
+{$endif}
+
+
 function TPathMap.DoFindPathLoop(StartNode: PPathMapNode): PPathMapNode;
 label
   nextchild_continue, nextchild,
@@ -1935,7 +2084,9 @@ var
   ChildSortValue, ChildPath: Cardinal;
   Left, Right: PPathMapNode;
 
-  Store: record
+  PBufferHigh, PBufferBase, PBufferCurrent: ^PPathMapNode;
+
+  Store: TFindPathLoopStore;(*record
     Buffer: TMapNodeBuffer;
     Self: Pointer;
     HexagonalFlag: NativeUInt;
@@ -1956,10 +2107,10 @@ var
       Node: PPathMapNode;
       SortValue: Cardinal;
     end;
-  end;
+  end;*)
 
   {$ifNdef CPUX86}
-    Buffer: ^TMapNodeBuffer;
+    Buffer: PMapNodeBuffer;
   {$endif}
 
   {$ifdef LARGEINT}
@@ -2209,10 +2360,53 @@ begin
     until (False);
 
     // move buffered nodes to opened list
-    if (NodeInfo and (7 shl COUNTER_OFFSET) = 0) then
+    if (NodeInfo and ($f shl COUNTER_OFFSET) = 0) then
       goto next_current;
 
-    // sort
+    // internal child buffer sort by SortValue
+    {
+       for i = 1 to Count - 1 do
+       begin
+         for j := i-1 downto 0 do
+         if (Buffer[j].SortValue > Buffer[j+1].SortValue) then
+         begin
+           Swap(Buffer[j], Buffer[j+1]);
+         end else
+         begin
+           Break;
+         end;
+       end;
+    }
+    PBufferHigh := @{$ifdef CPUX86}Store.{$endif}Buffer[(NodeInfo shr COUNTER_OFFSET) and $f];
+    PBufferBase := @{$ifdef CPUX86}Store.{$endif}Buffer[1];
+    PBufferCurrent := @{$ifdef CPUX86}Store.{$endif}Buffer[0];
+    while (PBufferBase <> PBufferHigh) do
+    begin
+      ChildNode := PBufferBase^;
+      {$ifNdef CPUX86}ChildSortValue := ChildNode.SortValue;{$endif}
+
+      Left := PBufferCurrent^;
+      if (Left.SortValue > {$ifNdef CPUX86}ChildSortValue{$else}ChildNode.SortValue{$endif}) then
+      begin
+       repeat
+          PMapNodeBuffer(PBufferCurrent)[1] := Left;
+          if (PBufferCurrent = @{$ifdef CPUX86}Store.{$endif}Buffer[0]) then Break;
+
+          Dec(PBufferCurrent);
+          Left := PBufferCurrent^;
+          if (Left.SortValue > {$ifNdef CPUX86}ChildSortValue{$else}ChildNode.SortValue{$endif}) then Continue;
+          Inc(PBufferCurrent);
+          Break;
+        until (False);
+
+        PBufferCurrent^ := ChildNode;
+      end;
+
+      PBufferCurrent := PBufferBase;
+      Inc(PBufferBase);
+    end;
+
+    // insert sorted nodes
     // todo
 
     // next opened node
@@ -2358,6 +2552,11 @@ initialization
     System.GetMemoryManager(MemoryManager);
   {$endif}
   {$if Defined(DEBUG) and not Defined(CPFLIB)}
+    {$ifdef TEST_INSERT}
+      TestNodesInsertEx;
+    {$else}
+      //TestNodesInsert(0);
+    {$endif}
   TPathMapPtr(nil).DoFindPathLoop(nil);
   {$ifend}
 
