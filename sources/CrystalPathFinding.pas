@@ -186,10 +186,23 @@ type
     procedure Free; {$ifdef INLINESUPPORT}inline;{$endif}
   end;
 
+  // internal tile weight storage
+  PCPFWeights = ^TCPFWeights;
+  TCPFWeights = object
+  public
+    {class} function NewInstance(const ACount: Cardinal; const Address: Pointer): PCPFWeights;
+    procedure Release(const Address: Pointer);
+  public
+    RefCount: Cardinal;
+    UpdateId: Cardinal;
+    Count: Cardinal;
+    Values: array[0..0] of Single;
+  end;
+
   // map weights
   TPathMapWeights = {$ifdef CPFLIB}object{$else}class{$endif}(TCPFClass)
   private
-    FReferenceCount: Integer;
+    FWeights: PCPFWeights;
     FHighTile: TPathMapTile;
 
     function GetValue(const Tile: TPathMapTile): Single;
@@ -325,6 +338,11 @@ type
     function DoFindPathLoop(StartNode: PCPFMapNode): PCPFMapNode;
     function DoFindPath(const Parameters: TPathMapFindParameters): PPathMapResult;
   private
+    FWeights: record
+      Current: PCPFWeights;
+      UpdateId: Cardinal;
+      Default: PCPFWeights;
+    end;
     FStartPoints: record
       Buffer: TCPFBuffer;
       Count: NativeUInt;
@@ -411,6 +429,10 @@ implementation
 var
   MemoryManager: {$if Defined(FPC) or (CompilerVersion < 18)}TMemoryManager{$else}TMemoryManagerEx{$ifend};
 {$endif}
+
+const
+  SQRT2: Double = 1.4142135623730950488016887242097;
+  HALF: Double = 0.5;
 
 
 { ECrystalPathFinding }
@@ -820,6 +842,12 @@ begin
 {$endif}
 end;
 
+procedure RaiseInvalidTile(const Tile, HighTile: TPathMapTile; const Address: Pointer);
+begin
+  CPFExceptionFmt('Invalid tile %d, high tile is %d', [Tile, HighTile], Address);
+end;
+
+
 function CPFAlloc(const Size: NativeUInt; const Address: Pointer): Pointer;
 begin
   if (Size = 0) then
@@ -1221,6 +1249,42 @@ begin
   TCPFClassPtr(FOwner).CPFFreeMem(FMemory);
 end;
 
+{ TCPFWeights }
+
+{class} function TCPFWeights.NewInstance(const ACount: Cardinal; const Address: Pointer): PCPFWeights;
+var
+  One: Cardinal;
+begin
+  // allocate
+  Result := CPFAlloc(SizeOf(TCPFWeights) - SizeOf(Single) + ACount * SizeOf(Single),
+    Address);
+
+  // fill
+  Result.RefCount := 1;
+  Result.UpdateId := 1;
+  Result.Count := ACount;
+
+  // default values
+  PSingle(@One)^ := 1.0;
+  FillCardinal(Pointer(@Result.Values[0]), ACount, One);
+end;
+
+procedure TCPFWeights.Release(const Address: Pointer);
+var
+  Cnt: Cardinal;
+begin
+  if (@Self = nil) then Exit; 
+
+  Cnt := Self.RefCount;
+  if (Cnt <> 1) then
+  begin
+    Dec(Cnt);
+    Self.RefCount := Cnt;
+  end else
+  begin
+    CPFFree(@Self, Address);
+  end;
+end;
 
 
 type
@@ -1642,7 +1706,12 @@ begin
     inherited Create;
   {$endif}
 
+  if (AHighTile = $FF) then
+    CPFException('High tile can''t be equal 255(0xFF), it means a barrier');
 
+  FHighTile := AHighTile;
+
+  FWeights := PCPFWeights(nil).NewInstance(NativeUInt(FHighTile) + 1, FCallAddress)
 end;
 
 {$ifdef CPFLIB}procedure{$else}destructor{$endif}
@@ -1652,8 +1721,7 @@ begin
     FCallAddress := ReturnAddress;
   {$endif}
 
-  if (FReferenceCount <> 0) then
-    CPFExceptionFmt('The weights are used by %d maps', [FReferenceCount]);
+  FWeights.Release(FCallAddress);
 
   {$ifNdef CPFLIB}
     inherited;
@@ -1667,17 +1735,37 @@ begin
     FCallAddress := ReturnAddress;
   {$endif}
 
-  Result := 0;
+  if (Tile > HighTile) then
+  begin
+    RaiseInvalidTile(Tile, HighTile, FCallAddress);
+    Result := 0;
+  end else
+  begin
+    Result := FWeights.Values[Tile];
+  end;
 end;
 
 procedure TPathMapWeights.SetValue(const Tile: TPathMapTile;
   const Value: Single);
+var
+  PValue: PSingle;
 begin
   {$ifNdef CPFLIB}
     FCallAddress := ReturnAddress;
   {$endif}
 
-
+  if (Tile > HighTile) then
+  begin
+    RaiseInvalidTile(Tile, HighTile, FCallAddress);
+  end else
+  begin
+    PValue := @FWeights.Values[Tile];
+    if (PValue^ <> Value) then
+    begin
+      PValue^ := Value;
+      Inc(FWeights.UpdateId);
+    end;
+  end;
 end;
 
 
@@ -1733,6 +1821,9 @@ begin
   FExcludedPoints.Buffer.Initialize(Self);
   FFoundPath.Buffer.Initialize(Self);
 
+  // default tile weights
+  FWeights.Default := PCPFWeights(nil).NewInstance(FHighTile + 1, FCallAddress);
+
   // allocate and fill cells
   Size := FCellCount * SizeOf(TCPFMapCell);
   CPFGetMem(Pointer(FInfo.Cells), Size);
@@ -1751,6 +1842,10 @@ begin
   {$ifNdef CPFLIB}
     FCallAddress := ReturnAddress;
   {$endif}
+
+  // tile weigths
+  FWeights.Current.Release(FCallAddress);
+  FWeights.Default.Release(FCallAddress);
 
   // internal buffers
   FStartPoints.Buffer.Free;
