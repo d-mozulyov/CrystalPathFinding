@@ -184,6 +184,7 @@ type
     procedure Initialize(const Owner: TCPFClass); {$ifdef INLINESUPPORT}inline;{$endif}
     function Alloc(const Size: NativeUInt): Pointer; {$ifdef INLINESUPPORT}inline;{$endif}
     procedure Free; {$ifdef INLINESUPPORT}inline;{$endif}
+    property Memory: Pointer read FMemory;
   end;
 
   // internal tile weight storage
@@ -315,7 +316,6 @@ type
   TPathMap = {$ifdef CPFLIB}object{$else}class{$endif}(TCPFClass)
   private
     FFindResult: TPathMapResult;
-    FFindResultOnePoint: TPoint;
     FInfo: TCPFMapInfo;
     FWidth: Word;
     FHeight: Word;
@@ -323,7 +323,6 @@ type
     FPathLengthLimit: NativeUInt;
     FKind: TPathMapKind;
     FHighTile: TPathMapTile;
-    FSectors: PByte;
     FSectorTest: Boolean;
     FCaching: Boolean;
 
@@ -338,27 +337,42 @@ type
     function DoFindPathLoop(StartNode: PCPFMapNode): PCPFMapNode;
     function DoFindPath(const Parameters: TPathMapFindParameters): PPathMapResult;
   private
-    FWeights: record
-      Current: PCPFWeights;
-      UpdateId: Cardinal;
-      Default: PCPFWeights;
-    end;
-    FStartPoints: record
-      Buffer: TCPFBuffer;
-      Count: NativeUInt;
-    end;
-    FExcludedPoints: record
-      Buffer: TCPFBuffer;
-      Count: NativeUInt;
-    end;
-    FFinishPoint: TPoint;
-    FFoundPath: record
-      Buffer: TCPFBuffer;
-      Length: NativeUInt;
-    end;
-    // todo
+    FActualInfo: record
+      TilesChanged: Boolean;
+      Sectors: PByte;
+      SectorsChanged: Boolean;
+      FinishPoint: TPoint;
+      PathlessFinishPoint: TPoint;
 
+      Weights: record
+        Current: PCPFWeights;
+        UpdateId: Cardinal;
+        Default: PCPFWeights;
+      end;
+      StartPoints: record
+        Buffer: TCPFBuffer;
+        Count: NativeUInt;
+      end;
+      ExcludedPoints: record
+        Buffer: TCPFBuffer;
+        Count: NativeUInt;
+      end;
+      FoundPath: record
+        Buffer: TCPFBuffer;
+        Length: NativeUInt;
+        Distance: Double;
+      end;
 
+      // todo
+    end;
+
+    function ActualizeWeigths(Weigths: PCPFWeights; Compare: Boolean): Boolean;
+    function ActualizeStartPoints(Points: PPoint; Count: NativeUInt; Compare: Boolean): Boolean;
+    function ActualizeExcludedPoints(Points: PPoint; Count: NativeUInt; Compare: Boolean): Boolean;
+    procedure ActualizeSectors;
+    procedure ReleaseAttainableNodes;
+    procedure ReleaseHeuristicsNodes;
+    procedure ReleaseAllocatedNodes;
   {$ifdef CPFLIB}
   public
     procedure Destroy;
@@ -1222,9 +1236,9 @@ begin
     TCPFClassPtr(FOwner).CPFFreeMem(FMemory);
 
   case Size of
-       0..32: FAllocatedSize := 32;
-     33..128: FAllocatedSize := 128;
-    129..512: FAllocatedSize := 512;
+       0..64: FAllocatedSize := 64;
+     65..256: FAllocatedSize := 256;
+    257..512: FAllocatedSize := 512;
   else
     FAllocatedSize := NativeUInt((NativeInt(Size) + 1023) and -1024);
   end;
@@ -1811,18 +1825,23 @@ begin
   FSectorTest := False;
   FCaching := True;
 
+  // "actual" information
+  FActualInfo.TilesChanged := True;
+  FActualInfo.FinishPoint.X := -1;
+  FActualInfo.FinishPoint.Y := -1;
+
   // offsets
   for i := 0 to 7 do
   FInfo.CellOffsets[i] := SizeOf(TCPFMapCell) *
     (POINT_OFFSETS[i].y * FInfo.MapWidth + POINT_OFFSETS[i].x);
 
   // internal buffers
-  FStartPoints.Buffer.Initialize(Self);
-  FExcludedPoints.Buffer.Initialize(Self);
-  FFoundPath.Buffer.Initialize(Self);
+  FActualInfo.StartPoints.Buffer.Initialize(Self);
+  FActualInfo.ExcludedPoints.Buffer.Initialize(Self);
+  FActualInfo.FoundPath.Buffer.Initialize(Self);
 
   // default tile weights
-  FWeights.Default := PCPFWeights(nil).NewInstance(FHighTile + 1, FCallAddress);
+  FActualInfo.Weights.Default := PCPFWeights(nil).NewInstance(FHighTile + 1, FCallAddress);
 
   // allocate and fill cells
   Size := FCellCount * SizeOf(TCPFMapCell);
@@ -1844,13 +1863,13 @@ begin
   {$endif}
 
   // tile weigths
-  FWeights.Current.Release(FCallAddress);
-  FWeights.Default.Release(FCallAddress);
+  FActualInfo.Weights.Current.Release(FCallAddress);
+  FActualInfo.Weights.Default.Release(FCallAddress);
 
   // internal buffers
-  FStartPoints.Buffer.Free;
-  FExcludedPoints.Buffer.Free;
-  FFoundPath.Buffer.Free;
+  FActualInfo.StartPoints.Buffer.Free;
+  FActualInfo.ExcludedPoints.Buffer.Free;
+  FActualInfo.FoundPath.Buffer.Free;
 
   // node storage
   for i := FInfo.NodeStorage.Allocated - 1 downto 0 do
@@ -1860,7 +1879,7 @@ begin
   CPFFreeMem(Pointer(FInfo.Cells));
 
   // sectors
-  CPFFreeMem(Pointer(FSectors));
+  CPFFreeMem(Pointer(FActualInfo.Sectors));
 
   {$ifNdef CPFLIB}
     inherited;
@@ -2122,6 +2141,44 @@ begin
     Node := Node.Next;
   end;
 end; *)
+
+function TPathMap.ActualizeWeigths(Weigths: PCPFWeights; Compare: Boolean): Boolean;
+begin
+  Result := Compare;
+  // todo
+end;
+
+function TPathMap.ActualizeStartPoints(Points: PPoint; Count: NativeUInt; Compare: Boolean): Boolean;
+begin
+  Result := Compare;
+  // todo
+end;
+
+function TPathMap.ActualizeExcludedPoints(Points: PPoint; Count: NativeUInt; Compare: Boolean): Boolean;
+begin
+  Result := Compare;
+  // todo
+end;
+
+procedure TPathMap.ActualizeSectors;
+begin
+  // todo
+end;
+
+procedure TPathMap.ReleaseAttainableNodes;
+begin
+  // todo
+end;
+
+procedure TPathMap.ReleaseHeuristicsNodes;
+begin
+  // todo
+end;
+
+procedure TPathMap.ReleaseAllocatedNodes;
+begin
+  // todo
+end;
 
 
 type
@@ -2658,6 +2715,7 @@ var
   MapWidth, MapHeight: Cardinal;
   FinishX, FinishY: Integer;
   S: PPoint;
+  Actual, R, ActualFinish, ActualStarts: Boolean;
 begin
   // test start points coordinates
   MapWidth := Self.Width;
@@ -2703,19 +2761,91 @@ begin
   begin
     if (S.X = FinishX) and (S.Y = FinishY) then
     begin
-      FFindResultOnePoint.X := FinishX;
-      FFindResultOnePoint.Y := FinishY;
-      FFindResult.Points := Pointer(@FFindResultOnePoint);
-      FFindResult.PointsCount := 1;
-      FFindResult.Distance := 0;
+      FActualInfo.PathlessFinishPoint.X := FinishX;
+      FActualInfo.PathlessFinishPoint.Y := FinishY;
       Result := @FFindResult;
+      Result.Points := Pointer(@FActualInfo.PathlessFinishPoint);
+      Result.PointsCount := 1;
+      Result.Distance := 0;
       Exit;
     end;
 
     Inc(S);
   end;
 
+  // actualization
+  Actual := FCaching;
+  begin
+    ActualFinish := (FinishX = Self.FActualInfo.FinishPoint.X) and
+                    (FinishY = Self.FActualInfo.FinishPoint.Y);
+    Actual := Actual and ActualFinish;
 
+    // update id
+    R := (not FActualInfo.TilesChanged);
+    FActualInfo.TilesChanged := False;
+    Actual := R and Actual;
+
+    // tile weights
+    if (Parameters.Weights = nil) then
+    begin
+      R := ActualizeWeigths(FActualInfo.Weights.Default, Actual);
+    end else
+    begin
+      R := ActualizeWeigths(Parameters.Weights.FWeights, Actual);
+    end;
+    Actual := R and Actual;
+
+    // excluded points
+    R := ActualizeExcludedPoints(Parameters.ExcludedPoints, Parameters.ExcludedPointsCount, Actual);
+    Actual := R and Actual;
+
+    // attainable points
+    if (not Actual) then
+      ReleaseAttainableNodes;
+
+    // actualize finish point
+    FActualInfo.FinishPoint.X := FinishX;
+    FActualInfo.FinishPoint.Y := FinishY;
+    FInfo.FinishPoint.X := FinishX;
+    FInfo.FinishPoint.Y := FinishY;
+
+    // heuristics points
+    if (not ActualFinish) then
+      ReleaseHeuristicsNodes;
+
+    // alloc start points
+    ActualStarts := ActualizeStartPoints(Parameters.StartPoints, Parameters.StartPointsCount, Actual);
+
+    // path is already exists case
+    if (Actual) and (ActualStarts) then
+    begin
+      Result := @FFindResult;
+      Result.Points := FActualInfo.FoundPath.Buffer.Memory;
+      Result.PointsCount := FActualInfo.FoundPath.Length;
+      Result.Distance := FActualInfo.FoundPath.Distance;
+      Exit;
+    end;
+
+    // sectors
+    if (SectorTest) then
+    begin
+      if (FActualInfo.Sectors = nil) or (FActualInfo.SectorsChanged) then
+        ActualizeSectors;
+    end else
+    begin
+      if (FActualInfo.Sectors <> nil) then
+        CPFFreeMem(Pointer(FActualInfo.Sectors));
+    end;
+  end;
+
+  // excluded points todo
+  if (not Actual) then
+  begin
+    // todo
+  end;
+
+  // start points
+  // todo
 
 end;
 (*label
