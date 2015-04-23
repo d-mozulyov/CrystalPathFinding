@@ -1403,6 +1403,11 @@ const
     {7 --> 3} (y:  0; x: +1)
   );
 
+  MIN_WEIGHT_VALUE = Cardinal($3DCCCCCD){0.1};
+  MAX_WEIGHT_VALUE = Cardinal($447A0000){1000.0};
+  DEFAULT_WEIGHT_VALUE = Cardinal($3F800000){1.0};
+  ERROR_WEIGHT_VALUE = 'Invalid weight value. 0,0..0,1 - pathless, 0,1..1000 - correct';
+
   CHILD_ARRAYS: array[0..11{4 diagonal + 4 clockwise optional}] of TChildArray = (
    ($0100, $8070, $0210, $4060, $0420, $2050, $0830, $1040),
    ($0210, $0100, $0420, $8070, $0830, $4060, $1040, $2050),
@@ -1659,6 +1664,10 @@ begin
 end;
 
 procedure GenerateLookups;
+const
+  MIN_WEIGHT_VALUE: Single = 0.1;
+  MAX_WEIGHT_VALUE: Single = 1000;
+  DEFAULT_WEIGHT_VALUE: Single = 1;
 var
   Way, WayX, WayY: Integer;
   Child: Integer;
@@ -1667,7 +1676,17 @@ begin
   try
     LookupsText.Add('const');
 
+    // weight consts
+    FormatSettings.DecimalSeparator := '.';
+    LookupLineFmt('MIN_WEIGHT_VALUE = Cardinal($%8x){%0.1f};', [PCardinal(@MIN_WEIGHT_VALUE)^, MIN_WEIGHT_VALUE]);
+    LookupLineFmt('MAX_WEIGHT_VALUE = Cardinal($%8x){%0.1f};', [PCardinal(@MAX_WEIGHT_VALUE)^, MAX_WEIGHT_VALUE]);
+    LookupLineFmt('DEFAULT_WEIGHT_VALUE = Cardinal($%8x){%0.1f};', [PCardinal(@DEFAULT_WEIGHT_VALUE)^, DEFAULT_WEIGHT_VALUE]);
+    FormatSettings.DecimalSeparator := ',';
+    LookupLineFmt('ERROR_WEIGHT_VALUE = ''Invalid weight value. 0,0..%0.1f - pathless, %0.1f..%0.0f - correct'';',
+      [MIN_WEIGHT_VALUE, MIN_WEIGHT_VALUE, MAX_WEIGHT_VALUE]);
+
     // CHILD_ARRAYS
+    LookupLine;
     LookupLine('CHILD_ARRAYS: array[0..11{4 diagonal + 4 clockwise optional}] of TChildArray = (');
     begin
       AddChildArray(0, False, False);
@@ -2847,6 +2866,9 @@ begin
   // start points
   // todo
 
+
+  Result := nil;
+  // todo
 end;
 (*label
   calculate_result;
