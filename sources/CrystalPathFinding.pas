@@ -1315,43 +1315,44 @@ const
     Count: Cardinal;
     Previous: Cardinal;
   end = (
-    { 0} (Count: 512; Previous: 0),
-    { 1} (Count: 512; Previous: 512),
-    { 2} (Count: 1024; Previous: 1024),
-    { 3} (Count: 1024; Previous: 2048),
-    { 4} (Count: 2048; Previous: 3072),
-    { 5} (Count: 2048; Previous: 5120),
-    { 6} (Count: 4096; Previous: 7168),
-    { 7} (Count: 8192; Previous: 11264),
-    { 8} (Count: 16384; Previous: 19456),
-    { 9} (Count: 32768; Previous: 35840),
-    {10} (Count: 65536; Previous: 68608),
-    {11} (Count: 131072; Previous: 134144),
-    {12} (Count: 262144; Previous: 265216),
-    {13} (Count: 524288; Previous: 527360),
-    {14} (Count: 1048576; Previous: 1051648),
-    {15} (Count: 1276672; Previous: 2100224),
-    {16} (Count: 2097152; Previous: 3376896),
-    {17} (Count: 2097152; Previous: 5474048),
-    {18} (Count: 2097152; Previous: 7571200),
-    {19} (Count: 2097152; Previous: 9668352),
-    {20} (Count: 2097152; Previous: 11765504),
-    {21} (Count: 4194304; Previous: 13862656),
-    {22} (Count: 4194304; Previous: 18056960),
-    {23} (Count: 4194304; Previous: 22251264),
-    {24} (Count: 4194304; Previous: 26445568),
-    {25} (Count: 4194304; Previous: 30639872),
-    {26} (Count: 4194304; Previous: 34834176),
-    {27} (Count: 4194304; Previous: 39028480),
-    {28} (Count: 4194304; Previous: 43222784),
-    {29} (Count: 4194304; Previous: 47417088),
-    {30} (Count: 4194304; Previous: 51611392),
-    {31} (Count: 4194304; Previous: 55805696)
+    { 0} (Count:     512; Previous:        0),
+    { 1} (Count:     512; Previous:      512),
+    { 2} (Count:    1024; Previous:     1024),
+    { 3} (Count:    1024; Previous:     2048),
+    { 4} (Count:    2048; Previous:     3072),
+    { 5} (Count:    2048; Previous:     5120),
+    { 6} (Count:    4096; Previous:     7168),
+    { 7} (Count:    4096; Previous:    11264),
+    { 8} (Count:    8192; Previous:    15360),
+    { 9} (Count:    8192; Previous:    23552),
+    {10} (Count:   16384; Previous:    31744),
+    {11} (Count:   16384; Previous:    48128),
+    {12} (Count:   32768; Previous:    64512),
+    {13} (Count:   32768; Previous:    97280),
+    {14} (Count:   32768; Previous:   130048),
+    {15} (Count:   32768; Previous:   162816),
+    {16} (Count:   65536; Previous:   195584),
+    {17} (Count:   65536; Previous:   261120),
+    {18} (Count:  131072; Previous:   326656),
+    {19} (Count:  131072; Previous:   457728),
+    {20} (Count:  262144; Previous:   588800),
+    {21} (Count:  262144; Previous:   850944),
+    {22} (Count:  524288; Previous:  1113088),
+    {23} (Count:  524288; Previous:  1637376),
+    {24} (Count: 1048576; Previous:  2161664),
+    {25} (Count: 1048576; Previous:  3210240),
+    {26} (Count: 1255424; Previous:  4258816),
+    {27} (Count: 2097152; Previous:  5514240),
+    {28} (Count: 2097152; Previous:  7611392),
+    {29} (Count: 2097152; Previous:  9708544),
+    {30} (Count: 2097152; Previous: 11805696),
+    {31} (Count: 2097152; Previous: 13902848)
   );
 
-  CELLCOUNT_LIMIT = 60*1000*1000;
-  PATHLENGTH_LIMIT = (CELLCOUNT_LIMIT div 2) + 1;
+  CELLCOUNT_LIMIT = 16*1000*1000;
+  PATHLENGTH_LIMIT = 6666667;
   NATTANABLE_LENGTH_LIMIT = not Cardinal(PATHLENGTH_LIMIT);
+  SORTVALUE_LIMIT = NATTANABLE_LENGTH_LIMIT - 1;
 
   PATHLESS_TILE_WEIGHT = High(Cardinal) shr 1;
 
@@ -1404,9 +1405,9 @@ const
   );
 
   MIN_WEIGHT_VALUE = Cardinal($3DCCCCCD){0.1};
-  MAX_WEIGHT_VALUE = Cardinal($447A0000){1000.0};
+  MAX_WEIGHT_VALUE = Cardinal($42480000){50.0};
   DEFAULT_WEIGHT_VALUE = Cardinal($3F800000){1.0};
-  ERROR_WEIGHT_VALUE = 'Invalid weight value. 0,0..0,1 - pathless, 0,1..1000 - correct';
+  ERROR_WEIGHT_VALUE = 'Invalid weight value. 0,0..0,1 - pathless, 0,1..50 - correct';
 
   CHILD_ARRAYS: array[0..11{4 diagonal + 4 clockwise optional}] of TChildArray = (
    ($0100, $8070, $0210, $4060, $0420, $2050, $0830, $1040),
@@ -1666,7 +1667,7 @@ end;
 procedure GenerateLookups;
 const
   MIN_WEIGHT_VALUE: Single = 0.1;
-  MAX_WEIGHT_VALUE: Single = 1000;
+  MAX_WEIGHT_VALUE: Single = 50;
   DEFAULT_WEIGHT_VALUE: Single = 1;
 var
   Way, WayX, WayY: Integer;
@@ -2432,7 +2433,7 @@ begin
   Node := StartNode.Next;
   Store.Top.Node := Node;
   Node.Prev := StartNode;
-  Store.Top.SortValue := NATTANABLE_LENGTH_LIMIT - 1;
+  Store.Top.SortValue := SORTVALUE_LIMIT;
 
   // finding loop from Start to Finish
   Node := StartNode;
