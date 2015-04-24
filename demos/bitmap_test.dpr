@@ -107,9 +107,9 @@ var
 
 
 
-// в визуальном предсталении белые - 255, чёрные - 0
-// а для карты нужно наоборот. 0 - это клетка тайла. 255 - препятствие
-procedure InvertBitmap();
+// в визуальном предсталении белые - не 0, чёрные - 0
+// для карты все белые нужно сделать 1
+procedure InitializeBitmapTiles();
 var
   i: integer;
   Dest: pbyte;
@@ -118,7 +118,7 @@ begin
 
   for i := 1 to BitmapHeight*BitmapPitch do
   begin
-    if (Dest^ = 0) then Dest^ := 255 else Dest^ := 0;
+    if (Dest^ <> 0) then Dest^ := 1;
     inc(Dest);
   end;
 end;
@@ -167,10 +167,9 @@ try
 
 
   // загрузка карты
-  InvertBitmap();
-  Map := cpfCreateMap(BitmapWidth, BitmapHeight, mkSimple, 0);
+  InitializeBitmapTiles();
+  Map := cpfCreateMap(BitmapWidth, BitmapHeight, mkSimple);
   cpfMapUpdate(Map, PPathMapTile(BitmapPixel(0, 0)), 0, 0, BitmapWidth, BitmapHeight, -BitmapPitch);
-
   
   // поиск точек Start/Finish
   found := false;
@@ -220,9 +219,6 @@ try
     ShowError('Путь не найден !', []);
   end else
   begin
-    // всё нормально
-    InvertBitmap();
-
     // красный
     Points := FindResult.points;
     Bitmap.Canvas.Pixels[Points[0].X, Points[0].Y] := clRed;

@@ -82,13 +82,18 @@ type
   end;
   {$endif}
 
-  // handle type
-  PCPFHandle = ^TCPFHandle;
-  TCPFHandle = type NativeUInt;
-
   // map tile
   TPathMapTile = type Byte;
   PPathMapTile = ^TPathMapTile;
+
+const
+  // map tile barrier
+  TILE_BARRIER = TPathMapTile(0);
+
+type
+  // handle type
+  PCPFHandle = ^TCPFHandle;
+  TCPFHandle = type NativeUInt;
 
   // kind of map
   TPathMapKind = (mkSimple, mkDiagonal, mkDiagonalEx, mkHexagonal);
@@ -120,16 +125,14 @@ type
   TPathMapWeights = class(TObject)
   private
     FHandle: TCPFHandle;
-    FHighTile: TPathMapTile;
 
     function GetValue(const Tile: TPathMapTile): Single; {$ifdef INLINESUPPORT}inline;{$endif}
     procedure SetValue(const Tile: TPathMapTile; const Value: Single); {$ifdef INLINESUPPORT}inline;{$endif}
   {$ifdef AUTOREFCOUNT}protected{$else}public{$endif}
     destructor Destroy; override;
   public
-    constructor Create(const AHighTile: TPathMapTile);
+    constructor Create;
 
-    property HighTile: TPathMapTile read FHighTile;
     property Handle: TCPFHandle read FHandle;
     property Values[const Tile: TPathMapTile]: Single read GetValue write SetValue; default;
   end;
@@ -141,7 +144,6 @@ type
     FWidth: Word;
     FHeight: Word;
     FKind: TPathMapKind;
-    FHighTile: TPathMapTile;
     FSectorTest: Boolean;
     FCaching: Boolean;
 
@@ -150,14 +152,13 @@ type
   {$ifdef AUTOREFCOUNT}protected{$else}public{$endif}
     destructor Destroy; override;
   public
-    constructor Create(const AWidth, AHeight: Word; const AKind: TPathMapKind = mkSimple; const AHighTile: TPathMapTile = 0);
+    constructor Create(const AWidth, AHeight: Word; const AKind: TPathMapKind = mkSimple);
     procedure Clear(); {$ifdef INLINESUPPORT}inline;{$endif}
     procedure Update(const ATiles: PPathMapTile; const X, Y, AWidth, AHeight: Word; const Pitch: NativeInt = 0); {$ifdef INLINESUPPORT}inline;{$endif}
 
     property Width: Word read FWidth;
     property Height: Word read FHeight;
     property Kind: TPathMapKind read FKind;
-    property HighTile: TPathMapTile read FHighTile;
     property SectorTest: Boolean read FSectorTest write FSectorTest;
     property Caching: Boolean read FCaching write FCaching;
     property Handle: TCPFHandle read FHandle;
@@ -177,11 +178,11 @@ type
 const
   cpf_lib = 'cpf.dll';
 
-function  cpfCreateWeights(HighTile: TPathMapTile): TCPFHandle; cdecl; external cpf_lib;
+function  cpfCreateWeights: TCPFHandle; cdecl; external cpf_lib;
 procedure cpfDestroyWeights(var HWeights: TCPFHandle); cdecl; external cpf_lib;
 function  cpfWeightGet(HWeights: TCPFHandle; Tile: TPathMapTile): Single; cdecl; external cpf_lib;
 procedure cpfWeightSet(HWeights: TCPFHandle; Tile: TPathMapTile; Value: Single); cdecl; external cpf_lib;
-function  cpfCreateMap(Width, Height: Word; Kind: TPathMapKind = mkSimple; HighTile: TPathMapTile = 0): TCPFHandle; cdecl; external cpf_lib;
+function  cpfCreateMap(Width, Height: Word; Kind: TPathMapKind = mkSimple): TCPFHandle; cdecl; external cpf_lib;
 procedure cpfDestroyMap(var HMap: TCPFHandle); cdecl; external cpf_lib;
 procedure cpfMapClear(HMap: TCPFHandle); cdecl; external cpf_lib;
 procedure cpfMapUpdate(HMap: TCPFHandle; Tiles: PPathMapTile; X, Y, Width, Height: Word; Pitch: NativeInt = 0); cdecl; external cpf_lib;
@@ -269,12 +270,10 @@ end;
 
 { TPathMapWeights }
 
-constructor TPathMapWeights.Create(const AHighTile: TPathMapTile);
+constructor TPathMapWeights.Create;
 begin
   inherited Create;
-
-  FHighTile := AHighTile;
-  FHandle := cpfCreateWeights(AHighTile);
+  FHandle := cpfCreateWeights;
 end;
 
 destructor TPathMapWeights.Destroy;
@@ -297,19 +296,17 @@ end;
 
 { TPathMap }
 
-constructor TPathMap.Create(const AWidth, AHeight: Word;
-  const AKind: TPathMapKind; const AHighTile: TPathMapTile);
+constructor TPathMap.Create(const AWidth, AHeight: Word; const AKind: TPathMapKind);
 begin
   inherited Create;
 
   FWidth := AWidth;
   FHeight := AHeight;
   FKind := AKind;
-  FHighTile := AHighTile;
   FSectorTest := False;
   FCaching := True;
 
-  FHandle := cpfCreateMap(AWidth, AHeight, AKind, AHighTile);
+  FHandle := cpfCreateMap(AWidth, AHeight, AKind);
 end;
 
 destructor TPathMap.Destroy;

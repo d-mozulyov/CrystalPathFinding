@@ -142,6 +142,11 @@ type
   TPathMapTile = type Byte;
   PPathMapTile = ^TPathMapTile;
 
+const
+  // map tile barrier
+  TILE_BARRIER = TPathMapTile(0);
+
+type
   // map kind
   TPathMapKind = (mkSimple, mkDiagonal, mkDiagonalEx, mkHexagonal);
   PPathMapKind = ^TPathMapKind;
@@ -188,24 +193,29 @@ type
   end;
 
   // internal tile weight storage
-  PCPFWeights = ^TCPFWeights;
-  TCPFWeights = object
+  PCPFWeightsInfo = ^TCPFWeightsInfo;
+  TCPFWeightsInfo = object
   public
-    {class} function NewInstance(const ACount: Cardinal; const Address: Pointer): PCPFWeights;
-    procedure Release(const Address: Pointer);
-  public
+    Count: Cardinal;
+    Singles: array[1..255] of Cardinal{Single};
     RefCount: Cardinal;
     UpdateId: Cardinal;
-    Count: Cardinal;
-    Values: array[0..0] of Single;
+
+    {class} function NewInstance(const Address: Pointer): PCPFWeightsInfo;
+    procedure Release(const Address: Pointer);
+  public
+    PrepareId: Cardinal;
+    Scale: Double;
+
+    procedure Prepare;
   end;
 
   // map weights
   TPathMapWeights = {$ifdef CPFLIB}object{$else}class{$endif}(TCPFClass)
   private
-    FWeights: PCPFWeights;
-    FHighTile: TPathMapTile;
+    FInfo: PCPFWeightsInfo;
 
+    procedure RaiseBarrierTile;
     function GetValue(const Tile: TPathMapTile): Single;
     procedure SetValue(const Tile: TPathMapTile; const Value: Single);
   {$ifdef CPFLIB}
@@ -216,13 +226,12 @@ type
     destructor Destroy; override;
   {$endif}
   public
-    {$ifdef CPFLIB}procedure{$else}constructor{$endif}
-      Create(const AHighTile: TPathMapTile);
+    {$ifdef CPFLIB}procedure{$else}constructor{$endif} Create;
 
-    property HighTile: TPathMapTile read FHighTile;
     property Values[const Tile: TPathMapTile]: Single read GetValue write SetValue; default;
   end;
   TPathMapWeightsPtr = {$ifdef CPFLIB}^{$endif}TPathMapWeights;
+
 
   // compact cell coordinates
   PCPFPoint = ^TCPFPoint;
@@ -287,15 +296,12 @@ type
     Buffers: array[0..31] of NativeUInt{Pointer};
   end;
 
-  PCardinalList = ^TCardinalList;
-  TCardinalList = array[0..High(Integer) div SizeOf(Cardinal) - 1] of Cardinal;
-
   TCPFMapInfo = record
     Cells: PCPFMapCellArray;
     MapWidth: NativeInt;
     HeuristicsLine: NativeInt;
     HeuristicsDiagonal: NativeInt;
-    TileWeights: array[0..1] of PCardinalList;
+    TileWeights: array[0..1] of Pointer{PCardinalList};
     CellOffsets: array[0..7] of NativeInt;
     FinishPoint: TCPFPoint;
     NodeStorage: TCPFNodeStorage;
@@ -321,8 +327,12 @@ type
     FHeight: Word;
     FCellCount: NativeUInt;
     FPathLengthLimit: NativeUInt;
+    FTileWeightScale: Double;
+    FTileWeightLimit: Cardinal;
+    FTileDiagonalWeightLimit: Cardinal;
+    FTileWeightMinimum: Cardinal;
+    FTileDiagonalWeightMinimum: Cardinal;
     FKind: TPathMapKind;
-    FHighTile: TPathMapTile;
     FSectorTest: Boolean;
     FCaching: Boolean;
 
@@ -345,9 +355,14 @@ type
       PathlessFinishPoint: TPoint;
 
       Weights: record
-        Current: PCPFWeights;
+        Current: PCPFWeightsInfo;
         UpdateId: Cardinal;
-        Default: PCPFWeights;
+        Count: Cardinal;
+
+        Cardinals: array[0..255] of Cardinal;
+        CardinalsDiagonal: array[0..255] of Cardinal;
+        Singles: array[0..255] of Single;
+        SinglesDiagonal: array[0..255] of Single;
       end;
       StartPoints: record
         Buffer: TCPFBuffer;
@@ -366,7 +381,7 @@ type
       // todo
     end;
 
-    function ActualizeWeigths(Weigths: PCPFWeights; Compare: Boolean): Boolean;
+    function ActualizeWeights(Weights: PCPFWeightsInfo; Compare: Boolean): Boolean;
     function ActualizeStartPoints(Points: PPoint; Count: NativeUInt; Compare: Boolean): Boolean;
     function ActualizeExcludedPoints(Points: PPoint; Count: NativeUInt; Compare: Boolean): Boolean;
     procedure ActualizeSectors;
@@ -382,14 +397,13 @@ type
   {$endif}
   public
     {$ifdef CPFLIB}procedure{$else}constructor{$endif}
-      Create(const AWidth, AHeight: Word; const AKind: TPathMapKind; const AHighTile: TPathMapTile);
+      Create(const AWidth, AHeight: Word; const AKind: TPathMapKind);
     procedure Clear();
     procedure Update(const ATiles: PPathMapTile; const X, Y, AWidth, AHeight: Word; const Pitch: NativeInt = 0);
 
     property Width: Word read FWidth;
     property Height: Word read FHeight;
     property Kind: TPathMapKind read FKind;
-    property HighTile: TPathMapTile read FHighTile;
     property SectorTest: Boolean read FSectorTest write FSectorTest;
     property Caching: Boolean read FCaching write FCaching;
     property Tiles[const X, Y: Word]: TPathMapTile read GetTile write SetTile; default;
@@ -423,11 +437,11 @@ type
   procedure cpfInitialize(const Callbacks: TCPFCallbacks); cdecl;
   {$endif}
 
-  function  cpfCreateWeights(HighTile: TPathMapTile): TCPFHandle; cdecl;
+  function  cpfCreateWeights(): TCPFHandle; cdecl;
   procedure cpfDestroyWeights(var HWeights: TCPFHandle); cdecl;
   function  cpfWeightGet(HWeights: TCPFHandle; Tile: TPathMapTile): Single; cdecl;
-  procedure cpfWeightSet(HWeights: TCPFHandle; Tile: TPathMapTile; Value: Single); cdecl;
-  function  cpfCreateMap(Width, Height: Word; Kind: TPathMapKind = mkSimple; HighTile: TPathMapTile = 0): TCPFHandle; cdecl;
+  procedure CPFWeightsInfoet(HWeights: TCPFHandle; Tile: TPathMapTile; Value: Single); cdecl;
+  function  cpfCreateMap(Width, Height: Word; Kind: TPathMapKind = mkSimple): TCPFHandle; cdecl;
   procedure cpfDestroyMap(var HMap: TCPFHandle); cdecl;
   procedure cpfMapClear(HMap: TCPFHandle); cdecl;
   procedure cpfMapUpdate(HMap: TCPFHandle; Tiles: PPathMapTile; X, Y, Width, Height: Word; Pitch: NativeInt = 0); cdecl;
@@ -856,12 +870,6 @@ begin
 {$endif}
 end;
 
-procedure RaiseInvalidTile(const Tile, HighTile: TPathMapTile; const Address: Pointer);
-begin
-  CPFExceptionFmt('Invalid tile %d, high tile is %d', [Tile, HighTile], Address);
-end;
-
-
 function CPFAlloc(const Size: NativeUInt; const Address: Pointer): Pointer;
 begin
   if (Size = 0) then
@@ -965,13 +973,13 @@ begin
   TCPFClassPtr(Result).FCallAddress := Address;
 end;
 
-function  cpfCreateWeights(HighTile: TPathMapTile): TCPFHandle; cdecl;
+function  cpfCreateWeights(): TCPFHandle; cdecl;
 var
   Address: Pointer;
 begin
   Address := ReturnAddress;
   Result := NewCPFClassInstance({$ifdef CPFLIB}SizeOf{$endif}(TPathMapWeights), Address);
-  TPathMapWeightsPtr(Result).Create(HighTile);
+  TPathMapWeightsPtr(Result).Create;
 end;
 
 procedure cpfDestroyWeights(var HWeights: TCPFHandle); cdecl;
@@ -1008,7 +1016,7 @@ begin
   Result := TPathMapWeightsPtr(HWeights).Values[Tile];
 end;
 
-procedure cpfWeightSet(HWeights: TCPFHandle; Tile: TPathMapTile; Value: Single); cdecl;
+procedure CPFWeightsInfoet(HWeights: TCPFHandle; Tile: TPathMapTile; Value: Single); cdecl;
 var
   Address: Pointer;
 begin
@@ -1019,13 +1027,13 @@ begin
   TPathMapWeightsPtr(HWeights).Values[Tile] := Value;
 end;
 
-function  cpfCreateMap(Width, Height: Word; Kind: TPathMapKind = mkSimple; HighTile: TPathMapTile = 0): TCPFHandle; cdecl;
+function  cpfCreateMap(Width, Height: Word; Kind: TPathMapKind = mkSimple): TCPFHandle; cdecl;
 var
   Address: Pointer;
 begin
   Address := ReturnAddress;
   Result := NewCPFClassInstance({$ifdef CPFLIB}SizeOf{$endif}(TPathMap), Address);
-  TPathMapPtr(Result).Create(Width, Height, Kind, HighTile);
+  TPathMapPtr(Result).Create(Width, Height, Kind);
 end;
 
 procedure cpfDestroyMap(var HMap: TCPFHandle); cdecl;
@@ -1261,43 +1269,6 @@ end;
 procedure TCPFBuffer.Free;
 begin
   TCPFClassPtr(FOwner).CPFFreeMem(FMemory);
-end;
-
-{ TCPFWeights }
-
-{class} function TCPFWeights.NewInstance(const ACount: Cardinal; const Address: Pointer): PCPFWeights;
-var
-  One: Cardinal;
-begin
-  // allocate
-  Result := CPFAlloc(SizeOf(TCPFWeights) - SizeOf(Single) + ACount * SizeOf(Single),
-    Address);
-
-  // fill
-  Result.RefCount := 1;
-  Result.UpdateId := 1;
-  Result.Count := ACount;
-
-  // default values
-  PSingle(@One)^ := 1.0;
-  FillCardinal(Pointer(@Result.Values[0]), ACount, One);
-end;
-
-procedure TCPFWeights.Release(const Address: Pointer);
-var
-  Cnt: Cardinal;
-begin
-  if (@Self = nil) then Exit; 
-
-  Cnt := Self.RefCount;
-  if (Cnt <> 1) then
-  begin
-    Dec(Cnt);
-    Self.RefCount := Cnt;
-  end else
-  begin
-    CPFFree(@Self, Address);
-  end;
 end;
 
 
@@ -1730,22 +1701,86 @@ begin
 end;
 {$endif}
 
+
+{ TCPFWeightsInfo }
+
+{class} function TCPFWeightsInfo.NewInstance(const Address: Pointer): PCPFWeightsInfo;
+begin
+  // allocate
+  Result := CPFAlloc(SizeOf(TCPFWeightsInfo), Address);
+
+  // fill
+  Result.RefCount := 1;
+  Result.UpdateId := 1;
+  Result.PrepareId := 1;
+  Result.Count := 0;
+  Result.Scale := 1.0;
+
+  // default values
+  FillCardinal(@Result.Singles[1], Length(Result.Singles), DEFAULT_WEIGHT_VALUE);
+end;
+
+procedure TCPFWeightsInfo.Release(const Address: Pointer);
+var
+  Cnt: Cardinal;
+begin
+  if (@Self = nil) then Exit;
+
+  Cnt := Self.RefCount;
+  if (Cnt <> 1) then
+  begin
+    Dec(Cnt);
+    Self.RefCount := Cnt;
+  end else
+  begin
+    CPFFree(@Self, Address);
+  end;
+end;
+
+procedure TCPFWeightsInfo.Prepare;
+var
+  Minimum: Cardinal{Single};
+  Maximum: Cardinal{Single};
+  PValue, PHighValue: PCardinal;
+  Value: Cardinal;
+  Mn, Mx: Single;
+begin
+  if (UpdateId = PrepareId) then Exit;
+  PrepareId := UpdateId;
+
+  PValue := @Singles[1];
+  PHighValue := @Singles[Count + 1];
+  Minimum := DEFAULT_WEIGHT_VALUE;
+  Maximum := DEFAULT_WEIGHT_VALUE;
+  while (PValue <> PHighValue) do
+  begin
+    Value := PValue^;
+
+    if (Value <> 0) then
+    begin
+      if (Value >= Maximum) then Maximum := Value
+      else
+      if (Value < Minimum) then Minimum := Value;
+    end;
+
+    Inc(PValue);
+  end;
+
+  PCardinal(@Mn)^ := Minimum;
+  PCardinal(@Mx)^ := Maximum;
+  Scale := Mn / Mx;
+end;
+
 { TPathMapWeights }
 
-{$ifdef CPFLIB}procedure{$else}constructor{$endif}
-  TPathMapWeights.Create(const AHighTile: TPathMapTile);
+{$ifdef CPFLIB}procedure{$else}constructor{$endif} TPathMapWeights.Create;
 begin
   {$ifNdef CPFLIB}
     FCallAddress := ReturnAddress;
     inherited Create;
   {$endif}
 
-  if (AHighTile = $FF) then
-    CPFException('High tile can''t be equal 255(0xFF), it means a barrier');
-
-  FHighTile := AHighTile;
-
-  FWeights := PCPFWeights(nil).NewInstance(NativeUInt(FHighTile) + 1, FCallAddress)
+  FInfo := PCPFWeightsInfo(nil).NewInstance(FCallAddress)
 end;
 
 {$ifdef CPFLIB}procedure{$else}destructor{$endif}
@@ -1755,49 +1790,87 @@ begin
     FCallAddress := ReturnAddress;
   {$endif}
 
-  FWeights.Release(FCallAddress);
+  FInfo.Release(FCallAddress);
 
   {$ifNdef CPFLIB}
     inherited;
   {$endif}
 end;
 
+procedure TPathMapWeights.RaiseBarrierTile;
+begin
+  CPFException('Invalid tile index 0, it means a barrier (TILE_BARRIER)');
+end;
 
 function TPathMapWeights.GetValue(const Tile: TPathMapTile): Single;
 begin
-  {$ifNdef CPFLIB}
-    FCallAddress := ReturnAddress;
-  {$endif}
-
-  if (Tile > HighTile) then
+  if (Tile = TILE_BARRIER) then
   begin
-    RaiseInvalidTile(Tile, HighTile, FCallAddress);
+    {$ifNdef CPFLIB}
+      FCallAddress := ReturnAddress;
+    {$endif}
+    RaiseBarrierTile;
     Result := 0;
   end else
   begin
-    Result := FWeights.Values[Tile];
+    Result := PSingle(@FInfo.Singles[Tile])^;
   end;
 end;
 
 procedure TPathMapWeights.SetValue(const Tile: TPathMapTile;
   const Value: Single);
+label
+  fillcount;
 var
-  PValue: PSingle;
+  PValue: PCardinal;
+  V: Cardinal;
+  Index: NativeUInt;
+  Info: PCPFWeightsInfo;
 begin
-  {$ifNdef CPFLIB}
-    FCallAddress := ReturnAddress;
-  {$endif}
-
-  if (Tile > HighTile) then
+  V := PCardinal(@Value)^;
+  if (Tile = TILE_BARRIER) or (V > MAX_WEIGHT_VALUE) then
   begin
-    RaiseInvalidTile(Tile, HighTile, FCallAddress);
+    {$ifNdef CPFLIB}
+      FCallAddress := ReturnAddress;
+    {$endif}
+    if (Tile = TILE_BARRIER) then
+    begin
+      RaiseBarrierTile;
+    end else
+    begin
+      CPFException(ERROR_WEIGHT_VALUE);
+    end;
   end else
   begin
-    PValue := @FWeights.Values[Tile];
-    if (PValue^ <> Value) then
+    Info := FInfo;
+    V := V and (Integer(Byte(V < MIN_WEIGHT_VALUE)) - 1); // 0..0,1 --> 0
+    Index := Tile;
+    PValue := @Info.Singles[Index];
+
+    if (PValue^ <> V) then
     begin
-      PValue^ := Value;
-      Inc(FWeights.UpdateId);
+      PValue^ := V;
+      Inc(Info.UpdateId);
+
+      if (V = DEFAULT_WEIGHT_VALUE) then
+      begin
+        if (Index = Info.Count) then
+        begin
+          repeat
+            Dec(PValue);
+            Dec(Index);
+            if (PValue = @Info.Count{Index = 0}) or
+              (PValue^ <> DEFAULT_WEIGHT_VALUE) then Break;
+          until (False);
+
+          goto fillcount;
+        end;
+      end else
+      if (Index > Info.Count) then
+      begin
+        fillcount:
+        Info.Count := Index;
+      end;
     end;
   end;
 end;
@@ -1806,11 +1879,11 @@ end;
 { TPathMap }
 
 {$ifdef CPFLIB}procedure{$else}constructor{$endif}
-  TPathMap.Create(const AWidth, AHeight: Word; const AKind: TPathMapKind;
-    const AHighTile: TPathMapTile);
+  TPathMap.Create(const AWidth, AHeight: Word; const AKind: TPathMapKind);
 var
   i: NativeInt;
   Size: NativeUInt;
+  Max, Min: NativeUInt;
 begin
   {$ifNdef CPFLIB}
     FCallAddress := ReturnAddress;
@@ -1830,25 +1903,43 @@ begin
 
     if (Ord(AKind) > Ord(High(TPathMapKind))) then
       CPFExceptionFmt('Incorrect map kind: %d, high value mkHexagonal is %d', [Ord(AKind), Ord(High(TPathMapKind))]);
-
-    if (AHighTile = $FF) then
-      CPFException('High tile can''t be equal 255(0xFF), it means a barrier');
   end;
 
   // fill parameters
   FWidth := AWidth;
   FHeight := AHeight;
   FKind := AKind;
-  FHighTile := AHighTile;
-  FPathLengthLimit := (FCellCount div 2) + 1;
   FInfo.MapWidth := AWidth;
   FSectorTest := False;
   FCaching := True;
+
+  // path/weight limit parameters
+  Max := AWidth;
+  Min := AHeight;
+  if (Max < Min) then
+  begin
+    Max := AHeight;
+    Min := AWidth;
+  end;
+  FPathLengthLimit := ((Min + 1) shr 1) * Max + (Min shr 1);
+  FTileWeightScale := SORTVALUE_LIMIT / FPathLengthLimit;
+  FTileWeightLimit := CPFRound(FTileWeightScale) - 1;
+  FTileDiagonalWeightLimit := CPFRound(FTileWeightLimit * SQRT2);
+  if (AKind in [mkDiagonal, mkDiagonalEx]) then
+  begin
+    FTileWeightMinimum := 2;
+    FTileDiagonalWeightMinimum := 3;
+  end else
+  begin
+    FTileWeightMinimum := 1;
+    FTileDiagonalWeightMinimum := 1;
+  end;
 
   // "actual" information
   FActualInfo.TilesChanged := True;
   FActualInfo.FinishPoint.X := -1;
   FActualInfo.FinishPoint.Y := -1;
+  FActualInfo.Weights.Count := 255;
 
   // offsets
   for i := 0 to 7 do
@@ -1859,9 +1950,6 @@ begin
   FActualInfo.StartPoints.Buffer.Initialize(Self);
   FActualInfo.ExcludedPoints.Buffer.Initialize(Self);
   FActualInfo.FoundPath.Buffer.Initialize(Self);
-
-  // default tile weights
-  FActualInfo.Weights.Default := PCPFWeights(nil).NewInstance(FHighTile + 1, FCallAddress);
 
   // allocate and fill cells
   Size := FCellCount * SizeOf(TCPFMapCell);
@@ -1882,9 +1970,8 @@ begin
     FCallAddress := ReturnAddress;
   {$endif}
 
-  // tile weigths
+  // tile Weights
   FActualInfo.Weights.Current.Release(FCallAddress);
-  FActualInfo.Weights.Default.Release(FCallAddress);
 
   // internal buffers
   FActualInfo.StartPoints.Buffer.Free;
@@ -2162,10 +2249,81 @@ begin
   end;
 end; *)
 
-function TPathMap.ActualizeWeigths(Weigths: PCPFWeights; Compare: Boolean): Boolean;
+function TPathMap.ActualizeWeights(Weights: PCPFWeightsInfo; Compare: Boolean): Boolean;
+label
+  return_false;
+var
+  Count: Cardinal;
+  ClearFirst, ClearHigh: NativeUInt;
+  i: NativeUInt;
 begin
-  Result := Compare;
-  // todo
+  if (Weights = nil) then
+  begin
+    if (FActualInfo.Weights.Current <> nil) then
+    begin
+      FActualInfo.Weights.Current.Release(FCallAddress);
+      FActualInfo.Weights.Current := nil;
+    end;
+
+    if (FActualInfo.Weights.Count = 0) then
+    begin
+      Result := True;
+      Exit;
+    end;
+
+    ClearFirst := 1;
+    ClearHigh := FActualInfo.Weights.Count;
+    FActualInfo.Weights.Count := 0;
+  end else
+  if (FActualInfo.Weights.Current = Weights) and
+    (FActualInfo.Weights.UpdateId = Weights.UpdateId) then
+  begin
+    Result := True;
+    Exit;
+  end else
+  begin
+    // prepair scale
+    if (Weights.PrepareId <> Weights.UpdateId) then
+      Weights.Prepare;
+
+    // release/addref
+    if (FActualInfo.Weights.Current <> Weights) then
+    begin
+      if (FActualInfo.Weights.Current <> nil) then
+        FActualInfo.Weights.Current.Release(FCallAddress);
+
+      FActualInfo.Weights.Current := Weights;
+      Inc(Weights.RefCount);
+    end;
+    FActualInfo.Weights.UpdateId := Weights.UpdateId;
+
+    // compare
+    Count := Weights.Count;
+    if (Compare) and (FActualInfo.Weights.Count = Count) and
+      (CompareMem(@FActualInfo.Weights.Singles, @Weights.Singles, SizeOf(Single) * Count)) then
+    begin
+      Result := True;
+      Exit;
+    end;
+
+    // copy count items
+    // todo
+
+    // clear counts
+    ClearHigh := FActualInfo.Weights.Count;
+    FActualInfo.Weights.Count := Count;
+    if (Count >= ClearHigh) then goto return_false;
+    ClearFirst := Count + 1;
+  end;
+
+  // clear default values
+  for i := ClearFirst to ClearHigh do
+  begin
+
+  end;
+
+return_false:
+  Result := False;
 end;
 
 function TPathMap.ActualizeStartPoints(Points: PPoint; Count: NativeUInt; Compare: Boolean): Boolean;
@@ -2360,6 +2518,8 @@ const
 type
   TMapNodeBuffer = array[0..7] of PCPFMapNode;
   TNodeStorageBuffers = array[0..31] of NativeUInt;
+  TCardinalList = array[0..High(Integer) div SizeOf(Cardinal) - 1] of Cardinal;
+  PCardinalList = ^TCardinalList;
 var
   Node: PCPFMapNode;
   NodeInfo: NativeUInt;
@@ -2808,10 +2968,10 @@ begin
     // tile weights
     if (Parameters.Weights = nil) then
     begin
-      R := ActualizeWeigths(FActualInfo.Weights.Default, Actual);
+      R := ActualizeWeights(nil, Actual);
     end else
     begin
-      R := ActualizeWeigths(Parameters.Weights.FWeights, Actual);
+      R := ActualizeWeights(Parameters.Weights.FInfo, Actual);
     end;
     Actual := R and Actual;
 
@@ -2991,8 +3151,8 @@ initialization
     {$else}
       //TestNodesInsert(0);
     {$endif}
-  TPathMap(nil).DoFindPath(TPathMapFindParameters(nil^));
-  TPathMapPtr(nil).DoFindPathLoop(nil);
+ // TPathMap(nil).DoFindPath(TPathMapFindParameters(nil^));
+ // TPathMapPtr(nil).DoFindPathLoop(nil);
   {$ifend}
 
 end.

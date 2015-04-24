@@ -24,6 +24,9 @@
   // kind of map
   typedef unsigned char TPathMapKind; enum {mkSimple, mkDiagonal, mkDiagonalEx, mkHexagonal}; /*sizeof(TPathMapKind) = 1*/
 
+  // map tile barrier
+  #define TILE_BARRIER 0
+  
   // result of find path function
   struct TPathMapResult
   {
@@ -51,11 +54,11 @@ namespace cpf_routine
 {
   HINSTANCE cpf_dll=0;
 
-  typedef TCPFHandle (*CPF_PROC_CREATE_WEIGHTS)(TPathMapTile HighTile);
+  typedef TCPFHandle (*CPF_PROC_CREATE_WEIGHTS)();
   typedef void (*CPF_PROC_DESTROY_WEIGHTS)(TCPFHandle& HWeights);
   typedef float (*CPF_PROC_WEIGHT_GET)(TCPFHandle HWeights, TPathMapTile Tile);
   typedef void (*CPF_PROC_WEIGHT_SET)(TCPFHandle HWeights, TPathMapTile Tile, float Value);
-  typedef TCPFHandle (*CPF_PROC_CREATE_MAP)(word Width, word Height, TPathMapKind Kind, TPathMapTile HighTile);
+  typedef TCPFHandle (*CPF_PROC_CREATE_MAP)(word Width, word Height, TPathMapKind Kind);
   typedef void (*CPF_PROC_DESTROY_MAP)(TCPFHandle& HMap);
   typedef void (*CPF_PROC_MAP_CLEAR)(TCPFHandle HMap);
   typedef TPathMapTile (*CPF_PROC_MAP_GET_TILE)(TCPFHandle HMap, word X, word Y);
@@ -114,11 +117,11 @@ struct TCpfInitializator
 
 
 //  -------------------------  used functions  --------------------------------
-TCPFHandle cpfCreateWeights(TPathMapTile HighTile)/*;*/{return cpf_routine::__cpfCreateWeights(HighTile);}
+TCPFHandle cpfCreateWeights()/*;*/{return cpf_routine::__cpfCreateWeights();}
 void    cpfDestroyWeights(TCPFHandle& HWeights)/*;*/{cpf_routine::__cpfDestroyWeights(HWeights);}
 float   cpfWeightGet(TCPFHandle HWeights, TPathMapTile Tile)/*;*/{return cpf_routine::__cpfWeightGet(HWeights, Tile);}
 void    cpfWeightSet(TCPFHandle HWeights, TPathMapTile Tile, float Value)/*;*/{cpf_routine::__cpfWeightSet(HWeights, Tile, Value);}
-TCPFHandle cpfCreateMap(word Width, word Height, TPathMapKind Kind=mkSimple, TPathMapTile HighTile=0)/*;*/{return cpf_routine::__cpfCreateMap(Width, Height, Mode, HighTile);}
+TCPFHandle cpfCreateMap(word Width, word Height, TPathMapKind Kind=mkSimple)/*;*/{return cpf_routine::__cpfCreateMap(Width, Height, Mode);}
 void    cpfDestroyMap(TCPFHandle& HMap)/*;*/{cpf_routine::__cpfDestroyMap(HMap);}
 void    cpfMapClear(TCPFHandle HMap)/*;*/{cpf_routine::__cpfMapClear(HMap);}
 TPathMapTile cpfMapGetTile(TCPFHandle HMap, word X, word Y)/*;*/{return cpf_routine::__cpfMapGetTile(HMap, X, Y);}

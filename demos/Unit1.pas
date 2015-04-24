@@ -59,19 +59,19 @@ type
   TForm1 = class(TForm)
     PaintBox1: TPaintBox;
     GroupBox1: TGroupBox;
-    pbTile0: TPaintBox;
     pbTile1: TPaintBox;
     pbTile2: TPaintBox;
     pbTile3: TPaintBox;
-    sbTile0: TScrollBar;
-    lbTile0: TLabel;
-    cbUseWeights: TCheckBox;
+    pbTile4: TPaintBox;
     sbTile1: TScrollBar;
     lbTile1: TLabel;
+    cbUseWeights: TCheckBox;
     sbTile2: TScrollBar;
     lbTile2: TLabel;
     sbTile3: TScrollBar;
     lbTile3: TLabel;
+    sbTile4: TScrollBar;
+    lbTile4: TLabel;
     GroupBox3: TGroupBox;
     pbClear: TPaintBox;
     pbExclude: TPaintBox;
@@ -158,7 +158,7 @@ var
   MapBitmap: TBitmap;
   TileBitmaps: array[0..TILES_COUNT*3-1] of TBitmap;
   WhiteCell, GreyCell: TBitmap;
-  MaskHex45, MaskHex60: TBitmap;
+  {MaskHex45,} MaskHex60: TBitmap;
 
 
   // рабочие объекты библиотеки cpf
@@ -208,19 +208,19 @@ begin
   end;
   WhiteCell := LoadBitmap('white.bmp');
   GreyCell := LoadBitmap('grey.bmp');
-  MaskHex45 := LoadBitmap('hex45.bmp');
+  //MaskHex45 := LoadBitmap('hex45.bmp');
   MaskHex60 := LoadBitmap('hex60.bmp');
 
 
   // инициализация рабочих данных
-  HWeights := cpfCreateWeights(TILES_COUNT-1);
+  HWeights := cpfCreateWeights;
   UseWeights := true;
   SectorTest := true;
   Caching := false;
-  sbTile0.Position := round(1.0 *20);
-  sbTile1.Position := round(1.5 *20);
-  sbTile2.Position := round(2.5 *20);
-  sbTile3.Position := round(6.0 *20);
+  sbTile1.Position := round(1.0 *20);
+  sbTile2.Position := round(1.5 *20);
+  sbTile3.Position := round(2.5 *20);
+  sbTile4.Position := round(6.0 *20);
   StartPoint := Point(5, 9);
   FinishPoint := Point(24, 9);
   MousePressed := mbMiddle; // типа и не левая и не правая
@@ -241,10 +241,10 @@ begin
     cbSectorTest.Checked := ReadBool;
     rgMapKind.ItemIndex := byte(FMapKind);
 
-    sbTile0.Position := ReadInt;
     sbTile1.Position := ReadInt;
     sbTile2.Position := ReadInt;
     sbTile3.Position := ReadInt;
+    sbTile4.Position := ReadInt;
     seIterationsCount.Value := ReadInt;
 
     Len := ReadInt;
@@ -281,7 +281,7 @@ begin
 
   WhiteCell.Free;
   GreyCell.Free;
-  MaskHex45.Free;
+  //MaskHex45.Free;
   MaskHex60.Free;
 end;
 
@@ -308,10 +308,10 @@ begin
   WriteBool(cbCaching.Checked);
   WriteBool(cbSectorTest.Checked);   
 
-  WriteInt(sbTile0.Position);
   WriteInt(sbTile1.Position);
   WriteInt(sbTile2.Position);
   WriteInt(sbTile3.Position);
+  WriteInt(sbTile4.Position);
   WriteInt(seIterationsCount.Value);
 
   Len := Length(ExcludedPoints);
@@ -331,10 +331,10 @@ begin
 
   begin
     ZeroMemory(@TILE_MAP, sizeof(TILE_MAP));
-    sbTile0.Position := round(1.0 *20);
-    sbTile1.Position := round(1.5 *20);
-    sbTile2.Position := round(2.5 *20);
-    sbTile3.Position := round(6.0 *20);
+    sbTile1.Position := round(1.0 *20);
+    sbTile2.Position := round(1.5 *20);
+    sbTile3.Position := round(2.5 *20);
+    sbTile4.Position := round(6.0 *20);
     StartPoint := Point(5, 9);
     FinishPoint := Point(24, 9);
     ExcludedPoints := nil;
@@ -346,14 +346,14 @@ begin
   end;
 
   MapBitmap := BufMapBitmap;
-  TileMode := 0;
+  TileMode := 1;
   ClearMode := 0;
   RecreateMap();
 end;
 
 procedure TForm1.btnRandomClick(Sender: TObject);
 var
-  i, j, value: integer;
+  i, j: integer;
   BufMapBitmap: TBitmap;
 
   function random_bool: boolean;
@@ -373,14 +373,12 @@ begin
     for i := 0 to MAP_WIDTH-1 do
     for j := 0 to MAP_HEIGHT-1 do
     begin
-      value := random(TILES_COUNT+1);
-      if (value = TILES_COUNT) then value := $FF;
-      TILE_MAP[j, i] := value;
+      TILE_MAP[j, i] := random(TILES_COUNT+1);
     end;
-    sbTile0.Position := random(200);
     sbTile1.Position := random(200);
     sbTile2.Position := random(200);
     sbTile3.Position := random(200);
+    sbTile4.Position := random(200);
     StartPoint := random_point;
     FinishPoint := random_point;
     ExcludedPoints := nil;
@@ -393,7 +391,7 @@ begin
   end;
 
   MapBitmap := BufMapBitmap;
-  TileMode := 0;
+  TileMode := 1;
   ClearMode := 0;
   RecreateMap();
 end;
@@ -425,7 +423,7 @@ begin
   if (HMap <> 0) then cpfDestroyMap(HMap);
 
   // создать карту
-  HMap := cpfCreateMap(MAP_WIDTH, MAP_HEIGHT, MapKind, TILES_COUNT-1);
+  HMap := cpfCreateMap(MAP_WIDTH, MAP_HEIGHT, MapKind);
 
   // заполнить
   cpfMapUpdate(HMap, PPathMapTile(@TILE_MAP[0, 0]), 0, 0, MAP_WIDTH, MAP_HEIGHT);
@@ -461,7 +459,7 @@ begin
   if (TileNum < 0) then
   begin
     // правая кнопка мыши
-    ClearMode := -TileNum -1;
+    ClearMode := -TileNum;
   end else
   begin
     // конкретный тайл
@@ -487,16 +485,16 @@ begin
   Color := TColor($FFFFFFFF);
   PaintBoxRect := Rect(0, 0, PaintBox.Width, PaintBox.Height);
 
-  if (TileNum >= 0) then
+  if (TileNum > 0) then
   begin
     if (cpfWeightGet(HWeights, TileNum) < 0.1) then Color := clWhite;
     Active := (TileMode=TileNum);
   end else
   begin
-    if (TileNum = -1) then Color := clBlack
+    if (TileNum = 0) then Color := clBlack
     else Color := clGray;
 
-    Active := (ClearMode = (-TileNum-1));
+    Active := (ClearMode = (-TileNum));
   end;
 
   if (Color = TColor($FFFFFFFF)) then
@@ -604,10 +602,10 @@ begin
     // препятствие
     if (ClearMode = 0) then
     begin
-      if (TILE_MAP[P.Y, P.X] <> $FF) then
+      if (TILE_MAP[P.Y, P.X] <> TILE_BARRIER) then
       begin
-        TILE_MAP[P.Y, P.X] := $FF;
-        cpfMapSetTile(HMap, P.X, P.Y, $FF);
+        TILE_MAP[P.Y, P.X] := TILE_BARRIER;
+        cpfMapSetTile(HMap, P.X, P.Y, TILE_BARRIER);
         ExecutePathFinding();
       end;
     end else
@@ -748,7 +746,7 @@ procedure TForm1.SetTileMode(const Value: byte);
 begin
   if (FTileMode = Value) then exit;
   FTileMode := Value;
-  if (MapBitmap <> nil) then RepaintBoxes([pbTile0, pbTile1, pbTile2, pbTile3]);
+  if (MapBitmap <> nil) then RepaintBoxes([pbTile1, pbTile2, pbTile3, pbTile4]);
 end;
 
 procedure TForm1.SetClearMode(const Value: byte);
@@ -829,7 +827,7 @@ var
   Canvas: TCanvas;
   PathPoints: PPointList;
   JI: TJpegImage;
-  used_tiles: array[0..TILES_COUNT-1] of boolean;
+  used_tiles: array[1..TILES_COUNT] of boolean;
 
 
   procedure DrawBitmap(Bitmap: TBitmap);
@@ -845,7 +843,7 @@ var
     end;
   end;
 
-  procedure DrawTile(X, Y: integer; TileNum: byte {255 - excluded});
+  procedure DrawTile(X, Y: integer; TileNum: byte {TILE_BARRIER(0) - excluded});
   begin
     P := MapToScreen(X, Y, false);
     if (P.X >= MAP_WIDTH*TILE_SIZE - TILE_SIZE div 2) or
@@ -853,15 +851,15 @@ var
 
 
     // без тайла
-    if (TileNum = 255) or (not used_tiles[TileNum]) then
+    if (TileNum = TILE_BARRIER) or (not used_tiles[TileNum]) then
     begin
       if (Hexagonal) then
       begin
-        if (TileNum = 255) then DrawBitmap(GreyCell)
+        if (TileNum = TILE_BARRIER) then DrawBitmap(GreyCell)
         else DrawBitmap(WhiteCell);
       end else
       begin
-        if (TileNum = 255) then Canvas.Brush.Color := clGray
+        if (TileNum = TILE_BARRIER) then Canvas.Brush.Color := clGray
         else Canvas.Brush.Color := clWhite;
 
         Canvas.FillRect(Bounds(P.X, P.Y, TILE_SIZE, TILE_SIZE));
@@ -871,7 +869,7 @@ var
     end;
 
     // с тайлом
-    DrawBitmap(TileBitmaps[TileNum*3 + 1 + ord(Hexagonal)]);
+    DrawBitmap(TileBitmaps[(TileNum - 1) * 3 + 1 + ord(Hexagonal)]);
   end;
 
   procedure LineTo(const offsX, offsY: integer);
@@ -884,7 +882,7 @@ var
 begin
   // анализ доступности тайлов
   // какие-то тайлы могут восприниматься как препятствия
-  for TileNum := 0 to TILES_COUNT-1 do
+  for TileNum := 1 to TILES_COUNT do
   used_tiles[TileNum] := (not UseWeights) or (cpfWeightGet(HWeights, TileNum) >= 0.1);
 
 
@@ -909,13 +907,13 @@ begin
   for j := 0 to MAP_HEIGHT-1 do
   begin
     TileNum := TILE_MAP[j, i];
-    if (TileNum < TILES_COUNT) then DrawTile(i, j, TileNum);
+    if (TileNum >= 1) and (TileNum <= TILES_COUNT) then DrawTile(i, j, TileNum);
   end;
 
   // ExcludedPoints
   for i := 0 to Length(ExcludedPoints)-1 do
   with ExcludedPoints[i] do
-  DrawTile(X, Y, 255);
+  DrawTile(X, Y, TILE_BARRIER);
 
 
   // линии

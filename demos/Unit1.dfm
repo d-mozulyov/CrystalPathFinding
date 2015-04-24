@@ -87,18 +87,10 @@ object Form1: TForm1
     ParentShowHint = False
     ShowHint = False
     TabOrder = 0
-    object pbTile0: TPaintBox
-      Left = 10
-      Top = 16
-      Width = 60
-      Height = 60
-      OnClick = OnTileClick
-      OnPaint = OnTilePaint
-    end
     object pbTile1: TPaintBox
       Tag = 1
       Left = 10
-      Top = 95
+      Top = 16
       Width = 60
       Height = 60
       OnClick = OnTileClick
@@ -107,7 +99,7 @@ object Form1: TForm1
     object pbTile2: TPaintBox
       Tag = 2
       Left = 10
-      Top = 174
+      Top = 95
       Width = 60
       Height = 60
       OnClick = OnTileClick
@@ -116,41 +108,51 @@ object Form1: TForm1
     object pbTile3: TPaintBox
       Tag = 3
       Left = 10
+      Top = 174
+      Width = 60
+      Height = 60
+      OnClick = OnTileClick
+      OnPaint = OnTilePaint
+    end
+    object pbTile4: TPaintBox
+      Tag = 4
+      Left = 10
       Top = 253
       Width = 60
       Height = 60
       OnClick = OnTileClick
       OnPaint = OnTilePaint
     end
-    object lbTile0: TLabel
+    object lbTile1: TLabel
       Left = 75
       Top = 66
       Width = 17
       Height = 13
       Caption = 'text'
     end
-    object lbTile1: TLabel
+    object lbTile2: TLabel
       Left = 75
       Top = 144
       Width = 17
       Height = 13
       Caption = 'text'
     end
-    object lbTile2: TLabel
+    object lbTile3: TLabel
       Left = 75
       Top = 223
       Width = 17
       Height = 13
       Caption = 'text'
     end
-    object lbTile3: TLabel
+    object lbTile4: TLabel
       Left = 75
       Top = 303
       Width = 17
       Height = 13
       Caption = 'text'
     end
-    object sbTile0: TScrollBar
+    object sbTile1: TScrollBar
+      Tag = 1
       Left = 11
       Top = 80
       Width = 120
@@ -173,8 +175,8 @@ object Form1: TForm1
       TabOrder = 1
       OnClick = cbUseWeightsClick
     end
-    object sbTile1: TScrollBar
-      Tag = 1
+    object sbTile2: TScrollBar
+      Tag = 2
       Left = 11
       Top = 158
       Width = 120
@@ -184,8 +186,8 @@ object Form1: TForm1
       TabOrder = 2
       OnChange = OnTileWeightChange
     end
-    object sbTile2: TScrollBar
-      Tag = 2
+    object sbTile3: TScrollBar
+      Tag = 3
       Left = 11
       Top = 237
       Width = 120
@@ -195,8 +197,8 @@ object Form1: TForm1
       TabOrder = 3
       OnChange = OnTileWeightChange
     end
-    object sbTile3: TScrollBar
-      Tag = 3
+    object sbTile4: TScrollBar
+      Tag = 4
       Left = 11
       Top = 317
       Width = 120
@@ -215,7 +217,6 @@ object Form1: TForm1
     Caption = '  '#1055#1088#1072#1074#1072#1103' '#1082#1085#1086#1087#1082#1072' '#1084#1099#1096#1080'  '
     TabOrder = 1
     object pbClear: TPaintBox
-      Tag = -1
       Left = 19
       Top = 21
       Width = 45
@@ -227,7 +228,7 @@ object Form1: TForm1
       OnPaint = OnTilePaint
     end
     object pbExclude: TPaintBox
-      Tag = -2
+      Tag = -1
       Left = 70
       Top = 21
       Width = 45
