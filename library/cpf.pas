@@ -152,7 +152,7 @@ type
   {$ifdef AUTOREFCOUNT}protected{$else}public{$endif}
     destructor Destroy; override;
   public
-    constructor Create(const AWidth, AHeight: Word; const AKind: TPathMapKind = mkSimple);
+    constructor Create(const AWidth, AHeight: Word; const AKind: TPathMapKind; const ASameDiagonalWeight: Boolean = False);
     procedure Clear(); {$ifdef INLINESUPPORT}inline;{$endif}
     procedure Update(const ATiles: PPathMapTile; const X, Y, AWidth, AHeight: Word; const Pitch: NativeInt = 0); {$ifdef INLINESUPPORT}inline;{$endif}
 
@@ -182,7 +182,7 @@ function  cpfCreateWeights: TCPFHandle; cdecl; external cpf_lib;
 procedure cpfDestroyWeights(var HWeights: TCPFHandle); cdecl; external cpf_lib;
 function  cpfWeightGet(HWeights: TCPFHandle; Tile: TPathMapTile): Single; cdecl; external cpf_lib;
 procedure cpfWeightSet(HWeights: TCPFHandle; Tile: TPathMapTile; Value: Single); cdecl; external cpf_lib;
-function  cpfCreateMap(Width, Height: Word; Kind: TPathMapKind = mkSimple): TCPFHandle; cdecl; external cpf_lib;
+function  cpfCreateMap(Width, Height: Word; Kind: TPathMapKind; SameDiagonalWeight: Boolean = False): TCPFHandle; cdecl; external cpf_lib;
 procedure cpfDestroyMap(var HMap: TCPFHandle); cdecl; external cpf_lib;
 procedure cpfMapClear(HMap: TCPFHandle); cdecl; external cpf_lib;
 procedure cpfMapUpdate(HMap: TCPFHandle; Tiles: PPathMapTile; X, Y, Width, Height: Word; Pitch: NativeInt = 0); cdecl; external cpf_lib;
@@ -296,7 +296,8 @@ end;
 
 { TPathMap }
 
-constructor TPathMap.Create(const AWidth, AHeight: Word; const AKind: TPathMapKind);
+constructor TPathMap.Create(const AWidth, AHeight: Word; const AKind: TPathMapKind;
+  const ASameDiagonalWeight: Boolean);
 begin
   inherited Create;
 
@@ -306,7 +307,7 @@ begin
   FSectorTest := False;
   FCaching := True;
 
-  FHandle := cpfCreateMap(AWidth, AHeight, AKind);
+  FHandle := cpfCreateMap(AWidth, AHeight, AKind, ASameDiagonalWeight);
 end;
 
 destructor TPathMap.Destroy;

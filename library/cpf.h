@@ -60,7 +60,7 @@ namespace cpf_routine
   typedef void (*CPF_PROC_WEIGHT_SET)(TCPFHandle HWeights, TPathMapTile Tile, float Value);
   typedef TCPFHandle (*CPF_PROC_CREATE_MAP)(word Width, word Height, TPathMapKind Kind);
   typedef void (*CPF_PROC_DESTROY_MAP)(TCPFHandle& HMap);
-  typedef void (*CPF_PROC_MAP_CLEAR)(TCPFHandle HMap);
+  typedef void (*CPF_PROC_MAP_CLEAR)(TCPFHandle HMap, bool SameDiagonalWeight);
   typedef TPathMapTile (*CPF_PROC_MAP_GET_TILE)(TCPFHandle HMap, word X, word Y);
   typedef void (*CPF_PROC_MAP_SET_TILE)(TCPFHandle HMap, word X, word Y, TPathMapTile Value);
   typedef void (*CPF_PROC_MAP_UPDATE)(TCPFHandle HMap, TPathMapTile* Tiles, word X, word Y, word Width, word Height, signed size_t Pitch);
@@ -121,7 +121,7 @@ TCPFHandle cpfCreateWeights()/*;*/{return cpf_routine::__cpfCreateWeights();}
 void    cpfDestroyWeights(TCPFHandle& HWeights)/*;*/{cpf_routine::__cpfDestroyWeights(HWeights);}
 float   cpfWeightGet(TCPFHandle HWeights, TPathMapTile Tile)/*;*/{return cpf_routine::__cpfWeightGet(HWeights, Tile);}
 void    cpfWeightSet(TCPFHandle HWeights, TPathMapTile Tile, float Value)/*;*/{cpf_routine::__cpfWeightSet(HWeights, Tile, Value);}
-TCPFHandle cpfCreateMap(word Width, word Height, TPathMapKind Kind=mkSimple)/*;*/{return cpf_routine::__cpfCreateMap(Width, Height, Mode);}
+TCPFHandle cpfCreateMap(word Width, word Height, TPathMapKind Kind, bool SameDiagonalWeight = false)/*;*/{return cpf_routine::__cpfCreateMap(Width, Height, Kind, SameDiagonalWeight);}
 void    cpfDestroyMap(TCPFHandle& HMap)/*;*/{cpf_routine::__cpfDestroyMap(HMap);}
 void    cpfMapClear(TCPFHandle HMap)/*;*/{cpf_routine::__cpfMapClear(HMap);}
 TPathMapTile cpfMapGetTile(TCPFHandle HMap, word X, word Y)/*;*/{return cpf_routine::__cpfMapGetTile(HMap, X, Y);}

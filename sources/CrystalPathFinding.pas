@@ -321,20 +321,20 @@ type
   // main path finding class
   TPathMap = {$ifdef CPFLIB}object{$else}class{$endif}(TCPFClass)
   private
-    FFindResult: TPathMapResult;
     FInfo: TCPFMapInfo;
     FWidth: Word;
     FHeight: Word;
     FCellCount: NativeUInt;
+    FKind: TPathMapKind;
+    FSectorTest: Boolean;
+    FCaching: Boolean;
+    FSameDiagonalWeight: Boolean;
     FPathLengthLimit: NativeUInt;
     FTileWeightScale: Double;
     FTileWeightLimit: Cardinal;
     FTileDiagonalWeightLimit: Cardinal;
     FTileWeightMinimum: Cardinal;
     FTileDiagonalWeightMinimum: Cardinal;
-    FKind: TPathMapKind;
-    FSectorTest: Boolean;
-    FCaching: Boolean;
 
     procedure RaiseCoordinates(const X, Y: Integer; const Id: TCPFExceptionString);
     function GetTile(const X, Y: Word): TPathMapTile;
@@ -347,6 +347,7 @@ type
     function DoFindPathLoop(StartNode: PCPFMapNode): PCPFMapNode;
     function DoFindPath(const Parameters: TPathMapFindParameters): PPathMapResult;
   private
+    FFindResult: TPathMapResult;
     FActualInfo: record
       TilesChanged: Boolean;
       Sectors: PByte;
@@ -397,7 +398,7 @@ type
   {$endif}
   public
     {$ifdef CPFLIB}procedure{$else}constructor{$endif}
-      Create(const AWidth, AHeight: Word; const AKind: TPathMapKind);
+      Create(const AWidth, AHeight: Word; const AKind: TPathMapKind; const ASameDiagonalWeight: Boolean = False);
     procedure Clear();
     procedure Update(const ATiles: PPathMapTile; const X, Y, AWidth, AHeight: Word; const Pitch: NativeInt = 0);
 
@@ -441,7 +442,7 @@ type
   procedure cpfDestroyWeights(var HWeights: TCPFHandle); cdecl;
   function  cpfWeightGet(HWeights: TCPFHandle; Tile: TPathMapTile): Single; cdecl;
   procedure CPFWeightsInfoet(HWeights: TCPFHandle; Tile: TPathMapTile; Value: Single); cdecl;
-  function  cpfCreateMap(Width, Height: Word; Kind: TPathMapKind = mkSimple): TCPFHandle; cdecl;
+  function  cpfCreateMap(Width, Height: Word; Kind: TPathMapKind; SameDiagonalWeight: Boolean = False): TCPFHandle; cdecl;
   procedure cpfDestroyMap(var HMap: TCPFHandle); cdecl;
   procedure cpfMapClear(HMap: TCPFHandle); cdecl;
   procedure cpfMapUpdate(HMap: TCPFHandle; Tiles: PPathMapTile; X, Y, Width, Height: Word; Pitch: NativeInt = 0); cdecl;
@@ -1027,13 +1028,14 @@ begin
   TPathMapWeightsPtr(HWeights).Values[Tile] := Value;
 end;
 
-function  cpfCreateMap(Width, Height: Word; Kind: TPathMapKind = mkSimple): TCPFHandle; cdecl;
+function  cpfCreateMap(Width, Height: Word; Kind: TPathMapKind;
+  SameDiagonalWeight: Boolean): TCPFHandle; cdecl;
 var
   Address: Pointer;
 begin
   Address := ReturnAddress;
   Result := NewCPFClassInstance({$ifdef CPFLIB}SizeOf{$endif}(TPathMap), Address);
-  TPathMapPtr(Result).Create(Width, Height, Kind);
+  TPathMapPtr(Result).Create(Width, Height, Kind, SameDiagonalWeight);
 end;
 
 procedure cpfDestroyMap(var HMap: TCPFHandle); cdecl;
@@ -1879,7 +1881,8 @@ end;
 { TPathMap }
 
 {$ifdef CPFLIB}procedure{$else}constructor{$endif}
-  TPathMap.Create(const AWidth, AHeight: Word; const AKind: TPathMapKind);
+  TPathMap.Create(const AWidth, AHeight: Word; const AKind: TPathMapKind;
+    const ASameDiagonalWeight: Boolean);
 var
   i: NativeInt;
   Size: NativeUInt;
@@ -1914,6 +1917,7 @@ begin
   FCaching := True;
 
   // path/weight limit parameters
+  FSameDiagonalWeight := (not (AKind in [mkDiagonal, mkDiagonalEx])) or ASameDiagonalWeight;
   Max := AWidth;
   Min := AHeight;
   if (Max < Min) then
@@ -1924,15 +1928,16 @@ begin
   FPathLengthLimit := ((Min + 1) shr 1) * Max + (Min shr 1);
   FTileWeightScale := SORTVALUE_LIMIT / FPathLengthLimit;
   FTileWeightLimit := CPFRound(FTileWeightScale) - 1;
-  FTileDiagonalWeightLimit := CPFRound(FTileWeightLimit * SQRT2);
-  if (AKind in [mkDiagonal, mkDiagonalEx]) then
+  if (FSameDiagonalWeight) then
   begin
-    FTileWeightMinimum := 2;
-    FTileDiagonalWeightMinimum := 3;
-  end else
-  begin
+    FTileDiagonalWeightLimit := FTileWeightLimit;
     FTileWeightMinimum := 1;
     FTileDiagonalWeightMinimum := 1;
+  end else
+  begin
+    FTileDiagonalWeightLimit := CPFRound(FTileWeightLimit * SQRT2);
+    FTileWeightMinimum := 2;
+    FTileDiagonalWeightMinimum := 3;
   end;
 
   // "actual" information
