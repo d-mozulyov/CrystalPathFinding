@@ -205,6 +205,7 @@ type
     procedure Release(const Address: Pointer);
   public
     PrepareId: Cardinal;
+    Minimum: Cardinal{Single};
     Scale: Double;
 
     procedure Prepare;
@@ -329,12 +330,15 @@ type
     FSectorTest: Boolean;
     FCaching: Boolean;
     FSameDiagonalWeight: Boolean;
-    FPathLengthLimit: NativeUInt;
     FTileWeightScale: Double;
+    FTileWeightScaleDiagonal: Double;
     FTileWeightLimit: Cardinal;
-    FTileDiagonalWeightLimit: Cardinal;
+    FTileWeightLimitDiagonal: Cardinal;
     FTileWeightMinimum: Cardinal;
-    FTileDiagonalWeightMinimum: Cardinal;
+    FTileWeightMinimumDiagonal: Cardinal;
+    DEFAULT_WEIGHT_VALUE_DIAGONAL: Cardinal;
+    FTileDefaultWeight: Cardinal;
+    FTileDefaultWeightDiagonal: Cardinal;
 
     procedure RaiseCoordinates(const X, Y: Integer; const Id: TCPFExceptionString);
     function GetTile(const X, Y: Word): TPathMapTile;
@@ -1741,36 +1745,37 @@ end;
 
 procedure TCPFWeightsInfo.Prepare;
 var
-  Minimum: Cardinal{Single};
-  Maximum: Cardinal{Single};
+  Min: Cardinal{Single};
+  Max: Cardinal{Single};
   PValue, PHighValue: PCardinal;
   Value: Cardinal;
-  Mn, Mx: Single;
+  MinSingle, MaxSingle: Single;
 begin
   if (UpdateId = PrepareId) then Exit;
   PrepareId := UpdateId;
 
   PValue := @Singles[1];
   PHighValue := @Singles[Count + 1];
-  Minimum := DEFAULT_WEIGHT_VALUE;
-  Maximum := DEFAULT_WEIGHT_VALUE;
+  Min := DEFAULT_WEIGHT_VALUE;
+  Max := DEFAULT_WEIGHT_VALUE;
   while (PValue <> PHighValue) do
   begin
     Value := PValue^;
 
     if (Value <> 0) then
     begin
-      if (Value >= Maximum) then Maximum := Value
+      if (Value >= Max) then Max := Value
       else
-      if (Value < Minimum) then Minimum := Value;
+      if (Value < Min) then Min := Value;
     end;
 
     Inc(PValue);
   end;
 
-  PCardinal(@Mn)^ := Minimum;
-  PCardinal(@Mx)^ := Maximum;
-  Scale := Mn / Mx;
+  PCardinal(@MinSingle)^ := Min;
+  PCardinal(@MaxSingle)^ := Max;
+  Minimum := Min;
+  Scale := MinSingle / MaxSingle;
 end;
 
 { TPathMapWeights }
@@ -1886,7 +1891,7 @@ end;
 var
   i: NativeInt;
   Size: NativeUInt;
-  Max, Min: NativeUInt;
+  Max, Min, PathLengthLimit: NativeUInt;
 begin
   {$ifNdef CPFLIB}
     FCallAddress := ReturnAddress;
@@ -1925,20 +1930,34 @@ begin
     Max := AHeight;
     Min := AWidth;
   end;
-  FPathLengthLimit := ((Min + 1) shr 1) * Max + (Min shr 1);
-  FTileWeightScale := SORTVALUE_LIMIT / FPathLengthLimit;
+  PathLengthLimit := ((Min + 1) shr 1) * Max + (Min shr 1);
+  FTileWeightScale := SORTVALUE_LIMIT / PathLengthLimit;
   FTileWeightLimit := CPFRound(FTileWeightScale) - 1;
+  FTileDefaultWeight := CPFRound({1 *} FTileWeightScale);
+  FInfo.TileWeights[1] := @FActualInfo.Weights.Cardinals;
   if (FSameDiagonalWeight) then
   begin
-    FTileDiagonalWeightLimit := FTileWeightLimit;
+    FTileWeightScaleDiagonal := FTileWeightScale;
+    DEFAULT_WEIGHT_VALUE_DIAGONAL := DEFAULT_WEIGHT_VALUE;
+    FTileDefaultWeightDiagonal := FTileDefaultWeight;
+    FTileWeightLimitDiagonal := FTileWeightLimit;
     FTileWeightMinimum := 1;
-    FTileDiagonalWeightMinimum := 1;
+    FTileWeightMinimumDiagonal := 1;
+    FInfo.TileWeights[0] := FInfo.TileWeights[1];
   end else
   begin
-    FTileDiagonalWeightLimit := CPFRound(FTileWeightLimit * SQRT2);
+    FTileWeightScaleDiagonal := SQRT2 * FTileWeightScale;
+    PSingle(@DEFAULT_WEIGHT_VALUE_DIAGONAL)^ := SQRT2;
+    FTileDefaultWeightDiagonal := CPFRound({1 *} FTileWeightScaleDiagonal);
+    FTileWeightLimitDiagonal := CPFRound(FTileWeightLimit * SQRT2);
     FTileWeightMinimum := 2;
-    FTileDiagonalWeightMinimum := 3;
+    FTileWeightMinimumDiagonal := 3;
+    FInfo.TileWeights[1] := @FActualInfo.Weights.CardinalsDiagonal;
   end;
+  if (FTileDefaultWeight > FTileWeightLimit) then FTileDefaultWeight := FTileWeightLimit
+  else
+  if (FTileDefaultWeight < FTileWeightMinimum) then FTileDefaultWeight := FTileWeightMinimum;
+  if (FTileDefaultWeightDiagonal < FTileWeightMinimum) then FTileDefaultWeightDiagonal := FTileWeightMinimum;
 
   // "actual" information
   FActualInfo.TilesChanged := True;
@@ -2258,27 +2277,29 @@ function TPathMap.ActualizeWeights(Weights: PCPFWeightsInfo; Compare: Boolean): 
 label
   return_false;
 var
-  Count: Cardinal;
-  ClearFirst, ClearHigh: NativeUInt;
+  LastCount, Count: Cardinal;
+  V: Cardinal;
   i: NativeUInt;
+  TileWeightLimit, TileWeightMinimum, TileWeightMinimumDiagonal: Cardinal;
 begin
+  LastCount := FActualInfo.Weights.Count;
+
   if (Weights = nil) then
   begin
+    if (LastCount = 0) then
+    begin
+      Result := True;
+      Exit;
+    end;
+
+    // release
     if (FActualInfo.Weights.Current <> nil) then
     begin
       FActualInfo.Weights.Current.Release(FCallAddress);
       FActualInfo.Weights.Current := nil;
     end;
 
-    if (FActualInfo.Weights.Count = 0) then
-    begin
-      Result := True;
-      Exit;
-    end;
-
-    ClearFirst := 1;
-    ClearHigh := FActualInfo.Weights.Count;
-    FActualInfo.Weights.Count := 0;
+    Count := 0;
   end else
   if (FActualInfo.Weights.Current = Weights) and
     (FActualInfo.Weights.UpdateId = Weights.UpdateId) then
@@ -2296,36 +2317,89 @@ begin
     begin
       if (FActualInfo.Weights.Current <> nil) then
         FActualInfo.Weights.Current.Release(FCallAddress);
-
-      FActualInfo.Weights.Current := Weights;
-      Inc(Weights.RefCount);
     end;
+    FActualInfo.Weights.Current := Weights;
+    Inc(Weights.RefCount);
     FActualInfo.Weights.UpdateId := Weights.UpdateId;
 
     // compare
     Count := Weights.Count;
-    if (Compare) and (FActualInfo.Weights.Count = Count) and
+    if (Compare) and (LastCount = Count) and
       (CompareMem(@FActualInfo.Weights.Singles, @Weights.Singles, SizeOf(Single) * Count)) then
     begin
       Result := True;
       Exit;
     end;
-
-    // copy count items
-    // todo
-
-    // clear counts
-    ClearHigh := FActualInfo.Weights.Count;
-    FActualInfo.Weights.Count := Count;
-    if (Count >= ClearHigh) then goto return_false;
-    ClearFirst := Count + 1;
   end;
+  FActualInfo.Weights.Count := Count;
 
-  // clear default values
-  for i := ClearFirst to ClearHigh do
+  // fill default values
+  if (Count < LastCount) then
   begin
+    V := LastCount - Count;
+    Inc(LastCount);
 
+    FillCardinal(Pointer(@FActualInfo.Weights.Singles[LastCount]), V, DEFAULT_WEIGHT_VALUE);
+    FillCardinal(Pointer(@FActualInfo.Weights.SinglesDiagonal[LastCount]), V, DEFAULT_WEIGHT_VALUE_DIAGONAL);
+
+    FillCardinal(@FActualInfo.Weights.Cardinals[LastCount], V, FTileDefaultWeight);
+    FillCardinal(@FActualInfo.Weights.CardinalsDiagonal[LastCount], V, FTileDefaultWeightDiagonal);
   end;
+
+  // copy and calculate weights/heuristics
+  if (Count <> 0) then
+  begin
+    Move(Weights.Singles[1], FActualInfo.Weights.Singles[1], SizeOf(Single) * Count);
+
+    TileWeightLimit := FTileWeightLimit;
+    TileWeightMinimum := FTileWeightMinimum;
+    TileWeightMinimumDiagonal := FTileWeightMinimumDiagonal;
+    for i := 1 to Count do
+    begin
+      V := CPFRound(FActualInfo.Weights.Singles[i] * FTileWeightScale);
+      if (V > TileWeightLimit) then V := TileWeightLimit
+      else
+      if (V < TileWeightMinimum) then V := TileWeightMinimum;
+      FActualInfo.Weights.Cardinals[i] := V;
+
+      if (FSameDiagonalWeight) then
+      begin
+        FActualInfo.Weights.SinglesDiagonal[i] := FActualInfo.Weights.Singles[i];
+        FActualInfo.Weights.CardinalsDiagonal[i] := V;
+      end else
+      begin
+        FActualInfo.Weights.SinglesDiagonal[i] := SQRT2 * FActualInfo.Weights.Singles[i];
+
+        V := CPFRound(FActualInfo.Weights.Singles[i] * FTileWeightScaleDiagonal);
+        if (V < TileWeightMinimumDiagonal) then V := TileWeightMinimumDiagonal;
+        FActualInfo.Weights.CardinalsDiagonal[i] := V;
+      end;
+    end;
+
+    // heuristics
+    V := CPFRound(PSingle(@Weights.Minimum)^ * FTileWeightScale);
+    if (V > TileWeightLimit) then FInfo.HeuristicsLine := TileWeightLimit
+    else
+    if (V < TileWeightMinimum) then FInfo.HeuristicsLine := TileWeightMinimum
+    else
+    FInfo.HeuristicsLine := V;
+
+    V := CPFRound(PSingle(@Weights.Minimum)^ * FTileWeightScaleDiagonal);
+    if (V > TileWeightLimit) then FInfo.HeuristicsDiagonal := TileWeightLimit
+    else
+    if (V < TileWeightMinimum) then FInfo.HeuristicsDiagonal := TileWeightMinimum
+    else
+    FInfo.HeuristicsDiagonal := V;
+  end else
+  begin
+    // default heuristics
+    FInfo.HeuristicsLine := FTileDefaultWeight;
+    FInfo.HeuristicsDiagonal := FTileDefaultWeightDiagonal;
+  end;
+
+  // simple map heuristics correction
+  if (Self.Kind = mkSimple) then
+    FInfo.HeuristicsDiagonal := FInfo.HeuristicsLine * 2;
 
 return_false:
   Result := False;
@@ -2973,12 +3047,19 @@ begin
     // tile weights
     if (Parameters.Weights = nil) then
     begin
-      R := ActualizeWeights(nil, Actual);
+      if (FActualInfo.Weights.Count <> 0) then
+      begin
+        R := ActualizeWeights(nil, Actual);
+        Actual := R and Actual;
+      end;
     end else
+    if (FActualInfo.Weights.Current <> Parameters.Weights.FInfo) or
+      (FActualInfo.Weights.UpdateId <> Parameters.Weights.FInfo.PrepareId) then
     begin
       R := ActualizeWeights(Parameters.Weights.FInfo, Actual);
+      Actual := R and Actual;
     end;
-    Actual := R and Actual;
+
 
     // excluded points
     R := ActualizeExcludedPoints(Parameters.ExcludedPoints, Parameters.ExcludedPointsCount, Actual);
