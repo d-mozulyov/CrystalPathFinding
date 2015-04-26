@@ -111,7 +111,7 @@ type
   PPathMapResult = ^TPathMapResult;
 
   // path finding parameters
-  TPathMapFindParameters = record
+  TPathMapParameters = record
     StartPoints: PPoint;
     StartPointsCount: NativeUInt;
     Finish: TPoint;
@@ -119,7 +119,7 @@ type
     ExcludedPoints: PPoint;
     ExcludedPointsCount: NativeUInt;
   end;
-  PPathMapFindParameters = ^TPathMapFindParameters;
+  PPathMapParameters = ^TPathMapParameters;
 
   // object oriented Weights interface
   TPathMapWeights = class(TObject)
@@ -164,7 +164,7 @@ type
     property Handle: TCPFHandle read FHandle;
     property Tiles[const X, Y: Word]: TPathMapTile read GetTile write SetTile; default;
 
-    function FindPath(const Parameters: TPathMapFindParameters): PPathMapResult; overload; {$ifdef INLINESUPPORT}inline;{$endif}
+    function FindPath(const Parameters: TPathMapParameters): PPathMapResult; overload; {$ifdef INLINESUPPORT}inline;{$endif}
     function FindPath(const Start, Finish: TPoint; const Weights: TCPFHandle = 0;
       const ExcludedPoints: PPoint = nil; const ExcludedPointsCount: NativeUInt = 0): PPathMapResult; overload; {$ifdef INLINESUPPORT}inline;{$endif}
     function FindPath(const StartPoints: PPoint; const StartPointsCount: NativeUInt;
@@ -188,7 +188,7 @@ procedure cpfMapClear(HMap: TCPFHandle); cdecl; external cpf_lib;
 procedure cpfMapUpdate(HMap: TCPFHandle; Tiles: PPathMapTile; X, Y, Width, Height: Word; Pitch: NativeInt = 0); cdecl; external cpf_lib;
 function  cpfMapGetTile(HMap: TCPFHandle; X, Y: Word): TPathMapTile; cdecl; external cpf_lib;
 procedure cpfMapSetTile(HMap: TCPFHandle; X, Y: Word; Value: TPathMapTile); cdecl; external cpf_lib;
-function  cpfFindPath(HMap: TCPFHandle; Parameters: PPathMapFindParameters; SectorTest: Boolean = False; Caching: Boolean = True): PPathMapResult; cdecl; external cpf_lib;
+function  cpfFindPath(HMap: TCPFHandle; Parameters: PPathMapParameters; SectorTest: Boolean = False; Caching: Boolean = True): PPathMapResult; cdecl; external cpf_lib;
 
 implementation
 var
@@ -337,7 +337,7 @@ begin
   cpfMapClear(FHandle);
 end;
 
-function TPathMap.FindPath(const Parameters: TPathMapFindParameters): PPathMapResult;
+function TPathMap.FindPath(const Parameters: TPathMapParameters): PPathMapResult;
 begin
   Result := cpfFindPath(FHandle, @Parameters, FSectorTest, FCaching);
 end;
@@ -346,7 +346,7 @@ function TPathMap.FindPath(const Start, Finish: TPoint;
   const Weights: TCPFHandle; const ExcludedPoints: PPoint;
   const ExcludedPointsCount: NativeUInt): PPathMapResult;
 var
-  Parameters: TPathMapFindParameters;
+  Parameters: TPathMapParameters;
 begin
   Parameters.StartPoints := @Start;
   Parameters.StartPointsCount := 1;
@@ -362,7 +362,7 @@ function TPathMap.FindPath(const StartPoints: PPoint; const StartPointsCount: Na
    const Finish: TPoint; const Weights: TCPFHandle = 0;
    const ExcludedPoints: PPoint = nil; const ExcludedPointsCount: NativeUInt = 0): PPathMapResult;
 var
-  Parameters: TPathMapFindParameters;
+  Parameters: TPathMapParameters;
 begin
   Parameters.StartPoints := StartPoints;
   Parameters.StartPointsCount := StartPointsCount;

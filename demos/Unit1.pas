@@ -783,7 +783,7 @@ procedure TForm1.ExecutePathFinding();
 var
   Weights: TCPFHandle;
   PathMapResult: PPathMapResult;
-  FindParameters: TPathMapFindParameters;
+  FindParameters: TPathMapParameters;
 begin
   if (MapBitmap = nil) then exit;
 
@@ -1009,7 +1009,7 @@ var
   i, Count: integer;
   Time: dword;
   Weights: TCPFHandle;
-  FindParameters: TPathMapFindParameters;
+  FindParameters: TPathMapParameters;
 begin
   if (MapBitmap = nil) then exit;
 

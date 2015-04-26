@@ -242,23 +242,23 @@ type
   end;
 
   // map cell
-  TCPFMapCell = packed record
+  TCPFCell = packed record
     Tile: TPathMapTile;
     Mask: Byte;
     NodePtr: Cardinal;
   end;
-  PCPFMapCell = ^TCPFMapCell;
-  TCPFMapCellArray = array[0..0] of TCPFMapCell;
-  PCPFMapCellArray = ^TCPFMapCellArray;
+  PCPFCell = ^TCPFCell;
+  TCPFCellArray = array[0..0] of TCPFCell;
+  PCPFCellArray = ^TCPFCellArray;
 
   // node type
-  PCPFMapNode = ^TCPFMapNode;
-  TCPFMapNode = packed record
+  PCPFNode = ^TCPFNode;
+  TCPFNode = packed record
   case Boolean of
     False: (
               SortValue: Cardinal; // path + heuristics to finish point
               Path: Cardinal; // path from start point to the cell
-              Prev, Next: PCPFMapNode;
+              Prev, Next: PCPFNode;
               Coordinates: TCPFPoint;
               case Integer of
               0: (
@@ -286,8 +286,8 @@ type
 
 
   TCPFNodeStorage = record
-    NewNode: PCPFMapNode;
-    MaximumNode: PCPFMapNode;
+    NewNode: PCPFNode;
+    MaximumNode: PCPFNode;
 
     {$ifdef LARGEINT}
     LargeModifier: NativeInt;
@@ -297,8 +297,8 @@ type
     Buffers: array[0..31] of NativeUInt{Pointer};
   end;
 
-  TCPFMapInfo = record
-    Cells: PCPFMapCellArray;
+  TCPFInfo = record
+    Cells: PCPFCellArray;
     MapWidth: NativeInt;
     HeuristicsLine: NativeInt;
     HeuristicsDiagonal: NativeInt;
@@ -308,8 +308,19 @@ type
     NodeStorage: TCPFNodeStorage;
   end;
 
+  TCPFStart = record
+    X: Integer;
+    Y: Integer;
+    Node: PCPFNode;
+    AttainableNode: PCPFNode;
+    Distance: Double;
+  end;
+  PCPFStart = ^TCPFStart;
+  TCPFStartArray = array[0..0] of TCPFStart;
+  PCPFStartArray = ^TCPFStartArray;
+
   // path finding parameters
-  TPathMapFindParameters = record
+  TPathMapParameters = record
     StartPoints: PPoint;
     StartPointsCount: NativeUInt;
     Finish: TPoint;
@@ -317,12 +328,12 @@ type
     ExcludedPoints: PPoint;
     ExcludedPointsCount: NativeUInt;
   end;
-  PPathMapFindParameters = ^TPathMapFindParameters;
+  PPathMapParameters = ^TPathMapParameters;
 
   // main path finding class
   TPathMap = {$ifdef CPFLIB}object{$else}class{$endif}(TCPFClass)
   private
-    FInfo: TCPFMapInfo;
+    FInfo: TCPFInfo;
     FWidth: Word;
     FHeight: Word;
     FCellCount: NativeUInt;
@@ -344,12 +355,12 @@ type
     function GetTile(const X, Y: Word): TPathMapTile;
     procedure SetTile(const X, Y: Word; const Value: TPathMapTile);
     procedure GrowNodeStorage(var Buffer: TCPFNodeStorage);
-//    function AllocateNode(const X, Y: NativeInt): PCPFMapNode;
+//    function AllocateNode(const X, Y: NativeInt): PCPFNode;
     function CalculateHeuristics(const Start, Finish: TPoint): NativeInt;
-//    procedure ClearMapCells(Node: PCPFMapNode; Count: NativeUInt); overload;
-//    procedure ClearMapCells(Node: PCPFMapNode{as list}); overload;
-    function DoFindPathLoop(StartNode: PCPFMapNode): PCPFMapNode;
-    function DoFindPath(const Parameters: TPathMapFindParameters): PPathMapResult;
+//    procedure ClearMapCells(Node: PCPFNode; Count: NativeUInt); overload;
+//    procedure ClearMapCells(Node: PCPFNode{as list}); overload;
+    function DoFindPathLoop(StartNode: PCPFNode): PCPFNode;
+    function DoFindPath(const Parameters: TPathMapParameters): PPathMapResult;
   private
     FFindResult: TPathMapResult;
     FActualInfo: record
@@ -413,7 +424,7 @@ type
     property Caching: Boolean read FCaching write FCaching;
     property Tiles[const X, Y: Word]: TPathMapTile read GetTile write SetTile; default;
 
-    function FindPath(const Parameters: TPathMapFindParameters): PPathMapResult; overload;
+    function FindPath(const Parameters: TPathMapParameters): PPathMapResult; overload;
     function FindPath(const Start, Finish: TPoint; const Weights: TPathMapWeightsPtr = nil;
       const ExcludedPoints: PPoint = nil; const ExcludedPointsCount: NativeUInt = 0): PPathMapResult; overload;
     function FindPath(const StartPoints: PPoint; const StartPointsCount: NativeUInt;
@@ -452,7 +463,7 @@ type
   procedure cpfMapUpdate(HMap: TCPFHandle; Tiles: PPathMapTile; X, Y, Width, Height: Word; Pitch: NativeInt = 0); cdecl;
   function  cpfMapGetTile(HMap: TCPFHandle; X, Y: Word): TPathMapTile; cdecl;
   procedure cpfMapSetTile(HMap: TCPFHandle; X, Y: Word; Value: TPathMapTile); cdecl;
-  function  cpfFindPath(HMap: TCPFHandle; Parameters: PPathMapFindParameters; SectorTest: Boolean = False; Caching: Boolean = True): PPathMapResult; cdecl;
+  function  cpfFindPath(HMap: TCPFHandle; Parameters: PPathMapParameters; SectorTest: Boolean = False; Caching: Boolean = True): PPathMapResult; cdecl;
 {$endif}
 
 implementation
@@ -1109,7 +1120,7 @@ begin
   TPathMapPtr(HMap).Tiles[X, Y] := Value;
 end;
 
-function  cpfFindPath(HMap: TCPFHandle; Parameters: PPathMapFindParameters; SectorTest: Boolean = False; Caching: Boolean = True): PPathMapResult; cdecl;
+function  cpfFindPath(HMap: TCPFHandle; Parameters: PPathMapParameters; SectorTest: Boolean = False; Caching: Boolean = True): PPathMapResult; cdecl;
 var
   Address: Pointer;
 begin
@@ -1967,7 +1978,7 @@ begin
 
   // offsets
   for i := 0 to 7 do
-  FInfo.CellOffsets[i] := SizeOf(TCPFMapCell) *
+  FInfo.CellOffsets[i] := SizeOf(TCPFCell) *
     (POINT_OFFSETS[i].y * FInfo.MapWidth + POINT_OFFSETS[i].x);
 
   // internal buffers
@@ -1976,7 +1987,7 @@ begin
   FActualInfo.FoundPath.Buffer.Initialize(Self);
 
   // allocate and fill cells
-  Size := FCellCount * SizeOf(TCPFMapCell);
+  Size := FCellCount * SizeOf(TCPFCell);
   CPFGetMem(Pointer(FInfo.Cells), Size);
   ZeroMemory(FInfo.Cells, Size);
   Clear;
@@ -2092,7 +2103,7 @@ var
   Allocated: NativeUInt;
   Count: NativeUInt;
   LastAllocation: Boolean;
-  Node: PCPFMapNode;
+  Node: PCPFNode;
 begin
   Allocated := Buffer.Allocated;
   if (@Buffer <> @FInfo.NodeStorage) then
@@ -2108,7 +2119,7 @@ begin
   if (LastAllocation) then Count := FCellCount;
   Dec(Count, NODESTORAGE_INFO[Allocated].Previous);
 
-  CPFGetMem(Pointer(FInfo.NodeStorage.Buffers[Allocated]), Count * SizeOf(TCPFMapNode));
+  CPFGetMem(Pointer(FInfo.NodeStorage.Buffers[Allocated]), Count * SizeOf(TCPFNode));
   FInfo.NodeStorage.Allocated := Allocated + 1;
   Node := Pointer(FInfo.NodeStorage.Buffers[Allocated]);
   FInfo.NodeStorage.NewNode := Node;
@@ -2134,13 +2145,13 @@ begin
   end;
 end;
 
-(*function TPathMap.AllocateNode(const X, Y: NativeInt): PCPFMapNode;
+(*function TPathMap.AllocateNode(const X, Y: NativeInt): PCPFNode;
 type
   TNodeStorageBuffers = array[0..31] of NativeUInt;
 var
   Coordinates: NativeUInt;
-  Cell: PCPFMapCell;
-  ChildNode: PCPFMapNode;
+  Cell: PCPFCell;
+  ChildNode: PCPFNode;
   NodeInfo: NativeUInt;
 
   {$ifdef LARGEINT}
@@ -2233,12 +2244,12 @@ begin
   end;
 end;
 
-(*procedure TPathMap.ClearMapCells(Node: PCPFMapNode; Count: NativeUInt);
+(*procedure TPathMap.ClearMapCells(Node: PCPFNode; Count: NativeUInt);
 var
-  TopNode: PCPFMapNode;
+  TopNode: PCPFNode;
   NodeInfo{XY}: NativeUInt;
   MapWidth: NativeInt;
-  Cells: PCPFMapCellArray;
+  Cells: PCPFCellArray;
 begin
   TopNode := Node;
   Inc(TopNode, Count);
@@ -2255,11 +2266,11 @@ begin
   end;
 end;
 
-procedure TPathMap.ClearMapCells(Node: PCPFMapNode{as list});
+procedure TPathMap.ClearMapCells(Node: PCPFNode{as list});
 var
   NodeInfo{XY}: NativeUInt;
   MapWidth: NativeInt;
-  Cells: PCPFMapCellArray;
+  Cells: PCPFCellArray;
 begin
   Cells := FInfo.Cells;
   MapWidth := FInfo.MapWidth;
@@ -2406,15 +2417,47 @@ return_false:
 end;
 
 function TPathMap.ActualizeStartPoints(Points: PPoint; Count: NativeUInt; Compare: Boolean): Boolean;
+var
+  CompareBits: Integer;
+  Point: PPoint;
+  Start: PCPFStart;
 begin
-  Result := Compare;
-  // todo
+  Point := Points;
+  CompareBits := Byte(FActualInfo.StartPoints.Count <> Count){0 if the same};
+
+  Start := FActualInfo.StartPoints.Buffer.Alloc(SizeOf(TCPFStart) * Count);
+  while (Count <> 0) do
+  begin
+    CompareBits := CompareBits or (Start.X - Point.X) or (Start.Y - Point.Y);
+
+    Start.X := Point.X;
+    Start.Y := Point.Y;
+
+    Dec(Count);
+    Inc(Point);
+    Inc(Start);
+  end;
+
+  Result := (CompareBits = 0);
 end;
 
 function TPathMap.ActualizeExcludedPoints(Points: PPoint; Count: NativeUInt; Compare: Boolean): Boolean;
+var
+  Size: NativeUInt;
 begin
-  Result := Compare;
-  // todo
+  Size := SizeOf(TPoint) * Count;
+
+  if (Compare) and (Count = FActualInfo.ExcludedPoints.Count) and
+    CompareMem(Points, FActualInfo.ExcludedPoints.Buffer.Memory, Size) then
+  begin
+    Result := True;
+    Exit;
+  end;
+
+  FActualInfo.ExcludedPoints.Count := Count;
+  Move(Points^, FActualInfo.ExcludedPoints.Buffer.Alloc(Size)^, Size);
+
+  Result := False;
 end;
 
 procedure TPathMap.ActualizeSectors;
@@ -2439,28 +2482,28 @@ end;
 
 
 type
-  TMapNodeBuffer = array[0..7] of PCPFMapNode;
+  TMapNodeBuffer = array[0..7] of PCPFNode;
   PMapNodeBuffer = ^TMapNodeBuffer;
 
   TFindPathLoopStore = record
     Buffer: TMapNodeBuffer;
     Self: Pointer;
     HexagonalFlag: NativeUInt;
-    Info: TCPFMapInfo;
+    Info: TCPFInfo;
 
     {$ifdef CPUX86}
     ChildList: PWord;
     {$endif}
 
     Current: record
-      Node: PCPFMapNode;
-      Cell: PCPFMapCell;
+      Node: PCPFNode;
+      Cell: PCPFCell;
       Coordinates: TCPFPoint;
       SortValue: Cardinal;
       Path: Cardinal;
     end;
     Top: record
-      Node: PCPFMapNode;
+      Node: PCPFNode;
       SortValue: Cardinal;
     end;
   end;
@@ -2472,13 +2515,13 @@ label
 const
   COUNTER_OFFSET = 16;
 var
-  ChildNode: PCPFMapNode;
+  ChildNode: PCPFNode;
   {$ifNdef CPUX86}
     ChildSortValue: Cardinal;
   {$endif}
-  Left: PCPFMapNode;
+  Left: PCPFNode;
 
-  PBufferHigh, PBufferBase, PBufferCurrent: ^PCPFMapNode;
+  PBufferHigh, PBufferBase, PBufferCurrent: ^PCPFNode;
 
   {$ifdef TEST_INSERT}
   i: Cardinal;
@@ -2572,7 +2615,7 @@ const
     (5, 6, 4, 0, 1, 7, 2, 3);
 var
   InitStore: TFindPathLoopStore;
-  NodeBuffer: array[0..7] of TCPFMapNode;
+  NodeBuffer: array[0..7] of TCPFNode;
   i: Cardinal;
 begin
   for i := 0 to 7 do
@@ -2586,7 +2629,7 @@ end;
 {$endif}
 
 
-function TPathMap.DoFindPathLoop(StartNode: PCPFMapNode): PCPFMapNode;
+function TPathMap.DoFindPathLoop(StartNode: PCPFNode): PCPFNode;
 label
   nextchild_continue, nextchild,
   heuristics_data,
@@ -2595,18 +2638,18 @@ const
   PARENT_BITS_CLEAR_MASK = not Cardinal(((1 shl 5) - 1) shl 3);
   COUNTER_OFFSET = 16;
 type
-  TMapNodeBuffer = array[0..7] of PCPFMapNode;
+  TMapNodeBuffer = array[0..7] of PCPFNode;
   TNodeStorageBuffers = array[0..31] of NativeUInt;
   TCardinalList = array[0..High(Integer) div SizeOf(Cardinal) - 1] of Cardinal;
   PCardinalList = ^TCardinalList;
 var
-  Node: PCPFMapNode;
+  Node: PCPFNode;
   NodeInfo: NativeUInt;
   ChildList: PWord;
   Child: NativeUInt;
-  Cell: PCPFMapCell;
+  Cell: PCPFCell;
   ChildNodeInfo: NativeUInt;
-  ChildNode: PCPFMapNode;
+  ChildNode: PCPFNode;
   TileWeights: PCardinalList;
   Path: Cardinal;
   NodeXY, OffsetXY, ChildXY: Cardinal;
@@ -2614,29 +2657,29 @@ var
   Mask: NativeInt;
 
   ChildSortValue, ChildPath: Cardinal;
-  Left, Right: PCPFMapNode;
+  Left, Right: PCPFNode;
 
-  PBufferHigh, PBufferBase, PBufferCurrent: ^PCPFMapNode;
+  PBufferHigh, PBufferBase, PBufferCurrent: ^PCPFNode;
 
   Store: TFindPathLoopStore;(*record
     Buffer: TMapNodeBuffer;
     Self: Pointer;
     HexagonalFlag: NativeUInt;
-    Info: TCPFMapInfo;
+    Info: TCPFInfo;
 
     {$ifdef CPUX86}
     ChildList: PWord;
     {$endif}
 
     Current: record
-      Node: PCPFMapNode;
-      Cell: PCPFMapCell;
+      Node: PCPFNode;
+      Cell: PCPFCell;
       Coordinates: TCPFPoint;
       SortValue: Cardinal;
       Path: Cardinal;
     end;
     Top: record
-      Node: PCPFMapNode;
+      Node: PCPFNode;
       SortValue: Cardinal;
     end;
   end;*)
@@ -2968,7 +3011,7 @@ begin
   TPathMapPtr(Store.Self).FInfo.NodeStorage.NewNode := Store.Info.NodeStorage.NewNode;
 end;
 
-function TPathMap.DoFindPath(const Parameters: TPathMapFindParameters): PPathMapResult;
+function TPathMap.DoFindPath(const Parameters: TPathMapParameters): PPathMapResult;
 var
   i: NativeUInt;
   MapWidth, MapHeight: Cardinal;
@@ -3060,10 +3103,12 @@ begin
       Actual := R and Actual;
     end;
 
-
     // excluded points
-    R := ActualizeExcludedPoints(Parameters.ExcludedPoints, Parameters.ExcludedPointsCount, Actual);
-    Actual := R and Actual;
+    if (FActualInfo.ExcludedPoints.Count + Parameters.ExcludedPointsCount <> 0) then
+    begin
+      R := ActualizeExcludedPoints(Parameters.ExcludedPoints, Parameters.ExcludedPointsCount, Actual);
+      Actual := R and Actual;
+    end;
 
     // attainable points
     if (not Actual) then
@@ -3114,14 +3159,17 @@ begin
   // todo
 
 
-  Result := nil;
-  // todo
+  // found path
+  Result := @FFindResult;
+  Result.Points := FActualInfo.FoundPath.Buffer.Memory;
+  Result.PointsCount := FActualInfo.FoundPath.Length;
+  Result.Distance := FActualInfo.FoundPath.Distance;
 end;
 (*label
   calculate_result;
 var
-  StartNode, FinishNode, Node: PCPFMapNode;
-  FailureNode: TCPFMapNode;
+  StartNode, FinishNode, Node: PCPFNode;
+  FailureNode: TCPFNode;
   Start: PPoint;
 begin
   // todo
@@ -3171,7 +3219,7 @@ calculate_result:
   end;
 end; *)
 
-function TPathMap.FindPath(const Parameters: TPathMapFindParameters): PPathMapResult;
+function TPathMap.FindPath(const Parameters: TPathMapParameters): PPathMapResult;
 begin
   {$ifNdef CPFLIB}
     FCallAddress := ReturnAddress;
@@ -3184,7 +3232,7 @@ function TPathMap.FindPath(const Start, Finish: TPoint;
   const Weights: TPathMapWeightsPtr; const ExcludedPoints: PPoint;
   const ExcludedPointsCount: NativeUInt): PPathMapResult;
 var
-  Parameters: TPathMapFindParameters;
+  Parameters: TPathMapParameters;
 begin
   {$ifNdef CPFLIB}
     FCallAddress := ReturnAddress;
@@ -3203,7 +3251,7 @@ function TPathMap.FindPath(const StartPoints: PPoint; const StartPointsCount: Na
    const Finish: TPoint; const Weights: TPathMapWeightsPtr = nil;
    const ExcludedPoints: PPoint = nil; const ExcludedPointsCount: NativeUInt = 0): PPathMapResult;
 var
-  Parameters: TPathMapFindParameters;
+  Parameters: TPathMapParameters;
 begin
   {$ifNdef CPFLIB}
     FCallAddress := ReturnAddress;
@@ -3237,7 +3285,7 @@ initialization
     {$else}
       //TestNodesInsert(0);
     {$endif}
- // TPathMap(nil).DoFindPath(TPathMapFindParameters(nil^));
+  TPathMap(nil).DoFindPath(TPathMapParameters(nil^));
  // TPathMapPtr(nil).DoFindPathLoop(nil);
   {$ifend}
 

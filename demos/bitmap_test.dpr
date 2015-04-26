@@ -102,7 +102,7 @@ var
   Points: PPointList;
   i: integer;
   RedValue: byte;
-  FindParameters: TPathMapFindParameters;
+  FindParameters: TPathMapParameters;
   FindResult: PPathMapResult;
 
 
