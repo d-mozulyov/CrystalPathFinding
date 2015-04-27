@@ -285,27 +285,23 @@ type
   end;
 
 
-  TCPFNodeStorage = record
-    NewNode: PCPFNode;
-    MaximumNode: PCPFNode;
-
-    {$ifdef LARGEINT}
-    LargeModifier: NativeInt;
-    {$endif}
-
-    Allocated: NativeUInt;
-    Buffers: array[0..31] of NativeUInt{Pointer};
-  end;
-
   TCPFInfo = record
     Cells: PCPFCellArray;
     MapWidth: NativeInt;
     HeuristicsLine: NativeInt;
     HeuristicsDiagonal: NativeInt;
-    TileWeights: array[0..1] of Pointer{PCardinalList};
+    TileWeights: array[0..1] of Pointer;
     CellOffsets: array[0..7] of NativeInt;
     FinishPoint: TCPFPoint;
-    NodeStorage: TCPFNodeStorage;
+    NodeAllocator: record
+      NewNode: PCPFNode;
+      NewNodeLimit: PCPFNode;
+      {$ifdef LARGEINT}
+      LargeModifier: NativeInt;
+      {$endif}
+      Count: NativeUInt;
+      Items: array[0..31] of Pointer;
+    end;
   end;
 
   TCPFStart = record
@@ -354,7 +350,7 @@ type
     procedure RaiseCoordinates(const X, Y: Integer; const Id: TCPFExceptionString);
     function GetTile(const X, Y: Word): TPathMapTile;
     procedure SetTile(const X, Y: Word; const Value: TPathMapTile);
-    procedure GrowNodeStorage(var Buffer: TCPFNodeStorage);
+    procedure GrowNodeAllocator(var Buffer: TCPFInfo);
 //    function AllocateNode(const X, Y: NativeInt): PCPFNode;
     function CalculateHeuristics(const Start, Finish: TPoint): NativeInt;
 //    procedure ClearMapCells(Node: PCPFNode; Count: NativeUInt); overload;
@@ -363,6 +359,14 @@ type
     function DoFindPath(const Parameters: TPathMapParameters): PPathMapResult;
   private
     FFindResult: TPathMapResult;
+    FNodes: record
+      Storage: record
+        Items: array[0..31] of Pointer;
+        Count: NativeUInt;
+      end;
+
+      //
+    end;
     FActualInfo: record
       TilesChanged: Boolean;
       Sectors: PByte;
@@ -393,8 +397,6 @@ type
         Length: NativeUInt;
         Distance: Double;
       end;
-
-      // todo
     end;
 
     function ActualizeWeights(Weights: PCPFWeightsInfo; Compare: Boolean): Boolean;
@@ -1993,7 +1995,7 @@ begin
   Clear;
 
   // allocate first
-  GrowNodeStorage(FInfo.NodeStorage);
+  GrowNodeAllocator(FInfo);
 end;
 
 {$ifdef CPFLIB}procedure{$else}destructor{$endif}
@@ -2014,8 +2016,8 @@ begin
   FActualInfo.FoundPath.Buffer.Free;
 
   // node storage
-  for i := FInfo.NodeStorage.Allocated - 1 downto 0 do
-    CPFFreeMem(Pointer(FInfo.NodeStorage.Buffers[i]));
+  for i := NativeInt(FNodes.Storage.Count) - 1 downto 0 do
+    CPFFreeMem(FNodes.Storage.Items[i]);
 
   // cells
   CPFFreeMem(Pointer(FInfo.Cells));
@@ -2098,56 +2100,64 @@ begin
 
 end;
 
-procedure TPathMap.GrowNodeStorage(var Buffer: TCPFNodeStorage);
+procedure TPathMap.GrowNodeAllocator(var Buffer: TCPFInfo);
 var
-  Allocated: NativeUInt;
+  AllocatorCount: NativeUInt;
   Count: NativeUInt;
-  LastAllocation: Boolean;
+  LastItem: Boolean;
   Node: PCPFNode;
 begin
-  Allocated := Buffer.Allocated;
-  if (@Buffer <> @FInfo.NodeStorage) then
-  if (Buffer.NewNode <> FInfo.NodeStorage.MaximumNode) or
-     (Allocated <> FInfo.NodeStorage.Allocated) then
-    CPFException('Incorrect node storage data');
+  // check data
+  AllocatorCount := Buffer.NodeAllocator.Count;
+  if (@Buffer <> @FInfo) then
+  if (Buffer.NodeAllocator.NewNode <> FInfo.NodeAllocator.NewNodeLimit) or
+     (AllocatorCount <> FInfo.NodeAllocator.Count) then
+    CPFException('Incorrect node allocator data');
 
-  if (Allocated >= High(FInfo.NodeStorage.Buffers)) then
+  if (AllocatorCount >= High(FNodes.Storage.Items)) then
     RaiseOutOfMemory(FCallAddress);
 
-  Count := NODESTORAGE_INFO[Allocated].Previous + NODESTORAGE_INFO[Allocated].Count;
-  LastAllocation := (Count >= FCellCount);
-  if (LastAllocation) then Count := FCellCount;
-  Dec(Count, NODESTORAGE_INFO[Allocated].Previous);
+  // nodes count in storage item
+  Count := NODESTORAGE_INFO[AllocatorCount].Previous + NODESTORAGE_INFO[AllocatorCount].Count;
+  LastItem := (Count >= FCellCount);
+  if (LastItem) then Count := FCellCount;
+  Dec(Count, NODESTORAGE_INFO[AllocatorCount].Previous);
 
-  CPFGetMem(Pointer(FInfo.NodeStorage.Buffers[Allocated]), Count * SizeOf(TCPFNode));
-  FInfo.NodeStorage.Allocated := Allocated + 1;
-  Node := Pointer(FInfo.NodeStorage.Buffers[Allocated]);
-  FInfo.NodeStorage.NewNode := Node;
+  // allocate if needed
+  if (AllocatorCount = FNodes.Storage.Count) then
+  begin
+    CPFGetMem(FNodes.Storage.Items[AllocatorCount] , Count * SizeOf(TCPFNode));
+    Inc(FNodes.Storage.Count);
+  end;
+  FInfo.NodeAllocator.Items[AllocatorCount] := FNodes.Storage.Items[AllocatorCount];
 
+  // parameters
+  Node := FInfo.NodeAllocator.Items[AllocatorCount];
+  Inc(FInfo.NodeAllocator.Count);
+  FInfo.NodeAllocator.NewNode := Node;
   {$ifdef LARGEINT}
-    FInfo.NodeStorage.LargeModifier :=
-      (NativeInt(Allocated) shl LARGE_NODEPTR_OFFSET) - NativeInt(Node);
+    FInfo.NodeAllocator.LargeModifier :=
+      (NativeInt(AllocatorCount) shl LARGE_NODEPTR_OFFSET) - NativeInt(Node);
   {$endif}
-
-  Inc(Node, NativeInt(Count) - 1 + Ord(LastAllocation));
-  FInfo.NodeStorage.MaximumNode := Node;
+  Inc(Node, NativeInt(Count) - 1 + Ord(LastItem));
+  FInfo.NodeAllocator.NewNodeLimit := Node;
 
   //  copy to buffer
-  if (@Buffer <> @FInfo.NodeStorage) then
+  if (@Buffer <> @FInfo) then
   begin
-    Buffer.NewNode := FInfo.NodeStorage.NewNode;
-    Buffer.MaximumNode := FInfo.NodeStorage.MaximumNode;
-    Buffer.Allocated := Allocated + 1{FInfo.NodeStorage.Allocated};
+    Buffer.NodeAllocator.NewNode := FInfo.NodeAllocator.NewNode;
+    Buffer.NodeAllocator.NewNodeLimit := FInfo.NodeAllocator.NewNodeLimit;
+    Buffer.NodeAllocator.Count := FInfo.NodeAllocator.Count;
     {$ifdef LARGEINT}
-      Buffer.LargeModifier := FInfo.NodeStorage.LargeModifier;
+      Buffer.NodeAllocator.LargeModifier := FInfo.NodeAllocator.LargeModifier;
     {$endif}
-    Buffer.Buffers[Allocated] := FInfo.NodeStorage.Buffers[Allocated];
+    Buffer.NodeAllocator.Items[AllocatorCount] := FInfo.NodeAllocator.Items[AllocatorCount];
   end;
 end;
 
 (*function TPathMap.AllocateNode(const X, Y: NativeInt): PCPFNode;
 type
-  TNodeStorageBuffers = array[0..31] of NativeUInt;
+  TNodeAllocatorBuffers = array[0..31] of NativeUInt;
 var
   Coordinates: NativeUInt;
   Cell: PCPFCell;
@@ -2155,7 +2165,7 @@ var
   NodeInfo: NativeUInt;
 
   {$ifdef LARGEINT}
-    NodeStorageBuffers: ^TNodeStorageBuffers;
+    NodeAllocatorBuffers: ^TNodeAllocatorBuffers;
     NODEPTR_MODIFIER: NativeInt;
   {$else}
 const
@@ -2169,10 +2179,10 @@ begin
   ChildNode := Pointer(NativeUInt(Cell.NodePtr));
   if (NativeInt(ChildNode) and NODEPTR_FLAG_CALCULATED = 0) then
   begin
-    Result := FInfo.NodeStorage.NewNode;
+    Result := FInfo.NodeAllocator.NewNode;
     Cardinal(Result.Coordinates) := Coordinates;
     {$ifdef LARGEINT}
-      Cell.NodePtr := NativeUInt(NativeInt(Result) + FInfo.NodeStorage.LargeModifier);
+      Cell.NodePtr := NativeUInt(NativeInt(Result) + FInfo.NodeAllocator.LargeModifier);
     {$else}
       Cell.NodePtr := NativeUInt(Result);
     {$endif}
@@ -2183,13 +2193,13 @@ begin
     Result.NodeInfo := NodeInfo;
 
     // set next allocable node
-    if (Result = FInfo.NodeStorage.MaximumNode) then
+    if (Result = FInfo.NodeAllocator.NewNodeLimit) then
     begin
-      GrowNodeStorage(FInfo.NodeStorage);
+      GrowNodeAllocator(FInfo.NodeAllocator);
     end else
     begin
       Inc(Result);
-      FInfo.NodeStorage.NewNode := Result;
+      FInfo.NodeAllocator.NewNode := Result;
       Dec(Result);
     end;
 
@@ -2199,9 +2209,9 @@ begin
   begin
     // NodePtr --> Pointer
     {$ifdef LARGEINT}
-      NodeStorageBuffers := Pointer(@FInfo.NodeStorage.Buffers);
+      NodeAllocatorBuffers := Pointer(@FInfo.NodeAllocator.Buffers);
       ChildNode := Pointer(
-        (NodeStorageBuffers[NativeUInt(ChildNode) shr LARGE_NODEPTR_OFFSET]) +
+        (NodeAllocatorBuffers[NativeUInt(ChildNode) shr LARGE_NODEPTR_OFFSET]) +
         (NativeUInt(ChildNode) and NODEPTR_CLEAN_MASK) );
     {$else}
       ChildNode := Pointer(NativeInt(ChildNode) and NODEPTR_CLEAN_MASK);
@@ -2639,7 +2649,7 @@ const
   COUNTER_OFFSET = 16;
 type
   TMapNodeBuffer = array[0..7] of PCPFNode;
-  TNodeStorageBuffers = array[0..31] of NativeUInt;
+  TNodeAllocatorBuffers = array[0..31] of NativeUInt;
   TCardinalList = array[0..High(Integer) div SizeOf(Cardinal) - 1] of Cardinal;
   PCardinalList = ^TCardinalList;
 var
@@ -2689,7 +2699,7 @@ var
   {$endif}
 
   {$ifdef LARGEINT}
-    NodeStorageBuffers: ^TNodeStorageBuffers;
+    NodeAllocatorBuffers: ^TNodeAllocatorBuffers;
     NODEPTR_MODIFIER: NativeInt;
   {$else}
 const
@@ -2700,14 +2710,14 @@ begin
   Store.HexagonalFlag := NativeUInt(Self.FKind = mkHexagonal) * 2;
   Move(Self.FInfo, Store.Info,
     (SizeOf(Store.Info) - 32 * SizeOf(Pointer)) +
-    (Self.FInfo.NodeStorage.Allocated * SizeOf(Pointer)) );
+    (Self.FInfo.NodeAllocator.Count * SizeOf(Pointer)) );
 
   {$ifNdef CPUX86}
     Buffer := @Store.Buffer;
   {$endif}
 
   {$ifdef LARGEINT}
-    NODEPTR_MODIFIER := Store.Info.NodeStorage.LargeModifier +
+    NODEPTR_MODIFIER := Store.Info.NodeAllocator.LargeModifier +
       (NODEPTR_FLAG_LARGE + NODEPTR_FLAG_CALCULATED);
   {$endif}
 
@@ -2793,7 +2803,7 @@ begin
         if (ChildNode = nil) then
         begin
           // allocate new node
-          ChildNode := Store.Info.NodeStorage.NewNode;
+          ChildNode := Store.Info.NodeAllocator.NewNode;
 
           {$ifdef LARGEINT}
             Cell.NodePtr := NativeUInt(NativeInt(ChildNode) + NODEPTR_MODIFIER);
@@ -2813,16 +2823,16 @@ begin
           Cardinal(ChildNode.Coordinates) := ChildXY;
 
           // set next allocable node
-          if (ChildNode <> Store.Info.NodeStorage.MaximumNode) then
+          if (ChildNode <> Store.Info.NodeAllocator.NewNodeLimit) then
           begin
             Inc(ChildNode);
-            Store.Info.NodeStorage.NewNode := ChildNode;
+            Store.Info.NodeAllocator.NewNode := ChildNode;
             Dec(ChildNode);
           end else
           begin
-            TPathMapPtr(Store.Self).GrowNodeStorage(Store.Info.NodeStorage);
+            TPathMapPtr(Store.Self).GrowNodeAllocator(Store.Info);
             {$ifdef LARGEINT}
-              NODEPTR_MODIFIER := Store.Info.NodeStorage.LargeModifier +
+              NODEPTR_MODIFIER := Store.Info.NodeAllocator.LargeModifier +
                 (NODEPTR_FLAG_LARGE + NODEPTR_FLAG_CALCULATED);
             {$endif}
           end;
@@ -2887,9 +2897,9 @@ begin
       begin
         // NodePtr --> Pointer
         {$ifdef LARGEINT}
-          NodeStorageBuffers := Pointer(@Store.Info.NodeStorage.Buffers);
+          NodeAllocatorBuffers := Pointer(@Store.Info.NodeAllocator.Buffers);
           ChildNode := Pointer(
-            (NodeStorageBuffers[NativeUInt(ChildNode) shr LARGE_NODEPTR_OFFSET]) +
+            (NodeAllocatorBuffers[NativeUInt(ChildNode) shr LARGE_NODEPTR_OFFSET]) +
             (NativeUInt(ChildNode) and NODEPTR_CLEAN_MASK) );
         {$else}
           ChildNode := Pointer(NativeInt(ChildNode) and NODEPTR_CLEAN_MASK);
@@ -3007,8 +3017,8 @@ begin
   // Result
   Result := Node;
 
-  // actualize node storage (new node pointer)
-  TPathMapPtr(Store.Self).FInfo.NodeStorage.NewNode := Store.Info.NodeStorage.NewNode;
+  // actualize node allocator (new node pointer)
+  TPathMapPtr(Store.Self).FInfo.NodeAllocator.NewNode := Store.Info.NodeAllocator.NewNode;
 end;
 
 function TPathMap.DoFindPath(const Parameters: TPathMapParameters): PPathMapResult;
@@ -3285,8 +3295,8 @@ initialization
     {$else}
       //TestNodesInsert(0);
     {$endif}
-  TPathMap(nil).DoFindPath(TPathMapParameters(nil^));
- // TPathMapPtr(nil).DoFindPathLoop(nil);
+ // TPathMap(nil).DoFindPath(TPathMapParameters(nil^));
+  TPathMapPtr(nil).DoFindPathLoop(nil);
   {$ifend}
 
 end.
