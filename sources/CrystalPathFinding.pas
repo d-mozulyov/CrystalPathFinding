@@ -286,7 +286,7 @@ type
 
 
   TCPFInfo = record
-    Cells: PCPFCellArray;
+    CellArray: PCPFCellArray;
     MapWidth: NativeInt;
     HeuristicsLine: NativeInt;
     HeuristicsDiagonal: NativeInt;
@@ -364,8 +364,10 @@ type
         Items: array[0..31] of Pointer;
         Count: NativeUInt;
       end;
-
-      //
+      Heuristed: record
+        First: TCPFNode;
+        Last: TCPFNode;
+      end;
     end;
     FActualInfo: record
       TilesChanged: Boolean;
@@ -403,9 +405,10 @@ type
     function ActualizeStartPoints(Points: PPoint; Count: NativeUInt; Compare: Boolean): Boolean;
     function ActualizeExcludedPoints(Points: PPoint; Count: NativeUInt; Compare: Boolean): Boolean;
     procedure ActualizeSectors;
+    procedure AddHeuristedNodes(const First, Last: PCPFNode);
     procedure ReleaseAttainableNodes;
-    procedure ReleaseHeuristicsNodes;
-    procedure ReleaseAllocatedNodes;
+    procedure ReleaseHeuristedNodes;
+    // procedure ReleaseAllocatedNodes;
   {$ifdef CPFLIB}
   public
     procedure Destroy;
@@ -1344,17 +1347,16 @@ const
   NATTANABLE_LENGTH_LIMIT = not Cardinal(PATHLENGTH_LIMIT);
   SORTVALUE_LIMIT = NATTANABLE_LENGTH_LIMIT - 1;
 
-  PATHLESS_TILE_WEIGHT = High(Cardinal) shr 1;
-
   FLAG_KNOWN_PATH = 1 shl 6;
   FLAG_ATTAINABLE = 1 shl 7;
+  PATHLESS_TILE_WEIGHT = High(Cardinal) shr 1;
 
   {$ifdef LARGEINT}
     LARGE_NODEPTR_OFFSET = 32 - {0..31}5;
   {$endif}
 
-  NODEPTR_FLAG_CALCULATED = 1;
-  NODEPTR_FLAG_LARGE = 2;
+  NODEPTR_FLAG_ALLOCATED = 1;
+  NODEPTR_FLAG_HEURISTED = 2;
   NODEPTR_CLEAN_MASK = Integer((not 7) {$ifdef LARGEINT} and ((1 shl LARGE_NODEPTR_OFFSET) - 1){$endif});
 
   {$ifdef LARGEINT}
@@ -1990,11 +1992,13 @@ begin
 
   // allocate and fill cells
   Size := FCellCount * SizeOf(TCPFCell);
-  CPFGetMem(Pointer(FInfo.Cells), Size);
-  ZeroMemory(FInfo.Cells, Size);
+  CPFGetMem(Pointer(FInfo.CellArray), Size);
+  ZeroMemory(FInfo.CellArray, Size);
   Clear;
 
-  // allocate first
+  // nodes initialization
+  FNodes.Heuristed.First.Next := @FNodes.Heuristed.Last;
+  FNodes.Heuristed.Last.Prev := @FNodes.Heuristed.First;
   GrowNodeAllocator(FInfo);
 end;
 
@@ -2020,7 +2024,7 @@ begin
     CPFFreeMem(FNodes.Storage.Items[i]);
 
   // cells
-  CPFFreeMem(Pointer(FInfo.Cells));
+  CPFFreeMem(Pointer(FInfo.CellArray));
 
   // sectors
   CPFFreeMem(Pointer(FActualInfo.Sectors));
@@ -2301,7 +2305,7 @@ var
   LastCount, Count: Cardinal;
   V: Cardinal;
   i: NativeUInt;
-  TileWeightLimit, TileWeightMinimum, TileWeightMinimumDiagonal: Cardinal;
+  PWeight: PSingle;
 begin
   LastCount := FActualInfo.Weights.Count;
 
@@ -2367,48 +2371,51 @@ begin
     FillCardinal(@FActualInfo.Weights.CardinalsDiagonal[LastCount], V, FTileDefaultWeightDiagonal);
   end;
 
-  // copy and calculate weights/heuristics
+  // copy and calculate weights
   if (Count <> 0) then
   begin
     Move(Weights.Singles[1], FActualInfo.Weights.Singles[1], SizeOf(Single) * Count);
 
-    TileWeightLimit := FTileWeightLimit;
-    TileWeightMinimum := FTileWeightMinimum;
-    TileWeightMinimumDiagonal := FTileWeightMinimumDiagonal;
-    for i := 1 to Count do
+    for i := Count downto 1 do      
     begin
-      V := CPFRound(FActualInfo.Weights.Singles[i] * FTileWeightScale);
-      if (V > TileWeightLimit) then V := TileWeightLimit
+      PWeight := @FActualInfo.Weights.Singles[i];
+      if (PCardinal(PWeight)^ = 0) then
+      begin
+        FActualInfo.Weights.Cardinals[i] := PATHLESS_TILE_WEIGHT;
+        FActualInfo.Weights.CardinalsDiagonal[i] := PATHLESS_TILE_WEIGHT;
+        Continue;
+      end;
+
+      V := CPFRound(PWeight^ * FTileWeightScale);
+      if (V > FTileWeightLimit) then V := FTileWeightLimit
       else
-      if (V < TileWeightMinimum) then V := TileWeightMinimum;
+      if (V < FTileWeightMinimum) then V := FTileWeightMinimum;
       FActualInfo.Weights.Cardinals[i] := V;
 
       if (FSameDiagonalWeight) then
       begin
-        FActualInfo.Weights.SinglesDiagonal[i] := FActualInfo.Weights.Singles[i];
+        FActualInfo.Weights.SinglesDiagonal[i] := PWeight^;
         FActualInfo.Weights.CardinalsDiagonal[i] := V;
       end else
       begin
-        FActualInfo.Weights.SinglesDiagonal[i] := SQRT2 * FActualInfo.Weights.Singles[i];
+        FActualInfo.Weights.SinglesDiagonal[i] := SQRT2 * PWeight^;
 
-        V := CPFRound(FActualInfo.Weights.Singles[i] * FTileWeightScaleDiagonal);
-        if (V < TileWeightMinimumDiagonal) then V := TileWeightMinimumDiagonal;
+        V := CPFRound(PWeight^ * FTileWeightScaleDiagonal);
+        if (V < FTileWeightMinimumDiagonal) then V := FTileWeightMinimumDiagonal;
         FActualInfo.Weights.CardinalsDiagonal[i] := V;
       end;
     end;
 
     // heuristics
     V := CPFRound(PSingle(@Weights.Minimum)^ * FTileWeightScale);
-    if (V > TileWeightLimit) then FInfo.HeuristicsLine := TileWeightLimit
+    if (V > FTileWeightLimit) then FInfo.HeuristicsLine := FTileWeightLimit
     else
-    if (V < TileWeightMinimum) then FInfo.HeuristicsLine := TileWeightMinimum
+    if (V < FTileWeightMinimum) then FInfo.HeuristicsLine := FTileWeightMinimum
     else
     FInfo.HeuristicsLine := V;
 
     V := CPFRound(PSingle(@Weights.Minimum)^ * FTileWeightScaleDiagonal);
-    if (V > TileWeightLimit) then FInfo.HeuristicsDiagonal := TileWeightLimit
-    else
-    if (V < TileWeightMinimum) then FInfo.HeuristicsDiagonal := TileWeightMinimum
+    if (V < FTileWeightMinimumDiagonal) then FInfo.HeuristicsDiagonal := FTileWeightMinimumDiagonal
     else
     FInfo.HeuristicsDiagonal := V;
   end else
@@ -2475,20 +2482,56 @@ begin
   // todo
 end;
 
+procedure TPathMap.AddHeuristedNodes(const First, Last: PCPFNode);
+var
+  Next: PCPFNode;
+begin
+  Next := FNodes.Heuristed.First.Next;
+
+  // FNodes.Heuristed.First + First
+  FNodes.Heuristed.First.Next := First;
+  First.Prev := @FNodes.Heuristed.First;
+
+  // Last + Next
+  Last.Next := Next;
+  Next.Prev := Last;
+end;
+
 procedure TPathMap.ReleaseAttainableNodes;
 begin
   // todo
 end;
 
-procedure TPathMap.ReleaseHeuristicsNodes;
+procedure TPathMap.ReleaseHeuristedNodes;
+var
+  Node: PCPFNode;
+  Cells: PCPFCellArray;
+  Cell: PCPFCell;
+  Coordinates, MapWidth: NativeInt;
 begin
-  // todo
+  // take node list
+  Node := FNodes.Heuristed.First.Next;
+  if (Node = @FNodes.Heuristed.Last) then Exit;
+  FNodes.Heuristed.First.Next := @FNodes.Heuristed.Last;
+  FNodes.Heuristed.Last.Prev := @FNodes.Heuristed.First;
+
+  // clear flag loop
+  Cells := FInfo.CellArray;
+  MapWidth := FInfo.MapWidth;
+  while (Node <> nil) do
+  begin
+    Coordinates := Cardinal(Node.Coordinates);
+    Node := Node.Next;
+
+    Cell := @Cells[(Coordinates shr 16){X} + MapWidth * {Y}Word(Coordinates)];
+    Cell.NodePtr := Cell.NodePtr and (not NODEPTR_FLAG_HEURISTED);
+  end;
 end;
 
-procedure TPathMap.ReleaseAllocatedNodes;
+(*procedure TPathMap.ReleaseAllocatedNodes;
 begin
   // todo
-end;
+end;*)
 
 
 type
@@ -2645,6 +2688,7 @@ label
   heuristics_data,
   next_current, current_initialize;
 const
+  NODEPTR_FLAGS = NODEPTR_FLAG_HEURISTED + NODEPTR_FLAG_ALLOCATED;
   PARENT_BITS_CLEAR_MASK = not Cardinal(((1 shl 5) - 1) shl 3);
   COUNTER_OFFSET = 16;
 type
@@ -2701,9 +2745,6 @@ var
   {$ifdef LARGEINT}
     NodeAllocatorBuffers: ^TNodeAllocatorBuffers;
     NODEPTR_MODIFIER: NativeInt;
-  {$else}
-const
-    NODEPTR_MODIFIER = NODEPTR_FLAG_CALCULATED;
   {$endif}
 begin
   Store.Self := Pointer({$ifdef CPFLIB}@Self{$else}Self{$endif});
@@ -2717,8 +2758,7 @@ begin
   {$endif}
 
   {$ifdef LARGEINT}
-    NODEPTR_MODIFIER := Store.Info.NodeAllocator.LargeModifier +
-      (NODEPTR_FLAG_LARGE + NODEPTR_FLAG_CALCULATED);
+    NODEPTR_MODIFIER := Store.Info.NodeAllocator.LargeModifier + NODEPTR_FLAGS;
   {$endif}
 
   // Top initialization
@@ -2794,13 +2834,13 @@ begin
 
       // if node is allocated/initialized
       ChildNode := Pointer(NativeUInt(Cell.NodePtr));
-      if (NativeInt(ChildNode) and NODEPTR_FLAG_CALCULATED = 0) then
+      if (NativeInt(ChildNode) and NODEPTR_FLAG_HEURISTED = 0) then
       begin
         // mask & parentmask test
         if (ChildNodeInfo and ((ChildNodeInfo and $ff00) shl 8) = 0) then
           goto nextchild_continue;
 
-        if (ChildNode = nil) then
+        if (NativeInt(ChildNode) and NODEPTR_FLAG_ALLOCATED = 0) then
         begin
           // allocate new node
           ChildNode := Store.Info.NodeAllocator.NewNode;
@@ -2808,7 +2848,7 @@ begin
           {$ifdef LARGEINT}
             Cell.NodePtr := NativeUInt(NativeInt(ChildNode) + NODEPTR_MODIFIER);
           {$else}
-            Cell.NodePtr := NativeUInt(ChildNode) + NODEPTR_MODIFIER;
+            Cell.NodePtr := NativeUInt(ChildNode) + NODEPTR_FLAGS;
           {$endif}
           ChildNode.Path := Path;
           ChildNode.NodeInfo := ChildNodeInfo;
@@ -2832,8 +2872,7 @@ begin
           begin
             TPathMapPtr(Store.Self).GrowNodeAllocator(Store.Info);
             {$ifdef LARGEINT}
-              NODEPTR_MODIFIER := Store.Info.NodeAllocator.LargeModifier +
-                (NODEPTR_FLAG_LARGE + NODEPTR_FLAG_CALCULATED);
+              NODEPTR_MODIFIER := Store.Info.NodeAllocator.LargeModifier + NODEPTR_FLAGS;
             {$endif}
           end;
           goto heuristics_data;
@@ -2842,9 +2881,9 @@ begin
           // already node allocated and coordinates filled
           // need to fill path/parent and heuristics/way data
           {$ifdef LARGEINT}
-            Cell.NodePtr := NativeUInt(NativeInt(ChildNode) + NODEPTR_MODIFIER - NODEPTR_FLAG_LARGE);
+            Cell.NodePtr := NativeUInt(NativeInt(ChildNode) + NODEPTR_MODIFIER - NODEPTR_FLAG_ALLOCATED);
           {$else}
-            Cell.NodePtr := NativeUInt(ChildNode) + NODEPTR_MODIFIER;
+            Cell.NodePtr := NativeUInt(ChildNode) + NODEPTR_FLAG_HEURISTED;
           {$endif}
           ChildNode.Path := Path;
           ChildNode.NodeInfo := ChildNodeInfo;
@@ -2897,7 +2936,7 @@ begin
       begin
         // NodePtr --> Pointer
         {$ifdef LARGEINT}
-          NodeAllocatorBuffers := Pointer(@Store.Info.NodeAllocator.Buffers);
+          NodeAllocatorBuffers := Pointer(@Store.Info.NodeAllocator.Items);
           ChildNode := Pointer(
             (NodeAllocatorBuffers[NativeUInt(ChildNode) shr LARGE_NODEPTR_OFFSET]) +
             (NativeUInt(ChildNode) and NODEPTR_CLEAN_MASK) );
@@ -3006,7 +3045,7 @@ begin
     // cell
     NodeInfo{XY} := Cardinal(Node.Coordinates);
     Cardinal(Store.Current.Coordinates) := NodeInfo{XY};
-    Cell := @Store.Info.Cells[(NativeInt(NodeInfo) shr 16){X} + Store.Info.MapWidth * {Y}Word(NodeInfo)];
+    Cell := @Store.Info.CellArray[(NativeInt(NodeInfo) shr 16){X} + Store.Info.MapWidth * {Y}Word(NodeInfo)];
     Store.Current.Cell := Cell;
 
     // node info
@@ -3132,7 +3171,7 @@ begin
 
     // heuristics points
     if (not ActualFinish) then
-      ReleaseHeuristicsNodes;
+      ReleaseHeuristedNodes;
 
     // alloc start points
     ActualStarts := ActualizeStartPoints(Parameters.StartPoints, Parameters.StartPointsCount, Actual);
