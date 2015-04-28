@@ -2717,11 +2717,11 @@ var
   TileWeights: PCardinalList;
   Path: Cardinal;
   NodeXY, OffsetXY, ChildXY: Cardinal;
- // dX, dY, X, Y: NativeInt;
- // Mask: NativeInt;
+  dX, dY, X, Y: NativeInt;
+  Mask: NativeInt;
 
-  ChildSortValue{, ChildPath}: Cardinal;
-//  Left{, Right}: PCPFNode;
+  ChildSortValue, ChildPath: Cardinal;
+//  Left, Right: PCPFNode;
 
   PBufferHigh, PBufferBase, PBufferCurrent: ^PCPFNode;
 
@@ -2915,7 +2915,7 @@ begin
 
         heuristics_data:
           // (dX, dY) = ChildNode.Coordinates - Store.Info.FinishPoint;
-         (* dX := Cardinal(ChildNode.Coordinates);
+          dX := Cardinal(ChildNode.Coordinates);
           dY := Word(dX);
           dX := dX shr 16;
           Mask := Cardinal(Store.Info.FinishPoint);
@@ -2923,12 +2923,9 @@ begin
           dX := dX - (Mask shr 16);
 
           // Way
-          Mask := 2*Byte(dY > 0);
-          X := 2*Byte(dX > 0);
-          Inc(Mask, dY shr HIGH_NATIVE_BIT);
-          Inc(X, dX shr HIGH_NATIVE_BIT);
-          Mask := 3 * Mask;
-          ChildNode.NodeInfo := ChildNode.NodeInfo or Cardinal((X - 1 + {3 *} Mask) shl 3);
+          Mask := 2*Byte(dY > 0) + (dY shr HIGH_NATIVE_BIT);
+          Mask := (Mask * 3) + 2*Byte(dX > 0) + (dX shr HIGH_NATIVE_BIT);
+          ChildNode.NodeInfo := ChildNode.NodeInfo or Cardinal(Mask);
 
           // Y := Abs(dY)
           Mask := -(dY shr HIGH_NATIVE_BIT);
@@ -2955,7 +2952,7 @@ begin
             X := X - ((Mask xor PNativeInt(@Store.Info.FinishPoint)^) and Y and 1) - (Y shr 1);
             ChildNode.SortValue := {$ifdef CPUX86}ChildNode.{$endif}Path +
                Cardinal(Store.Info.HeuristicsLine * (Y + (X and ((X shr HIGH_NATIVE_BIT) - 1))));
-          end; *)
+          end;
         end;
       end else
       begin
@@ -2969,7 +2966,7 @@ begin
         {$endif}
 
         // child node info (with new parent bits)
-        (*ChildNodeInfo := ChildNode.NodeInfo;
+        ChildNodeInfo := ChildNode.NodeInfo;
         ParentBits := ParentBits + (ChildNodeInfo and PARENT_BITS_CLEAR_MASK);
         if (ParentBits and ((ChildNodeInfo and $ff00) shl 8) = 0) then goto nextchild_continue;
 
@@ -2981,17 +2978,17 @@ begin
 
         // continue if the path is shorter
         ChildPath := ChildNode.Path;
-        if (Path >= ChildPath) then goto nextchild_continue;    *)
+        if (Path >= ChildPath) then goto nextchild_continue;
 
         // new parent bits
         ChildNode.NodeInfo := ParentBits;
 
         // sort value as hot knownpath node marker
-       // ChildSortValue := ChildNode.SortValue;
+       (* ChildSortValue := ChildNode.SortValue;
 
         // new Path and SortValue
-        //ChildNode.Path := Path;
-       (* ChildNode.SortValue := Path + {heuristics}(ChildSortValue - ChildPath);
+        ChildNode.Path := Path;
+        ChildNode.SortValue := Path + {heuristics}(ChildSortValue - ChildPath);
 
         // remove from opened list
         if (ChildSortValue < NATTANABLE_LENGTH_LIMIT) then
