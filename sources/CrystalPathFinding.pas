@@ -2782,7 +2782,17 @@ begin
     // lock
     Node.ParentMask := 0;
 
-    // todo next top?
+    // next top node and sort value
+    if (ChildSortValue = Store.Top.SortValue){Node = Store.Top.Node} then
+    begin
+      repeat
+        Node := Node.Next;
+        Path := Node.SortValue;
+      until (Path > ChildSortValue);
+
+      Store.Top.Node := Node;
+      Store.Top.SortValue := Path;
+    end;
 
     // child list
     ChildList := Pointer(NativeUInt(CHILD_ARRAYS_OFFSETS[NodeInfo and 63]));
@@ -2925,7 +2935,7 @@ begin
           Mask := 2*Byte(dY > 0) + (dY shr HIGH_NATIVE_BIT);
           Mask := Mask * 3;
           Mask := Mask + 2*Byte(dX > 0);
-          Mask := Mask + (dX shr HIGH_NATIVE_BIT);
+          Mask := Mask - 1 + (dX shr HIGH_NATIVE_BIT);
           ChildNode.NodeInfo := ChildNode.NodeInfo or Cardinal(Mask shl 3);
 
           // Y := Abs(dY)
@@ -3065,16 +3075,17 @@ begin
   next_current:
     Node := Store.Current.Node.Next;
   current_initialize:
-    // store pointer and path
-    Store.Current.Node := Node;
-    Store.Current.SortValue := Node.SortValue;
-    Store.Current.Path := Node.Path;
-
     // cell
     NodeInfo{XY} := Cardinal(Node.Coordinates);
     Cardinal(Store.Current.Coordinates) := NodeInfo{XY};
     Cell := @Store.Info.CellArray[(NativeInt(NodeInfo) shr 16){X} + Store.Info.MapWidth * {Y}Word(NodeInfo)];
     Store.Current.Cell := Cell;
+
+    // store pointer and path
+    Store.Current.Node := Node;
+    Store.Current.Path := Node.Path;
+    ChildSortValue := Node.SortValue;
+    Store.Current.SortValue := ChildSortValue;
 
     // node info
     NodeInfo := Cardinal(Node.NodeInfo);
