@@ -2574,6 +2574,7 @@ var
 
   ChildSortValue, ChildPath: Cardinal;
   PBufferHigh, PBufferBase, PBufferCurrent: ^PCPFNode;
+  {Left, }//Right: PCPFNode;
 
   Store: record
     Buffer: TMapNodeBuffer;
@@ -2583,6 +2584,7 @@ var
 
     {$ifdef CPUX86}
     ChildList: PWord;
+    TopGreatherNode: PCPFNode;
     {$endif}
 
     Current: record
@@ -2600,6 +2602,7 @@ var
 
   {$ifNdef CPUX86}
     Buffer: PMapNodeBuffer;
+    TopGreatherNode: PCPFNode;
   {$endif}
 
   {$ifdef LARGEINT}
@@ -2921,7 +2924,83 @@ begin
     end;
 
     // insert sorted nodes
-    // todo
+    {$ifdef CPUX86}Store.{$endif}TopGreatherNode := Store.Top.Node;
+    PBufferCurrent := @{$ifdef CPUX86}Store.{$endif}Buffer[0];
+    repeat
+      // make same sort value list (ChildNode..Node)
+      ChildNode := PBufferCurrent^;
+      Inc(PBufferCurrent);
+      Node := ChildNode;
+      ChildSortValue := ChildNode.SortValue;
+      while (PBufferCurrent <> PBufferHigh) do
+      begin
+        //Right := PBufferCurrent^;
+        //if (Right.SortValue <> ChildSortValue) then Break;
+
+        if (PBufferCurrent^.SortValue <> ChildSortValue) then Break;
+
+       // Node.Next := Right;
+       // Right.Prev := Node;
+
+        Inc(PBufferCurrent);
+        //Node := Right;
+        Node := PBufferCurrent^;
+      end;
+
+      ChildNode.SortValue := ChildSortValue + Node.SortValue;
+    until (PBufferCurrent = PBufferHigh);
+
+  (*  PBufferCurrent := @{$ifdef CPUX86}Store.{$endif}Buffer[0];
+    repeat
+      // make same sort value list (ChildNode..Node)
+      ChildNode := PBufferCurrent^;
+      Inc(PBufferCurrent);
+      Node := ChildNode;
+      ChildSortValue := ChildNode.SortValue;
+      while (PBufferCurrent <> PBufferHigh) do
+      begin
+        (*Right := PBufferCurrent^;
+        if (Right.SortValue <> ChildSortValue) then Break;
+
+        Node.Next := Right;
+        Right.Prev := Node;
+
+        Inc(PBufferCurrent);
+        Node := Right;
+      end;
+
+      // insertion kinds
+      ChildNode.SortValue := 0;
+      Node.SortValue := 0;*)
+     // Right.SortValue := 0;
+     (* if (ChildSortValue > Store.Current.SortValue) then
+      begin
+        if (ChildSortValue <= Store.Top.SortValue) then
+        begin
+          // before top
+          Right := Store.Top.Node;
+          Store.Top.Node := ChildNode;
+          Store.Top.SortValue := ChildSortValue;
+        end else
+        begin
+          // greater then top
+          Right := {$ifdef CPUX86}Store.{$endif}TopGreatherNode;
+          while (Right.SortValue < ChildSortValue) do Right := Right.Next;
+          {$ifdef CPUX86}Store.{$endif}TopGreatherNode := Right;
+        end;
+      end else
+      begin
+        // after current
+        Right := Store.Current.Node.Next;
+      end;
+
+      // insertion
+      //Left := Right.Prev;
+      Node.Next := Right;
+      Right.Prev := Node;
+      //Left.Next := ChildNode;
+      ChildNode.Prev := nil;//Left;   *)
+//    until (PBufferCurrent = PBufferHigh);
 
     // next opened node
   next_current:
@@ -3221,7 +3300,7 @@ initialization
   {$endif}
   {$if Defined(DEBUG) and not Defined(CPFLIB)}
  // TPathMap(nil).DoFindPath(TPathMapParameters(nil^));
- // TPathMapPtr(nil).DoFindPathLoop(nil);
+  TPathMapPtr(nil).DoFindPathLoop(nil);
   {$ifend}
 
 end.
