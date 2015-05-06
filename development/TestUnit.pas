@@ -64,7 +64,10 @@ var
   ChildSortValue: Cardinal;
 
   PBufferHigh, PBufferBase, PBufferCurrent: ^PCPFNode;
-  Right, Left: PCPFNode;
+  Right: PCPFNode;
+  {$if (not Defined(CPUX86)) or Defined(FPC)}
+    Left: PCPFNode;
+  {$ifend}
 
   {$ifNdef CPUX86}
     Buffer: ^TMapNodeBuffer;
@@ -170,11 +173,18 @@ begin
       end;
 
       // insertion
-      Left := Right.Prev;
-      Node.Next := Right;
-      Right.Prev := Node;
-      Left.Next := ChildNode;
-      ChildNode.Prev := Left;
+      {$if (not Defined(CPUX86)) or Defined(FPC)}
+        Left := Right.Prev;
+        Node.Next := Right;
+        ChildNode.Prev := Left;
+        Left.Next := ChildNode;
+        Right.Prev := Node;
+      {$else}
+        Node.Next := Right;
+        ChildNode.Prev := Node.Next.Prev;
+        ChildNode.Prev.Next := ChildNode;
+        Right.Prev := Node;
+      {$ifend}
     until (PBufferCurrent = PBufferHigh);
 
 next_current:
@@ -195,26 +205,26 @@ var
   V, Iter, SubIter: Cardinal;
   Good: Boolean;
 
-{  function PtrToStr(P: Pointer): string;
+  function PtrToStr(P: Pointer): string;
   begin
     if (P = nil) then Result := 'nil'
     else
-    Result := Format('%8p', [P]);
-  end;}
+    Result := IntToHex(NativeUInt(P), 8);
+  end;
 
   function NodeToString(const N: PCPFNode): string;
   begin
-    Result := Format('%p  Value: %u, Iteration: %d-%d'{, Prev: %s, Next: %s'},
-      [Pointer(N), N.SortValue, N.Path shr 16, N.Path and $ffff{,
+    Result := Format('%s  Value: %u, Iteration: %d-%d'{, Prev: %s, Next: %s'},
+      [PtrToStr(N), N.SortValue, N.Path shr 16, N.Path and $ffff{,
        PtrToStr(N.Prev), PtrToStr(N.Next)}]);
   end;
 
   procedure WritelnCurrentTop;
   begin
-    Writeln(Format('Current = %p (%u/%u), Top = %p (%u/%u)',
+    Writeln(Format('Current = %s (%u/%u), Top = %s (%u/%u)',
       [
-        S.Current.Node, S.Current.Node.SortValue, S.Current.SortValue,
-        S.Top.Node, S.Top.Node.SortValue, S.Top.SortValue
+        PtrToStr(S.Current.Node), S.Current.Node.SortValue, S.Current.SortValue,
+        PtrToStr(S.Top.Node), S.Top.Node.SortValue, S.Top.SortValue
       ]));
   end;
 begin
@@ -251,7 +261,7 @@ begin
   Node := PCPFNode(S.HexagonalFlag).Next;
   while (Node.SortValue <> High(Cardinal)) do
   begin
-    if (Number > NODE_INDEX + 2) then
+    if (Number > NODE_INDEX{ + 2}) then
     begin
       Writeln('FAIL !!!');
       Break;
@@ -287,6 +297,9 @@ begin
 //    if (Node.SortValue = High(Cardinal)) then Break;
     Node := Node.Next;
   end;
+  if (Number <> NODE_INDEX{ + 2}) then
+    Writeln('FAIL NUMBER');
+
   WritelnCurrentTop;
 end;
 
