@@ -20,8 +20,6 @@ procedure RUN;
 procedure ShowMessage(const S: string); overload;
 procedure ShowMessage(const StrFmt: string; const Args: array of const); overload;
 
-implementation
-
 type
   TMapNodeBuffer = array[0..7] of PCPFNode;
   PMapNodeBuffer = ^TMapNodeBuffer;
@@ -34,6 +32,7 @@ type
 
     {$ifdef CPUX86}
     ChildList: PWord;
+    TopGreatherNode: PCPFNode;
     {$endif}
 
     Current: record
@@ -48,6 +47,10 @@ type
       SortValue: Cardinal;
     end;
   end;
+  PFindPathLoopStore = ^TFindPathLoopStore;
+
+
+implementation
 
 
 procedure __InsertNodes(var S: TFindPathLoopStore; NodeInfo: NativeUInt);
@@ -61,16 +64,16 @@ var
   ChildSortValue: Cardinal;
 
   PBufferHigh, PBufferBase, PBufferCurrent: ^PCPFNode;
+  Right, Left: PCPFNode;
 
   {$ifNdef CPUX86}
     Buffer: ^TMapNodeBuffer;
+    TopGreatherNode: PCPFNode;
   {$endif}
 
   Store: TFindPathLoopStore;
 begin
-  //StoreEx.S := @S;
-  Store.ChildList := Pointer(@S);
-  Move(Store.ChildList^, Store, SizeOf(Store));
+  Move(S, Store, SizeOf(Store));
 
   {$ifNdef CPUX86}
     Buffer := @Store.Buffer;
@@ -124,55 +127,173 @@ begin
     end;
 
     // insert sorted nodes
-    // todo
+    {$ifdef CPUX86}Store.{$endif}TopGreatherNode := Store.Top.Node;
+    PBufferCurrent := @{$ifdef CPUX86}Store.{$endif}Buffer[0];
+    repeat
+      // make same sort value list (ChildNode..Node)
+      ChildNode := PBufferCurrent^;
+      Inc(PBufferCurrent);
+      Node := ChildNode;
+      ChildSortValue := ChildNode.SortValue;
+      while (PBufferCurrent <> PBufferHigh) do
+      begin
+        Right := PBufferCurrent^;
+        if (Right.SortValue <> ChildSortValue) then Break;
 
+        Node.Next := Right;
+        Right.Prev := Node;
+
+        Inc(PBufferCurrent);
+        Node := Right;
+      end;
+
+      // insertion kinds
+      if (ChildSortValue > Store.Current.SortValue) then
+      begin
+        if (ChildSortValue <= Store.Top.SortValue) then
+        begin
+          // before top
+          Right := Store.Top.Node;
+          Store.Top.Node := ChildNode;
+          Store.Top.SortValue := ChildSortValue;
+        end else
+        begin
+          // greater then top
+          Right := {$ifdef CPUX86}Store.{$endif}TopGreatherNode;
+          while (Right.SortValue < ChildSortValue) do Right := Right.Next;
+          {$ifdef CPUX86}Store.{$endif}TopGreatherNode := Right;
+        end;
+      end else
+      begin
+        // after current
+        Right := Store.Current.Node.Next;
+      end;
+
+      // insertion
+      Left := Right.Prev;
+      Node.Next := Right;
+      Right.Prev := Node;
+      Left.Next := ChildNode;
+      ChildNode.Prev := Left;
+    until (PBufferCurrent = PBufferHigh);
 
 next_current:
-  Move(Store, Store.ChildList^, SizeOf(Store));
+  Move(Store, Store.Self^, SizeOf(Store));
 end;
 
 var
+  NODE_INDEX: Integer = 0;
   ITERATION: Integer = 0;
 
 procedure InsertNodes(var S: TFindPathLoopStore; const SortValues: array of Cardinal);
 var
   i: Integer;
   Node: PCPFNode;
+  Number: Integer;
+
+  LastV, LastIter, LastSubIter,
+  V, Iter, SubIter: Cardinal;
+  Good: Boolean;
+
+{  function PtrToStr(P: Pointer): string;
+  begin
+    if (P = nil) then Result := 'nil'
+    else
+    Result := Format('%8p', [P]);
+  end;}
+
+  function NodeToString(const N: PCPFNode): string;
+  begin
+    Result := Format('%p  Value: %u, Iteration: %d-%d'{, Prev: %s, Next: %s'},
+      [Pointer(N), N.SortValue, N.Path shr 16, N.Path and $ffff{,
+       PtrToStr(N.Prev), PtrToStr(N.Next)}]);
+  end;
+
+  procedure WritelnCurrentTop;
+  begin
+    Writeln(Format('Current = %p (%u/%u), Top = %p (%u/%u)',
+      [
+        S.Current.Node, S.Current.Node.SortValue, S.Current.SortValue,
+        S.Top.Node, S.Top.Node.SortValue, S.Top.SortValue
+      ]));
+  end;
 begin
   Writeln;
   Inc(ITERATION);
   Write(ITERATION, ') send: [');
   for i := 0 to High(SortValues) do
   begin
-    if (i <> 0) then Write(', ');
-    Write(SortValues[i]);
-
-    GetMem(Node, SizeOf(Node));
+    New(Node);
+    Inc(NODE_INDEX);
     Node.SortValue := SortValues[i];
     Node.Path := (ITERATION shl 16) + (i + 1);
+    Node.Prev := nil;
+    Node.Next := nil;
 
     S.Buffer[i] := Node;
+
+    if (i <> 0) then Write(', ');
+    Write(SortValues[i]{Format('%u:%p', [SortValues[i], Node])});
   end;
   Writeln(']');
+//  WritelnCurrentTop;
 
   // call test function
+  Writeln('...');
   __InsertNodes(S, Length(SortValues) shl 16);
 
   // result
-  Node := PCPFNode(S.Self).Next;
+//  WritelnCurrentTop;
+  LastV := 0;
+  LastIter := $ffff;
+  LastSubIter := $ffff;
+  Number := 0;
+  Node := PCPFNode(S.HexagonalFlag).Next;
   while (Node.SortValue <> High(Cardinal)) do
   begin
-    Writeln(Format('  Value: %d, Interation: %d-%d',
-      [Node.SortValue, Node.Path shr 16, Node.Path and $ffff]));
+    if (Number > NODE_INDEX + 2) then
+    begin
+      Writeln('FAIL !!!');
+      Break;
+    end;
 
+    Inc(Number);
+    Write(NodeToString(Node));
+
+    V := Node.SortValue;
+    Iter := Node.Path shr 16;
+    SubIter := Node.Path and $ffff;
+    Good := True;
+
+    if (LastV > V) then Good := False;
+    if (LastV = V) then
+    begin
+      if (LastIter < Iter) then Good := False;
+      if (LastIter = Iter) then
+      begin
+        if (LastSubIter > SubIter) then Good := False;
+      end;
+    end;
+
+    if (not Good) then
+    begin
+      Write(' FAIL !!!');
+    end;
+
+    LastV := V;
+    LastIter := Iter;
+    LastSubIter := SubIter;
+    Writeln;
+//    if (Node.SortValue = High(Cardinal)) then Break;
     Node := Node.Next;
   end;
+  WritelnCurrentTop;
 end;
 
 procedure RUN_Inserts(var S: TFindPathLoopStore);
 begin
   InsertNodes(S, [3, 3, 5, 4, 0, 0, 7]);
-  InsertNodes(S, [3, 0, 0, 8, 6, 2, 3, 2]);
+  InsertNodes(S, [3, 0, 0, {8,} 6, 2, 3, 2]);
   InsertNodes(S, [0, 1, 2, 3, 4, 5, 8, 9]);
   InsertNodes(S, [1, 8, 9, 10]);
 end;
@@ -180,22 +301,25 @@ end;
 procedure RUN;
 var
   S: TFindPathLoopStore;
-
   First, Last: TCPFNode;
 begin
   First.SortValue := 0;
   First.Path := 0;
   Last.SortValue := High(Cardinal);
   Last.Path :=  0;
+  First.Prev := nil;
   First.Next := @Last;
   Last.Prev := @First;
+  Last.Next := nil;
 
+  FillChar(S, SizeOf(S), 0);
   S.Current.Node := @First;
   S.Current.SortValue := 0;
   S.Top.Node := @Last;
   S.Top.SortValue := High(Cardinal);
 
-  S.Self := Pointer(@First);
+  S.Self := @S;
+  S.HexagonalFlag := NativeUInt(@First);
 
   RUN_Inserts(S);
 
