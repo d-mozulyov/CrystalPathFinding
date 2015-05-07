@@ -52,7 +52,9 @@ interface
          {$endif}
        {$endif};
 
+{$if Defined(FPC) or (CompilerVersion < 22) or (not Defined(NOEXCEPTIONS))}
 type
+{$ifend}
   // standard types
   {$ifdef FPC}
     Integer = Longint;
@@ -82,13 +84,9 @@ type
   end;
   {$endif}
 
-  // map tile
-  TPathMapTile = type Byte;
-  PPathMapTile = ^TPathMapTile;
-
 const
   // map tile barrier
-  TILE_BARRIER = TPathMapTile(0);
+  TILE_BARRIER = Byte(0);
 
 type
   // handle type
@@ -96,22 +94,21 @@ type
   TCPFHandle = type NativeUInt;
 
   // kind of map
-  TPathMapKind = (mkSimple, mkDiagonal, mkDiagonalEx, mkHexagonal);
+  TTileMapKind = (mkSimple, mkDiagonal, mkDiagonalEx, mkHexagonal);
 
   // points as array
   PPointList = ^TPointList;
   TPointList = array[0..High(Integer) div SizeOf(TPoint) - 1] of TPoint;
 
   // result of find path function
-  TPathMapResult = packed record
+  TTileMapPath = packed record
     Points: PPointList;
-    PointsCount: NativeUInt;
+    PointsCount: NativeInt;
     Distance: Double;
   end;
-  PPathMapResult = ^TPathMapResult;
 
   // path finding parameters
-  TPathMapParameters = record
+  TTileMapParams = record
     StartPoints: PPoint;
     StartPointsCount: NativeUInt;
     Finish: TPoint;
@@ -119,57 +116,57 @@ type
     ExcludedPoints: PPoint;
     ExcludedPointsCount: NativeUInt;
   end;
-  PPathMapParameters = ^TPathMapParameters;
+  PTileMapParams = ^TTileMapParams;
 
   // object oriented Weights interface
-  TPathMapWeights = class(TObject)
+  TTileMapWeights = class(TObject)
   private
     FHandle: TCPFHandle;
 
-    function GetValue(const Tile: TPathMapTile): Single; {$ifdef INLINESUPPORT}inline;{$endif}
-    procedure SetValue(const Tile: TPathMapTile; const Value: Single); {$ifdef INLINESUPPORT}inline;{$endif}
+    function GetValue(const Tile: Byte): Single; {$ifdef INLINESUPPORT}inline;{$endif}
+    procedure SetValue(const Tile: Byte; const Value: Single); {$ifdef INLINESUPPORT}inline;{$endif}
   {$ifdef AUTOREFCOUNT}protected{$else}public{$endif}
     destructor Destroy; override;
   public
     constructor Create;
 
     property Handle: TCPFHandle read FHandle;
-    property Values[const Tile: TPathMapTile]: Single read GetValue write SetValue; default;
+    property Values[const Tile: Byte]: Single read GetValue write SetValue; default;
   end;
 
   // object oriented Map interface
-  TPathMap = class(TObject)
+  TTileMap = class(TObject)
   private
     FHandle: TCPFHandle;
     FWidth: Word;
     FHeight: Word;
-    FKind: TPathMapKind;
+    FKind: TTileMapKind;
     FSectorTest: Boolean;
     FCaching: Boolean;
 
-    function GetTile(const X, Y: Word): TPathMapTile; {$ifdef INLINESUPPORT}inline;{$endif}
-    procedure SetTile(const X, Y: Word; const Value: TPathMapTile); {$ifdef INLINESUPPORT}inline;{$endif}
+    function GetTile(const X, Y: Word): Byte; {$ifdef INLINESUPPORT}inline;{$endif}
+    procedure SetTile(const X, Y: Word; const Value: Byte); {$ifdef INLINESUPPORT}inline;{$endif}
   {$ifdef AUTOREFCOUNT}protected{$else}public{$endif}
     destructor Destroy; override;
   public
-    constructor Create(const AWidth, AHeight: Word; const AKind: TPathMapKind; const ASameDiagonalWeight: Boolean = False);
+    constructor Create(const AWidth, AHeight: Word; const AKind: TTileMapKind; const ASameDiagonalWeight: Boolean = False);
     procedure Clear(); {$ifdef INLINESUPPORT}inline;{$endif}
-    procedure Update(const ATiles: PPathMapTile; const X, Y, AWidth, AHeight: Word; const Pitch: NativeInt = 0); {$ifdef INLINESUPPORT}inline;{$endif}
+    procedure Update(const ATiles: PByte; const X, Y, AWidth, AHeight: Word; const Pitch: NativeInt = 0); {$ifdef INLINESUPPORT}inline;{$endif}
 
     property Width: Word read FWidth;
     property Height: Word read FHeight;
-    property Kind: TPathMapKind read FKind;
+    property Kind: TTileMapKind read FKind;
     property SectorTest: Boolean read FSectorTest write FSectorTest;
     property Caching: Boolean read FCaching write FCaching;
     property Handle: TCPFHandle read FHandle;
-    property Tiles[const X, Y: Word]: TPathMapTile read GetTile write SetTile; default;
+    property Tiles[const X, Y: Word]: Byte read GetTile write SetTile; default;
 
-    function FindPath(const Parameters: TPathMapParameters): PPathMapResult; overload; {$ifdef INLINESUPPORT}inline;{$endif}
+    function FindPath(const Params: TTileMapParams): TTileMapPath; overload; {$ifdef INLINESUPPORT}inline;{$endif}
     function FindPath(const Start, Finish: TPoint; const Weights: TCPFHandle = 0;
-      const ExcludedPoints: PPoint = nil; const ExcludedPointsCount: NativeUInt = 0): PPathMapResult; overload; {$ifdef INLINESUPPORT}inline;{$endif}
+      const ExcludedPoints: PPoint = nil; const ExcludedPointsCount: NativeUInt = 0): TTileMapPath; overload; {$ifdef INLINESUPPORT}inline;{$endif}
     function FindPath(const StartPoints: PPoint; const StartPointsCount: NativeUInt;
       const Finish: TPoint; const Weights: TCPFHandle = 0;
-      const ExcludedPoints: PPoint = nil; const ExcludedPointsCount: NativeUInt = 0): PPathMapResult; overload; {$ifdef INLINESUPPORT}inline;{$endif}
+      const ExcludedPoints: PPoint = nil; const ExcludedPointsCount: NativeUInt = 0): TTileMapPath; overload; {$ifdef INLINESUPPORT}inline;{$endif}
   end;
 
 
@@ -180,15 +177,15 @@ const
 
 function  cpfCreateWeights: TCPFHandle; cdecl; external cpf_lib;
 procedure cpfDestroyWeights(var HWeights: TCPFHandle); cdecl; external cpf_lib;
-function  cpfWeightGet(HWeights: TCPFHandle; Tile: TPathMapTile): Single; cdecl; external cpf_lib;
-procedure cpfWeightSet(HWeights: TCPFHandle; Tile: TPathMapTile; Value: Single); cdecl; external cpf_lib;
-function  cpfCreateMap(Width, Height: Word; Kind: TPathMapKind; SameDiagonalWeight: Boolean = False): TCPFHandle; cdecl; external cpf_lib;
+function  cpfWeightGet(HWeights: TCPFHandle; Tile: Byte): Single; cdecl; external cpf_lib;
+procedure cpfWeightSet(HWeights: TCPFHandle; Tile: Byte; Value: Single); cdecl; external cpf_lib;
+function  cpfCreateMap(Width, Height: Word; Kind: TTileMapKind; SameDiagonalWeight: Boolean = False): TCPFHandle; cdecl; external cpf_lib;
 procedure cpfDestroyMap(var HMap: TCPFHandle); cdecl; external cpf_lib;
 procedure cpfMapClear(HMap: TCPFHandle); cdecl; external cpf_lib;
-procedure cpfMapUpdate(HMap: TCPFHandle; Tiles: PPathMapTile; X, Y, Width, Height: Word; Pitch: NativeInt = 0); cdecl; external cpf_lib;
-function  cpfMapGetTile(HMap: TCPFHandle; X, Y: Word): TPathMapTile; cdecl; external cpf_lib;
-procedure cpfMapSetTile(HMap: TCPFHandle; X, Y: Word; Value: TPathMapTile); cdecl; external cpf_lib;
-function  cpfFindPath(HMap: TCPFHandle; Parameters: PPathMapParameters; SectorTest: Boolean = False; Caching: Boolean = True): PPathMapResult; cdecl; external cpf_lib;
+procedure cpfMapUpdate(HMap: TCPFHandle; Tiles: PByte; X, Y, Width, Height: Word; Pitch: NativeInt = 0); cdecl; external cpf_lib;
+function  cpfMapGetTile(HMap: TCPFHandle; X, Y: Word): Byte; cdecl; external cpf_lib;
+procedure cpfMapSetTile(HMap: TCPFHandle; X, Y: Word; Value: Byte); cdecl; external cpf_lib;
+function  cpfFindPath(HMap: TCPFHandle; Params: PTileMapParams; SectorTest: Boolean = False; Caching: Boolean = True): TTileMapPath; cdecl; external cpf_lib;
 
 implementation
 var
@@ -268,35 +265,35 @@ end;
 {$ifend}  
 
 
-{ TPathMapWeights }
+{ TTileMapWeights }
 
-constructor TPathMapWeights.Create;
+constructor TTileMapWeights.Create;
 begin
   inherited Create;
   FHandle := cpfCreateWeights;
 end;
 
-destructor TPathMapWeights.Destroy;
+destructor TTileMapWeights.Destroy;
 begin
   cpfDestroyWeights(FHandle);
   inherited;
 end;
 
-function TPathMapWeights.GetValue(const Tile: TPathMapTile): Single;
+function TTileMapWeights.GetValue(const Tile: Byte): Single;
 begin
   Result := cpfWeightGet(FHandle, Tile);
 end;
 
-procedure TPathMapWeights.SetValue(const Tile: TPathMapTile;
+procedure TTileMapWeights.SetValue(const Tile: Byte;
   const Value: Single);
 begin
   cpfWeightSet(FHandle, Tile, Value);
 end;
 
 
-{ TPathMap }
+{ TTileMap }
 
-constructor TPathMap.Create(const AWidth, AHeight: Word; const AKind: TPathMapKind;
+constructor TTileMap.Create(const AWidth, AHeight: Word; const AKind: TTileMapKind;
   const ASameDiagonalWeight: Boolean);
 begin
   inherited Create;
@@ -310,68 +307,68 @@ begin
   FHandle := cpfCreateMap(AWidth, AHeight, AKind, ASameDiagonalWeight);
 end;
 
-destructor TPathMap.Destroy;
+destructor TTileMap.Destroy;
 begin
   cpfDestroyMap(FHandle);
   inherited;
 end;
 
-function TPathMap.GetTile(const X, Y: Word): TPathMapTile;
+function TTileMap.GetTile(const X, Y: Word): Byte;
 begin
   Result := cpfMapGetTile(FHandle, X, Y);
 end;
 
-procedure TPathMap.SetTile(const X, Y: Word; const Value: TPathMapTile);
+procedure TTileMap.SetTile(const X, Y: Word; const Value: Byte);
 begin
   cpfMapSetTile(FHandle, X, Y, Value);
 end;
 
-procedure TPathMap.Update(const ATiles: PPathMapTile; const X, Y, AWidth,
+procedure TTileMap.Update(const ATiles: PByte; const X, Y, AWidth,
   AHeight: Word; const Pitch: NativeInt);
 begin
   cpfMapUpdate(FHandle, ATiles, X, Y, AWidth, AHeight, Pitch);
 end;
 
-procedure TPathMap.Clear;
+procedure TTileMap.Clear;
 begin
   cpfMapClear(FHandle);
 end;
 
-function TPathMap.FindPath(const Parameters: TPathMapParameters): PPathMapResult;
+function TTileMap.FindPath(const Params: TTileMapParams): TTileMapPath;
 begin
-  Result := cpfFindPath(FHandle, @Parameters, FSectorTest, FCaching);
+  Result := cpfFindPath(FHandle, @Params, FSectorTest, FCaching);
 end;
 
-function TPathMap.FindPath(const Start, Finish: TPoint;
+function TTileMap.FindPath(const Start, Finish: TPoint;
   const Weights: TCPFHandle; const ExcludedPoints: PPoint;
-  const ExcludedPointsCount: NativeUInt): PPathMapResult;
+  const ExcludedPointsCount: NativeUInt): TTileMapPath;
 var
-  Parameters: TPathMapParameters;
+  Params: TTileMapParams;
 begin
-  Parameters.StartPoints := @Start;
-  Parameters.StartPointsCount := 1;
-  Parameters.Finish := Finish;
-  Parameters.Weights := Weights;
-  Parameters.ExcludedPoints := ExcludedPoints;
-  Parameters.ExcludedPointsCount := ExcludedPointsCount;
+  Params.StartPoints := @Start;
+  Params.StartPointsCount := 1;
+  Params.Finish := Finish;
+  Params.Weights := Weights;
+  Params.ExcludedPoints := ExcludedPoints;
+  Params.ExcludedPointsCount := ExcludedPointsCount;
 
-  Result := cpfFindPath(FHandle, @Parameters, FSectorTest, FCaching);
+  Result := cpfFindPath(FHandle, @Params, FSectorTest, FCaching);
 end;
 
-function TPathMap.FindPath(const StartPoints: PPoint; const StartPointsCount: NativeUInt;
+function TTileMap.FindPath(const StartPoints: PPoint; const StartPointsCount: NativeUInt;
    const Finish: TPoint; const Weights: TCPFHandle = 0;
-   const ExcludedPoints: PPoint = nil; const ExcludedPointsCount: NativeUInt = 0): PPathMapResult;
+   const ExcludedPoints: PPoint = nil; const ExcludedPointsCount: NativeUInt = 0): TTileMapPath;
 var
-  Parameters: TPathMapParameters;
+  Params: TTileMapParams;
 begin
-  Parameters.StartPoints := StartPoints;
-  Parameters.StartPointsCount := StartPointsCount;
-  Parameters.Finish := Finish;
-  Parameters.Weights := Weights;
-  Parameters.ExcludedPoints := ExcludedPoints;
-  Parameters.ExcludedPointsCount := ExcludedPointsCount;
+  Params.StartPoints := StartPoints;
+  Params.StartPointsCount := StartPointsCount;
+  Params.Finish := Finish;
+  Params.Weights := Weights;
+  Params.ExcludedPoints := ExcludedPoints;
+  Params.ExcludedPointsCount := ExcludedPointsCount;
 
-  Result := cpfFindPath(FHandle, @Parameters, FSectorTest, FCaching);
+  Result := cpfFindPath(FHandle, @Params, FSectorTest, FCaching);
 end;
 
 

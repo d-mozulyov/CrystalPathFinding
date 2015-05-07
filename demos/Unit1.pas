@@ -114,7 +114,7 @@ type
     MousePressed: TMouseButton;
     FTileMode: byte;
     FClearMode: byte;
-    FMapKind: TPathMapKind;
+    FMapKind: TTileMapKind;
 
     procedure RepaintBoxes(const PaintBoxes: array of TPaintBox);
     function  ExcludePointPos(const Value: TPoint): integer;
@@ -126,17 +126,17 @@ type
     procedure SetFinishPoint(const Value: TPoint);
     procedure SetClearMode(const Value: byte);
     procedure SetTileMode(const Value: byte);
-    procedure SetMapKind(const Value: TPathMapKind);
+    procedure SetMapKind(const Value: TTileMapKind);
   private
     // основные методы
     procedure SaveMap();
     procedure RecreateMap();
-    procedure FillMapBitmap(const PathMapResult: PPathMapResult; const jpg_file_name: string = '');
+    procedure FillMapBitmap(const Path: TTileMapPath; const jpg_file_name: string = '');
     procedure ExecutePathFinding();
 
     property TileMode: byte read FTileMode write SetTileMode;
     property ClearMode: byte read FClearMode write SetClearMode;
-    property MapKind: TPathMapKind read FMapKind write SetMapKind; 
+    property MapKind: TTileMapKind read FMapKind write SetMapKind; 
     property StartPoint: TPoint read FStartPoint write SetStartPoint;
     property FinishPoint: TPoint read FFinishPoint write SetFinishPoint;
   end;
@@ -385,7 +385,7 @@ begin
     for i := 0 to random(20) do AddExcludedPoint(random_point);
     cbUseWeights.Checked := random_bool;
     //cbCaching.Checked := random_bool;
-    MapKind := TPathMapKind(random(byte(high(TPathMapKind))+1));
+    MapKind := TTileMapKind(random(byte(high(TTileMapKind))+1));
     cbSectorTest.Checked := random_bool;
     seIterationsCount.Value := random(100000)+1;
   end;
@@ -426,7 +426,7 @@ begin
   HMap := cpfCreateMap(MAP_WIDTH, MAP_HEIGHT, MapKind);
 
   // заполнить
-  cpfMapUpdate(HMap, PPathMapTile(@TILE_MAP[0, 0]), 0, 0, MAP_WIDTH, MAP_HEIGHT);
+  cpfMapUpdate(HMap, @TILE_MAP[0, 0], 0, 0, MAP_WIDTH, MAP_HEIGHT);
 
   // пересчитать пути (перерисовать)
   ExecutePathFinding();
@@ -469,7 +469,7 @@ end;
 
 procedure TForm1.rgMapKindClick(Sender: TObject);
 begin
-  MapKind := TPathMapKind(rgMapKind.ItemIndex);
+  MapKind := TTileMapKind(rgMapKind.ItemIndex);
 end;
 
 procedure TForm1.OnTilePaint(Sender: TObject);
@@ -756,7 +756,7 @@ begin
   if (MapBitmap <> nil) then RepaintBoxes([pbClear, pbExclude]);
 end;
 
-procedure TForm1.SetMapKind(const Value: TPathMapKind);
+procedure TForm1.SetMapKind(const Value: TTileMapKind);
 var
   P: TPoint;
 begin
@@ -782,8 +782,8 @@ end;
 procedure TForm1.ExecutePathFinding();
 var
   Weights: TCPFHandle;
-  PathMapResult: PPathMapResult;
-  FindParameters: TPathMapParameters;
+  Path: TTileMapPath;
+  Params: TTileMapParams;
 begin
   if (MapBitmap = nil) then exit;
 
@@ -791,33 +791,34 @@ begin
   Weights := HWeights;
   if (not UseWeights) then Weights := 0;
   try
-    FindParameters.StartPoints := @StartPoint;
-    FindParameters.StartPointsCount := 1;
-    FindParameters.Finish := FinishPoint;
-    FindParameters.Weights := {$ifNdef USECPFDLL}TPathMapWeights{$endif}(Weights);
-    FindParameters.ExcludedPoints := PPoint(ExcludedPoints);
-    FindParameters.ExcludedPointsCount := Length(ExcludedPoints);
+    Params.StartPoints := @StartPoint;
+    Params.StartPointsCount := 1;
+    Params.Finish := FinishPoint;
+    Params.Weights := {$ifNdef USECPFDLL}TTileMapWeights{$endif}(Weights);
+    Params.ExcludedPoints := PPoint(ExcludedPoints);
+    Params.ExcludedPointsCount := Length(ExcludedPoints);
 
-    PathMapResult := cpfFindPath(HMap, @FindParameters, SectorTest, Caching);
+    Path := cpfFindPath(HMap, @Params, SectorTest, Caching);
   except
     SaveMap();
-    FillMapBitmap(nil, ProjectPath+'map_exception.jpg');
+    Path.PointsCount := 0;
+    FillMapBitmap(Path, ProjectPath+'map_exception.jpg');
     raise;
   end;  
 
   // label расстояние
-  lbDistance.Visible := (PathMapResult <> nil);
-  if (PathMapResult <> nil) then lbDistance.Caption := Format('Расстояние: %0.2f', [PathMapResult.Distance]);
+  lbDistance.Visible := (Path.PointsCount <> 0);
+  if (Path.PointsCount <> 0) then lbDistance.Caption := Format('Расстояние: %0.2f', [Path.Distance]);
 
   // прорисовать битмап
-  FillMapBitmap(PathMapResult);
+  FillMapBitmap(Path);
 
   //PaintBox1.Repaint();
   RepaintBoxes([PaintBox1]);
 end;
 
 
-procedure TForm1.FillMapBitmap(const PathMapResult: PPathMapResult; const jpg_file_name: string = '');
+procedure TForm1.FillMapBitmap(const Path: TTileMapPath; const jpg_file_name: string = '');
 var
   TileNum: byte;
   Hexagonal: boolean;
@@ -825,7 +826,6 @@ var
   i, j: integer;
   P: TPoint;
   Canvas: TCanvas;
-  PathPoints: PPointList;
   JI: TJpegImage;
   used_tiles: array[1..TILES_COUNT] of boolean;
 
@@ -966,15 +966,14 @@ begin
   end; 
 
   // путь
-  if (PathMapResult <> nil) and (PathMapResult.PointsCount <> 1) then
+  if (Path.PointsCount > 1) then
   begin
-    PathPoints := PathMapResult.Points;
     Canvas.Pen.Width := 2;
     Canvas.Pen.Color := clRed;
-    with MapToScreen(PathPoints[0].X, PathPoints[0].Y) do Canvas.MoveTo(X, Y);
+    with MapToScreen(Path.Points[0].X, Path.Points[0].Y) do Canvas.MoveTo(X, Y);
 
-    for i := 1 to PathMapResult.PointsCount-1 do
-    with MapToScreen(PathPoints[i].X, PathPoints[i].Y) do
+    for i := 1 to Path.PointsCount-1 do
+    with MapToScreen(Path.Points[i].X, Path.Points[i].Y) do
       Canvas.LineTo(X, Y);
   end;
 
@@ -1009,7 +1008,7 @@ var
   i, Count: integer;
   Time: dword;
   Weights: TCPFHandle;
-  FindParameters: TPathMapParameters;
+  Params: TTileMapParams;
 begin
   if (MapBitmap = nil) then exit;
 
@@ -1019,16 +1018,16 @@ begin
   Count := seIterationsCount.Value;
   Time := GetTickCount;
   begin
-    FindParameters.StartPoints := @StartPoint;
-    FindParameters.StartPointsCount := 1;
-    FindParameters.Finish := FinishPoint;
-    FindParameters.Weights := {$ifNdef USECPFDLL}TPathMapWeights{$endif}(Weights);
-    FindParameters.ExcludedPoints := PPoint(ExcludedPoints);
-    FindParameters.ExcludedPointsCount := Length(ExcludedPoints);
+    Params.StartPoints := @StartPoint;
+    Params.StartPointsCount := 1;
+    Params.Finish := FinishPoint;
+    Params.Weights := {$ifNdef USECPFDLL}TTileMapWeights{$endif}(Weights);
+    Params.ExcludedPoints := PPoint(ExcludedPoints);
+    Params.ExcludedPointsCount := Length(ExcludedPoints);
 
     for i := 0 to Count-1 do // ExecutePathFinding(Show = false);
-      cpfFindPath(HMap, @FindParameters, SectorTest, Caching);
-  end;    
+      cpfFindPath(HMap, @Params, SectorTest, Caching);
+  end;
   Time := GetTickCount-Time;
 
   ShowMessageFmt('Кратчайший путь был расчитан %d раз за %d миллисекунд', [Count, Time]);

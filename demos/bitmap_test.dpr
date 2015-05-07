@@ -99,11 +99,10 @@ var
   Time: dword;
   found: boolean;
   Start, Finish: TPoint;
-  Points: PPointList;
   i: integer;
   RedValue: byte;
-  FindParameters: TPathMapParameters;
-  FindResult: PPathMapResult;
+  Params: TTileMapParams;
+  Path: TTileMapPath;
 
 
 
@@ -169,7 +168,7 @@ try
   // загрузка карты
   InitializeBitmapTiles();
   Map := cpfCreateMap(BitmapWidth, BitmapHeight, mkSimple);
-  cpfMapUpdate(Map, PPathMapTile(BitmapPixel(0, 0)), 0, 0, BitmapWidth, BitmapHeight, -BitmapPitch);
+  cpfMapUpdate(Map, BitmapPixel(0, 0), 0, 0, BitmapWidth, BitmapHeight, -BitmapPitch);
   
   // поиск точек Start/Finish
   found := false;
@@ -203,33 +202,32 @@ try
 
   // расчёт
   Time := GetTickCount;
-    FindParameters.StartPoints := @Start;
-    FindParameters.StartPointsCount := 1;
-    FindParameters.Finish := Finish;
-    FindParameters.Weights := 0;
-    FindParameters.ExcludedPoints := nil;
-    FindParameters.ExcludedPointsCount := 0;
-    FindResult := cpfFindPath(Map, @FindParameters, false, false);
+    Params.StartPoints := @Start;
+    Params.StartPointsCount := 1;
+    Params.Finish := Finish;
+    Params.Weights := 0;
+    Params.ExcludedPoints := nil;
+    Params.ExcludedPointsCount := 0;
+    Path := cpfFindPath(Map, @Params, false, false);
   Time := GetTickCount-Time;
 
   // результат
-  if (FindResult = nil) then
+  if (Path.PointsCount = 0) then
   begin
     DeleteFile(DestFileName);
     ShowError('Путь не найден !', []);
   end else
   begin
     // красный
-    Points := FindResult.points;
-    Bitmap.Canvas.Pixels[Points[0].X, Points[0].Y] := clRed;
-    RedValue := BitmapPixel(Points[0].X, Points[0].Y)^;
-    for i := 1 to FindResult.PointsCount-1 do
-      BitmapPixel(Points[i].X, Points[i].Y)^ := RedValue;
+    Bitmap.Canvas.Pixels[Path.Points[0].X, Path.Points[0].Y] := clRed;
+    RedValue := BitmapPixel(Path.Points[0].X, Path.Points[0].Y)^;
+    for i := 1 to Path.PointsCount-1 do
+      BitmapPixel(Path.Points[i].X, Path.Points[i].Y)^ := RedValue;
 
     Bitmap.SaveToFile(DestFileName);
     ShowInformation('Путь расчитан за %d миллисекунд и результат сохранён в файл "%s"'#13+
                     'Расстояние: %0.2f. (количество точек - %d)',
-                    [Time, DestFileName, FindResult.Distance, FindResult.PointsCount]);
+                    [Time, DestFileName, Path.Distance, Path.PointsCount]);
   end;
 finally
   cpfDestroyMap(Map);
