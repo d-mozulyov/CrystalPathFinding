@@ -29,19 +29,19 @@
   struct TTileMapPath
   {
 	  TPoint* Points;
-      signed size_t PointsCount;
+      signed size_t Count;
       double Distance;
   };
 
   // path finding parameters
   struct TTileMapParams
   {
-      TPoint* StartPoints;
-      size_t StartPointsCount;
+      TPoint* Starts;
+      size_t StartsCount;
       TPoint Finish;
       TCPFHandle Weights;
-      TPoint* ExcludedPoints;
-      size_t ExcludedPointsCount;
+      TPoint* Excludes;
+      size_t ExcludesCount;
   };
   
   

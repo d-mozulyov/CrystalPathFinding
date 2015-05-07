@@ -152,7 +152,7 @@ type
   // result of find path function
   TTileMapPath = record
     Points: PPointList;
-    PointsCount: NativeInt;
+    Count: NativeInt;
     Distance: Double;
   end;
 
@@ -316,12 +316,12 @@ type
 
   // path finding parameters
   TTileMapParams = record
-    StartPoints: PPoint;
-    StartPointsCount: NativeUInt;
+    Starts: PPoint;
+    StartsCount: NativeUInt;
     Finish: TPoint;
     Weights: TTileMapWeightsPtr;
-    ExcludedPoints: PPoint;
-    ExcludedPointsCount: NativeUInt;
+    Excludes: PPoint;
+    ExcludesCount: NativeUInt;
   end;
   PTileMapParams = ^TTileMapParams;
 
@@ -384,11 +384,11 @@ type
         Singles: array[0..255] of Single;
         SinglesDiagonal: array[0..255] of Single;
       end;
-      StartPoints: record
+      Starts: record
         Buffer: TCPFBuffer;
         Count: NativeUInt;
       end;
-      ExcludedPoints: record
+      Excludes: record
         Buffer: TCPFBuffer;
         Count: NativeUInt;
       end;
@@ -400,8 +400,8 @@ type
     end;
 
     function ActualizeWeights(Weights: PCPFWeightsInfo; Compare: Boolean): Boolean;
-    function ActualizeStartPoints(Points: PPoint; Count: NativeUInt; Compare: Boolean): Boolean;
-    function ActualizeExcludedPoints(Points: PPoint; Count: NativeUInt; Compare: Boolean): Boolean;
+    function ActualizeStarts(Points: PPoint; Count: NativeUInt; Compare: Boolean): Boolean;
+    function ActualizeExcludes(Points: PPoint; Count: NativeUInt; Compare: Boolean): Boolean;
     procedure ActualizeSectors;
     procedure AddHeuristedNodes(const First, Last: PCPFNode);
     procedure ReleaseAttainableNodes;
@@ -429,10 +429,10 @@ type
 
     function FindPath(const Params: TTileMapParams): TTileMapPath; overload;
     function FindPath(const Start, Finish: TPoint; const Weights: TTileMapWeightsPtr = nil;
-      const ExcludedPoints: PPoint = nil; const ExcludedPointsCount: NativeUInt = 0): TTileMapPath; overload;
-    function FindPath(const StartPoints: PPoint; const StartPointsCount: NativeUInt;
+      const Excludes: PPoint = nil; const ExcludesCount: NativeUInt = 0): TTileMapPath; overload;
+    function FindPath(const Starts: PPoint; const StartsCount: NativeUInt;
       const Finish: TPoint; const Weights: TTileMapWeightsPtr = nil;
-      const ExcludedPoints: PPoint = nil; const ExcludedPointsCount: NativeUInt = 0): TTileMapPath; overload;
+      const Excludes: PPoint = nil; const ExcludesCount: NativeUInt = 0): TTileMapPath; overload;
   end;
   TTileMapPtr = {$ifdef CPFLIB}^{$endif}TTileMap;
 
@@ -1133,7 +1133,7 @@ begin
   if (Params = nil) then
   begin
     Result.Points := nil;
-    Result.PointsCount := 0;
+    Result.Count := 0;
     Result.Distance := 0;
     Exit;
   end;
@@ -1986,8 +1986,8 @@ begin
     (POINT_OFFSETS[i].y * FInfo.MapWidth + POINT_OFFSETS[i].x);
 
   // internal buffers
-  FActualInfo.StartPoints.Buffer.Initialize(Self);
-  FActualInfo.ExcludedPoints.Buffer.Initialize(Self);
+  FActualInfo.Starts.Buffer.Initialize(Self);
+  FActualInfo.Excludes.Buffer.Initialize(Self);
   FActualInfo.FoundPath.Buffer.Initialize(Self);
 
   // allocate and fill cells
@@ -2015,8 +2015,8 @@ begin
   FActualInfo.Weights.Current.Release(FCallAddress);
 
   // internal buffers
-  FActualInfo.StartPoints.Buffer.Free;
-  FActualInfo.ExcludedPoints.Buffer.Free;
+  FActualInfo.Starts.Buffer.Free;
+  FActualInfo.Excludes.Buffer.Free;
   FActualInfo.FoundPath.Buffer.Free;
 
   // node storage
@@ -2433,16 +2433,16 @@ return_false:
   Result := False;
 end;
 
-function TTileMap.ActualizeStartPoints(Points: PPoint; Count: NativeUInt; Compare: Boolean): Boolean;
+function TTileMap.ActualizeStarts(Points: PPoint; Count: NativeUInt; Compare: Boolean): Boolean;
 var
   CompareBits: Integer;
   Point: PPoint;
   Start: PCPFStart;
 begin
   Point := Points;
-  CompareBits := Byte(FActualInfo.StartPoints.Count <> Count){0 if the same};
+  CompareBits := Byte(FActualInfo.Starts.Count <> Count){0 if the same};
 
-  Start := FActualInfo.StartPoints.Buffer.Alloc(SizeOf(TCPFStart) * Count);
+  Start := FActualInfo.Starts.Buffer.Alloc(SizeOf(TCPFStart) * Count);
   while (Count <> 0) do
   begin
     CompareBits := CompareBits or (Start.X - Point.X) or (Start.Y - Point.Y);
@@ -2458,21 +2458,21 @@ begin
   Result := (CompareBits = 0);
 end;
 
-function TTileMap.ActualizeExcludedPoints(Points: PPoint; Count: NativeUInt; Compare: Boolean): Boolean;
+function TTileMap.ActualizeExcludes(Points: PPoint; Count: NativeUInt; Compare: Boolean): Boolean;
 var
   Size: NativeUInt;
 begin
   Size := SizeOf(TPoint) * Count;
 
-  if (Compare) and (Count = FActualInfo.ExcludedPoints.Count) and
-    CompareMem(Points, FActualInfo.ExcludedPoints.Buffer.Memory, Size) then
+  if (Compare) and (Count = FActualInfo.Excludes.Count) and
+    CompareMem(Points, FActualInfo.Excludes.Buffer.Memory, Size) then
   begin
     Result := True;
     Exit;
   end;
 
-  FActualInfo.ExcludedPoints.Count := Count;
-  Move(Points^, FActualInfo.ExcludedPoints.Buffer.Alloc(Size)^, Size);
+  FActualInfo.Excludes.Count := Count;
+  Move(Points^, FActualInfo.Excludes.Buffer.Alloc(Size)^, Size);
 
   Result := False;
 end;
@@ -3018,9 +3018,9 @@ begin
   // test start points coordinates
   MapWidth := Self.Width;
   MapHeight := Self.Height;
-  S := Params.StartPoints;
-  if (Params.StartPointsCount <> 0) then
-  for i := 0 to Params.StartPointsCount - 1 do
+  S := Params.Starts;
+  if (Params.StartsCount <> 0) then
+  for i := 0 to Params.StartsCount - 1 do
   begin
     if (Cardinal(S.X) >= MapWidth) or (Cardinal(S.Y) >= MapHeight) then
       RaiseCoordinates(S.X, S.Y, 'start');
@@ -3034,9 +3034,9 @@ begin
     RaiseCoordinates(S.X, S.Y, 'finish');
 
   // test excluded points coordinates
-  S := Params.ExcludedPoints;
-  if (Params.ExcludedPointsCount <> 0) then
-  for i := 0 to Params.ExcludedPointsCount - 1 do
+  S := Params.Excludes;
+  if (Params.ExcludesCount <> 0) then
+  for i := 0 to Params.ExcludesCount - 1 do
   begin
     if (Cardinal(S.X) >= MapWidth) or (Cardinal(S.Y) >= MapHeight) then
       RaiseCoordinates(S.X, S.Y, 'excluded');
@@ -3045,10 +3045,10 @@ begin
   end;
 
   // no start points case
-  if (Params.StartPointsCount = 0) then
+  if (Params.StartsCount = 0) then
   begin
     Result.Points := nil;
-    Result.PointsCount := 0;
+    Result.Count := 0;
     Result.Distance := 0;
     Exit;
   end;
@@ -3056,15 +3056,15 @@ begin
   // start is finish case
   FinishX := Params.Finish.X;
   FinishY := Params.Finish.Y;
-  S := Params.StartPoints;
-  for i := 0 to Params.StartPointsCount - 1 do
+  S := Params.Starts;
+  for i := 0 to Params.StartsCount - 1 do
   begin
     if (S.X = FinishX) and (S.Y = FinishY) then
     begin
       FActualInfo.PathlessFinishPoint.X := FinishX;
       FActualInfo.PathlessFinishPoint.Y := FinishY;
       Result.Points := Pointer(@FActualInfo.PathlessFinishPoint);
-      Result.PointsCount := 1;
+      Result.Count := 1;
       Result.Distance := 0;
       Exit;
     end;
@@ -3101,9 +3101,9 @@ begin
     end;
 
     // excluded points
-    if (FActualInfo.ExcludedPoints.Count + Params.ExcludedPointsCount <> 0) then
+    if (FActualInfo.Excludes.Count + Params.ExcludesCount <> 0) then
     begin
-      R := ActualizeExcludedPoints(Params.ExcludedPoints, Params.ExcludedPointsCount, Actual);
+      R := ActualizeExcludes(Params.Excludes, Params.ExcludesCount, Actual);
       Actual := R and Actual;
     end;
 
@@ -3122,13 +3122,13 @@ begin
       ReleaseHeuristedNodes;
 
     // alloc start points
-    ActualStarts := ActualizeStartPoints(Params.StartPoints, Params.StartPointsCount, Actual);
+    ActualStarts := ActualizeStarts(Params.Starts, Params.StartsCount, Actual);
 
     // path is already exists case
     if (Actual) and (ActualStarts) then
     begin
       Result.Points := FActualInfo.FoundPath.Buffer.Memory;
-      Result.PointsCount := FActualInfo.FoundPath.Length;
+      Result.Count := FActualInfo.FoundPath.Length;
       Result.Distance := FActualInfo.FoundPath.Distance;
       Exit;
     end;
@@ -3167,7 +3167,7 @@ var
 begin
   // todo
 
-  Start := Params.StartPoints;
+  Start := Params.Starts;
 
   // todo
 
@@ -3222,8 +3222,8 @@ begin
 end;
 
 function TTileMap.FindPath(const Start, Finish: TPoint;
-  const Weights: TTileMapWeightsPtr; const ExcludedPoints: PPoint;
-  const ExcludedPointsCount: NativeUInt): TTileMapPath;
+  const Weights: TTileMapWeightsPtr; const Excludes: PPoint;
+  const ExcludesCount: NativeUInt): TTileMapPath;
 var
   Params: TTileMapParams;
 begin
@@ -3231,19 +3231,19 @@ begin
     FCallAddress := ReturnAddress;
   {$endif}
 
-  Params.StartPoints := @Start;
-  Params.StartPointsCount := 1;
+  Params.Starts := @Start;
+  Params.StartsCount := 1;
   Params.Finish := Finish;
   Params.Weights := Weights;
-  Params.ExcludedPoints := ExcludedPoints;
-  Params.ExcludedPointsCount := ExcludedPointsCount;
+  Params.Excludes := Excludes;
+  Params.ExcludesCount := ExcludesCount;
 
   Result := FindPath(Params);
 end;
 
-function TTileMap.FindPath(const StartPoints: PPoint; const StartPointsCount: NativeUInt;
+function TTileMap.FindPath(const Starts: PPoint; const StartsCount: NativeUInt;
    const Finish: TPoint; const Weights: TTileMapWeightsPtr = nil;
-   const ExcludedPoints: PPoint = nil; const ExcludedPointsCount: NativeUInt = 0): TTileMapPath;
+   const Excludes: PPoint = nil; const ExcludesCount: NativeUInt = 0): TTileMapPath;
 var
   Params: TTileMapParams;
 begin
@@ -3251,12 +3251,12 @@ begin
     FCallAddress := ReturnAddress;
   {$endif}
 
-  Params.StartPoints := StartPoints;
-  Params.StartPointsCount := StartPointsCount;
+  Params.Starts := Starts;
+  Params.StartsCount := StartsCount;
   Params.Finish := Finish;
   Params.Weights := Weights;
-  Params.ExcludedPoints := ExcludedPoints;
-  Params.ExcludedPointsCount := ExcludedPointsCount;
+  Params.Excludes := Excludes;
+  Params.ExcludesCount := ExcludesCount;
 
   Result := FindPath(Params);
 end;

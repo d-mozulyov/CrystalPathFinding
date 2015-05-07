@@ -791,24 +791,24 @@ begin
   Weights := HWeights;
   if (not UseWeights) then Weights := 0;
   try
-    Params.StartPoints := @StartPoint;
-    Params.StartPointsCount := 1;
+    Params.Starts := @StartPoint;
+    Params.StartsCount := 1;
     Params.Finish := FinishPoint;
     Params.Weights := {$ifNdef USECPFDLL}TTileMapWeights{$endif}(Weights);
-    Params.ExcludedPoints := PPoint(ExcludedPoints);
-    Params.ExcludedPointsCount := Length(ExcludedPoints);
+    Params.Excludes := PPoint(ExcludedPoints);
+    Params.ExcludesCount := Length(ExcludedPoints);
 
     Path := cpfFindPath(HMap, @Params, SectorTest, Caching);
   except
     SaveMap();
-    Path.PointsCount := 0;
+    Path.Count := 0;
     FillMapBitmap(Path, ProjectPath+'map_exception.jpg');
     raise;
   end;  
 
   // label расстояние
-  lbDistance.Visible := (Path.PointsCount <> 0);
-  if (Path.PointsCount <> 0) then lbDistance.Caption := Format('Расстояние: %0.2f', [Path.Distance]);
+  lbDistance.Visible := (Path.Count <> 0);
+  if (Path.Count <> 0) then lbDistance.Caption := Format('Расстояние: %0.2f', [Path.Distance]);
 
   // прорисовать битмап
   FillMapBitmap(Path);
@@ -966,13 +966,13 @@ begin
   end; 
 
   // путь
-  if (Path.PointsCount > 1) then
+  if (Path.Count > 1) then
   begin
     Canvas.Pen.Width := 2;
     Canvas.Pen.Color := clRed;
     with MapToScreen(Path.Points[0].X, Path.Points[0].Y) do Canvas.MoveTo(X, Y);
 
-    for i := 1 to Path.PointsCount-1 do
+    for i := 1 to Path.Count-1 do
     with MapToScreen(Path.Points[i].X, Path.Points[i].Y) do
       Canvas.LineTo(X, Y);
   end;
@@ -1018,12 +1018,12 @@ begin
   Count := seIterationsCount.Value;
   Time := GetTickCount;
   begin
-    Params.StartPoints := @StartPoint;
-    Params.StartPointsCount := 1;
+    Params.Starts := @StartPoint;
+    Params.StartsCount := 1;
     Params.Finish := FinishPoint;
     Params.Weights := {$ifNdef USECPFDLL}TTileMapWeights{$endif}(Weights);
-    Params.ExcludedPoints := PPoint(ExcludedPoints);
-    Params.ExcludedPointsCount := Length(ExcludedPoints);
+    Params.Excludes := PPoint(ExcludedPoints);
+    Params.ExcludesCount := Length(ExcludedPoints);
 
     for i := 0 to Count-1 do // ExecutePathFinding(Show = false);
       cpfFindPath(HMap, @Params, SectorTest, Caching);

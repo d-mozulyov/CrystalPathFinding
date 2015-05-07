@@ -103,18 +103,18 @@ type
   // result of find path function
   TTileMapPath = packed record
     Points: PPointList;
-    PointsCount: NativeInt;
+    Count: NativeInt;
     Distance: Double;
   end;
 
   // path finding parameters
   TTileMapParams = record
-    StartPoints: PPoint;
-    StartPointsCount: NativeUInt;
+    Starts: PPoint;
+    StartsCount: NativeUInt;
     Finish: TPoint;
     Weights: TCPFHandle;
-    ExcludedPoints: PPoint;
-    ExcludedPointsCount: NativeUInt;
+    Excludes: PPoint;
+    ExcludesCount: NativeUInt;
   end;
   PTileMapParams = ^TTileMapParams;
 
@@ -163,10 +163,10 @@ type
 
     function FindPath(const Params: TTileMapParams): TTileMapPath; overload; {$ifdef INLINESUPPORT}inline;{$endif}
     function FindPath(const Start, Finish: TPoint; const Weights: TCPFHandle = 0;
-      const ExcludedPoints: PPoint = nil; const ExcludedPointsCount: NativeUInt = 0): TTileMapPath; overload; {$ifdef INLINESUPPORT}inline;{$endif}
-    function FindPath(const StartPoints: PPoint; const StartPointsCount: NativeUInt;
+      const Excludes: PPoint = nil; const ExcludesCount: NativeUInt = 0): TTileMapPath; overload; {$ifdef INLINESUPPORT}inline;{$endif}
+    function FindPath(const Starts: PPoint; const StartsCount: NativeUInt;
       const Finish: TPoint; const Weights: TCPFHandle = 0;
-      const ExcludedPoints: PPoint = nil; const ExcludedPointsCount: NativeUInt = 0): TTileMapPath; overload; {$ifdef INLINESUPPORT}inline;{$endif}
+      const Excludes: PPoint = nil; const ExcludesCount: NativeUInt = 0): TTileMapPath; overload; {$ifdef INLINESUPPORT}inline;{$endif}
   end;
 
 
@@ -340,33 +340,33 @@ begin
 end;
 
 function TTileMap.FindPath(const Start, Finish: TPoint;
-  const Weights: TCPFHandle; const ExcludedPoints: PPoint;
-  const ExcludedPointsCount: NativeUInt): TTileMapPath;
+  const Weights: TCPFHandle; const Excludes: PPoint;
+  const ExcludesCount: NativeUInt): TTileMapPath;
 var
   Params: TTileMapParams;
 begin
-  Params.StartPoints := @Start;
-  Params.StartPointsCount := 1;
+  Params.Starts := @Start;
+  Params.StartsCount := 1;
   Params.Finish := Finish;
   Params.Weights := Weights;
-  Params.ExcludedPoints := ExcludedPoints;
-  Params.ExcludedPointsCount := ExcludedPointsCount;
+  Params.Excludes := Excludes;
+  Params.ExcludesCount := ExcludesCount;
 
   Result := cpfFindPath(FHandle, @Params, FSectorTest, FCaching);
 end;
 
-function TTileMap.FindPath(const StartPoints: PPoint; const StartPointsCount: NativeUInt;
+function TTileMap.FindPath(const Starts: PPoint; const StartsCount: NativeUInt;
    const Finish: TPoint; const Weights: TCPFHandle = 0;
-   const ExcludedPoints: PPoint = nil; const ExcludedPointsCount: NativeUInt = 0): TTileMapPath;
+   const Excludes: PPoint = nil; const ExcludesCount: NativeUInt = 0): TTileMapPath;
 var
   Params: TTileMapParams;
 begin
-  Params.StartPoints := StartPoints;
-  Params.StartPointsCount := StartPointsCount;
+  Params.Starts := Starts;
+  Params.StartsCount := StartsCount;
   Params.Finish := Finish;
   Params.Weights := Weights;
-  Params.ExcludedPoints := ExcludedPoints;
-  Params.ExcludedPointsCount := ExcludedPointsCount;
+  Params.Excludes := Excludes;
+  Params.ExcludesCount := ExcludesCount;
 
   Result := cpfFindPath(FHandle, @Params, FSectorTest, FCaching);
 end;

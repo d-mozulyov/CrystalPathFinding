@@ -202,17 +202,17 @@ try
 
   // расчёт
   Time := GetTickCount;
-    Params.StartPoints := @Start;
-    Params.StartPointsCount := 1;
+    Params.Starts := @Start;
+    Params.StartsCount := 1;
     Params.Finish := Finish;
     Params.Weights := 0;
-    Params.ExcludedPoints := nil;
-    Params.ExcludedPointsCount := 0;
+    Params.Excludes := nil;
+    Params.ExcludesCount := 0;
     Path := cpfFindPath(Map, @Params, false, false);
   Time := GetTickCount-Time;
 
   // результат
-  if (Path.PointsCount = 0) then
+  if (Path.Count = 0) then
   begin
     DeleteFile(DestFileName);
     ShowError('Путь не найден !', []);
@@ -221,13 +221,13 @@ try
     // красный
     Bitmap.Canvas.Pixels[Path.Points[0].X, Path.Points[0].Y] := clRed;
     RedValue := BitmapPixel(Path.Points[0].X, Path.Points[0].Y)^;
-    for i := 1 to Path.PointsCount-1 do
+    for i := 1 to Path.Count-1 do
       BitmapPixel(Path.Points[i].X, Path.Points[i].Y)^ := RedValue;
 
     Bitmap.SaveToFile(DestFileName);
     ShowInformation('Путь расчитан за %d миллисекунд и результат сохранён в файл "%s"'#13+
                     'Расстояние: %0.2f. (количество точек - %d)',
-                    [Time, DestFileName, Path.Distance, Path.PointsCount]);
+                    [Time, DestFileName, Path.Distance, Path.Count]);
   end;
 finally
   cpfDestroyMap(Map);
