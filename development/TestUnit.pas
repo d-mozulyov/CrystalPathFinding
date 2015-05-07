@@ -181,9 +181,12 @@ begin
         Right.Prev := Node;
       {$else}
         Node.Next := Right;
-        ChildNode.Prev := Node.Next.Prev;
-        ChildNode.Prev.Next := ChildNode;
-        Right.Prev := Node;
+        with Right^ do
+        begin
+          ChildNode.Prev := Prev{Left};
+          ChildNode.Prev{Left}.Next := ChildNode;
+          Prev := Node;
+        end;
       {$ifend}
     until (PBufferCurrent = PBufferHigh);
 
@@ -306,7 +309,7 @@ end;
 procedure RUN_Inserts(var S: TFindPathLoopStore);
 begin
   InsertNodes(S, [3, 3, 5, 4, 0, 0, 7]);
-  InsertNodes(S, [3, 0, 0, {8,} 6, 2, 3, 2]);
+  InsertNodes(S, [3, 0, 0, 8, 6, 2, 3, 2]);
   InsertNodes(S, [0, 1, 2, 3, 4, 5, 8, 9]);
   InsertNodes(S, [1, 8, 9, 10]);
 end;

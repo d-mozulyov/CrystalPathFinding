@@ -2557,7 +2557,6 @@ type
   TNodeAllocatorBuffers = array[0..31] of NativeUInt;
   TCardinalList = array[0..High(Integer) div SizeOf(Cardinal) - 1] of Cardinal;
   PCardinalList = ^TCardinalList;
-  PPCPFNode = ^PCPFNode;
 var
   Node: PCPFNode;
   NodeInfo: NativeUInt;
@@ -2567,14 +2566,13 @@ var
   ParentBits: NativeUInt;
   ChildNodeInfo: NativeUInt;
   ChildNode: PCPFNode;
-//  TileWeights: PCardinalList;
+  TileWeights: PCardinalList;
   Path: Cardinal;
-//  NodeXY, OffsetXY, ChildXY: Cardinal;
-//  dX, dY, X, Y: NativeInt;
-//  Mask: NativeInt;
+  NodeXY, OffsetXY, ChildXY: Cardinal;
+  X, Y, Mask: NativeInt;
 
-  ChildSortValue{, ChildPath}: Cardinal;
-  PBufferHigh, PBufferBase, PBufferCurrent: {^}PPCPFNode;
+  ChildSortValue: Cardinal;
+  PBufferHigh, PBufferBase, PBufferCurrent: ^PCPFNode;
   Right: PCPFNode;
   {$if (not Defined(CPUX86)) or Defined(FPC)}
     Left: PCPFNode;
@@ -2701,7 +2699,7 @@ begin
         if (ChildNodeInfo and NODEPTR_FLAG_ALLOCATED = 0) then
         begin
           // child node info (without heuristics data)
-         (* ChildNodeInfo := ChildNodeInfo and Integer($ff00ff00);
+          ChildNodeInfo := ChildNodeInfo and Integer($ff00ff00);
           ParentBits := ParentBits or ChildNodeInfo;
           if (ParentBits and (ChildNodeInfo shl 8) = 0) then goto nextchild_continue;
 
@@ -2710,7 +2708,7 @@ begin
           Path := TileWeights[NodeInfo shr 24];
           Inc(Path, TileWeights[ParentBits shr 24]);
           if (Path > PATHLESS_TILE_WEIGHT) then goto nextchild_continue;
-          Path := (Path shr 1) + Store.Current.Path; *)
+          Path := (Path shr 1) + Store.Current.Path;
 
           // allocate new node
           ChildNode := Store.Info.NodeAllocator.NewNode;
@@ -2719,9 +2717,9 @@ begin
           {$else}
             Cell.NodePtr := NativeUInt(ChildNode) + NODEPTR_FLAGS;
           {$endif}
-         (* ChildNode.Path := Path; *)
+          ChildNode.Path := Path;
           ChildNode.NodeInfo := ParentBits;
-         (*
+
           // child coordinates
           OffsetXY := Cardinal(POINT_OFFSETS_INVERT[ParentBits and 7]);
           NodeXY := Cardinal(Store.Current.Coordinates);
@@ -2739,11 +2737,17 @@ begin
             Dec(ChildNode);
           end else
           begin
+            {$ifdef CPUX86}
+              NativeUInt(Store.TopGreatherNode) := NodeInfo;
+            {$endif}
             TPathMapPtr(Store.Self).GrowNodeAllocator(Store.Info);
             {$ifdef LARGEINT}
               NODEPTR_MODIFIER := Store.Info.NodeAllocator.LargeModifier + NODEPTR_FLAGS;
             {$endif}
-          end;    *)
+            {$ifdef CPUX86}
+              NodeInfo := NativeUInt(Store.TopGreatherNode);
+            {$endif}
+          end;
           goto heuristics_data;
         end else
         begin
@@ -2759,9 +2763,9 @@ begin
           {$endif}
 
           // child node info (without heuristics data)
-         (* Child{NodeInfo} := NativeUInt(ChildNode.NodeInfo) and Integer($ff00ff00);
-          ParentBits := ParentBits or Child{NodeInfo};
-          if (ParentBits and (Child shl 8) = 0) then goto nextchild_continue;
+          TileWeights{ChildNodeInfo} := Pointer(NativeUInt(ChildNode.NodeInfo) and Integer($ff00ff00));
+          ParentBits := ParentBits or NativeUInt(TileWeights){ChildNodeInfo};
+          if (ParentBits and (NativeUInt(TileWeights){ChildNodeInfo} shl 8) = 0) then goto nextchild_continue;
 
           // child path
           TileWeights := Store.Info.TileWeights[ParentBits and 1];
@@ -2779,32 +2783,32 @@ begin
             Cell.NodePtr := ChildNodeInfo + NODEPTR_FLAG_HEURISTED;
           {$endif}
           ChildNode.Path := Path;
-          ChildNode.NodeInfo := ParentBits;  *)
+          ChildNode.NodeInfo := ParentBits;
 
         heuristics_data:
           // (dX, dY) = ChildNode.Coordinates - Store.Info.FinishPoint;
-         (* dX := Cardinal(ChildNode.Coordinates);
-          dY := Word(dX);
-          dX := dX shr 16;
+          X := Cardinal(ChildNode.Coordinates);
+          Y := Word(X);
+          X := X shr 16;
           Mask := Cardinal(Store.Info.FinishPoint);
-          dY := dY - Word(Mask);
-          dX := dX - (Mask shr 16);
+          Y := Y - Word(Mask);
+          X := X - (Mask shr 16);
 
           // Way
-          Mask := 2*Byte(dY > 0) + (dY shr HIGH_NATIVE_BIT);
+          Mask := 2*Byte(Y > 0) + (Y shr HIGH_NATIVE_BIT);
           Mask := Mask * 3;
-          Mask := Mask + 2*Byte(dX > 0);
-          Mask := Mask - 1 + (dX shr HIGH_NATIVE_BIT);
+          Mask := Mask + 2*Byte(X > 0);
+          Mask := Mask - 1 + (X shr {$ifdef CPUX86}31{$else}HIGH_NATIVE_BIT{$endif}); // Delphi compiler optimization bug
           ChildNode.NodeInfo := ChildNode.NodeInfo or Cardinal(Mask shl 3);
 
           // Y := Abs(dY)
-          Mask := -(dY shr HIGH_NATIVE_BIT);
-          Y := dY xor Mask;
+          Mask := -(Y shr HIGH_NATIVE_BIT);
+          Y := Y xor Mask;
           Dec(Y, Mask);
 
-          // X := Abs(dY)
-          Mask := -(dX shr HIGH_NATIVE_BIT);
-          X := dX xor Mask;
+          // X := Abs(dX)
+          Mask := -(X shr HIGH_NATIVE_BIT);
+          X := X xor Mask;
           Dec(X, Mask);
 
           // calculate
@@ -2824,7 +2828,7 @@ begin
             X := X - ((Mask xor PNativeInt(@Store.Info.FinishPoint)^) and Y and 1) - (Y shr 1);
             ChildNode.SortValue := {$ifdef CPUX86}ChildNode.{$endif}Path +
                Cardinal(Store.Info.HeuristicsLine * (Y + (X and ((X shr HIGH_NATIVE_BIT) - 1))));
-          end;  *)
+          end;
         end;
       end else
       begin
@@ -2837,39 +2841,35 @@ begin
           ChildNode := Pointer(ChildNodeInfo and NODEPTR_CLEAN_MASK);
         {$endif}
 
-       (* // child node info (with new parent bits)
+        // child node info (with new parent bits)
         ChildNodeInfo := ChildNode.NodeInfo;
         ParentBits := ParentBits + (ChildNodeInfo and PARENT_BITS_CLEAR_MASK);
         if (ParentBits and ((ChildNodeInfo and $ff00) shl 8) = 0) then goto nextchild_continue;
 
         // child path
         Cell{TileWeights} := Store.Info.TileWeights[ParentBits and 1];
-        Path := PCardinalList(Cell{TileWeights})[NodeInfo shr 24];
-        Inc(Path, PCardinalList(Cell{TileWeights})[ParentBits shr 24]);
+        Path := PCardinalList(Cell{TileWeights})[NodeInfo shr 24] +
+                PCardinalList(Cell{TileWeights})[ParentBits shr 24];
         Path := (Path shr 1) + Store.Current.Path;
 
         // continue if the path is shorter
-        ChildPath := ChildNode.Path;
-        if (Path >= ChildPath) then goto nextchild_continue;
+        NodeXY{ChildPath} := ChildNode.Path;
+        if (Path >= NodeXY{ChildPath}) then goto nextchild_continue;
 
-        // new parent bits
+        // new parameters
         ChildNode.NodeInfo := ParentBits;
-
-        // sort value as hot knownpath node marker
-        ParentBits{ChildSortValue} := ChildNode.SortValue;
-
-        // new Path and SortValue
+        ChildXY{ChildSortValue} := ChildNode.SortValue;
         ChildNode.Path := Path;
-        ChildNode.SortValue := Path + {heuristics}(ParentBits{ChildSortValue} - ChildPath);
+        ChildNode.SortValue := Path + {heuristics}(ChildXY{ChildSortValue} - NodeXY{ChildPath});
 
         // remove from opened list
-        if (ParentBits{ChildSortValue} < NATTANABLE_LENGTH_LIMIT) then
+        if (ChildXY{ChildSortValue} < NATTANABLE_LENGTH_LIMIT) then
         begin
           Node{Left} := ChildNode.Prev;
-          Child{Right} := NativeUInt(ChildNode.Next);
-          NativeUInt(Node{Left}.Next) := Child{Right};
-          PCPFNode(Child{Right}).Prev := Node{Left};
-        end; *)
+          Right := ChildNode.Next;
+          Node{Left}.Next := Right;
+          Right.Prev := Node{Left};
+        end;
       end;
 
       // add child node to buffer
@@ -2979,9 +2979,12 @@ begin
         Right.Prev := Node;
       {$else}
         Node.Next := Right;
-        ChildNode.Prev := Node.Next.Prev;
-        ChildNode.Prev.Next := ChildNode;
-        Right.Prev := Node;
+        with Right^ do
+        begin
+          ChildNode.Prev := Prev{Left};
+          ChildNode.Prev{Left}.Next := ChildNode;
+          Prev := Node;
+        end;
       {$ifend}
     until (PBufferCurrent = PBufferHigh);
 
