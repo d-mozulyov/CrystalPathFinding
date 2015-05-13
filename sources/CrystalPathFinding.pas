@@ -352,6 +352,7 @@ type
     FSectorOffsets: TCPFOffsets;
 
     procedure RaiseCoordinates(const X, Y: Integer; const Id: TCPFExceptionString);
+    procedure UpdateCellMasks(const ChangedArea: TRect);
     function GetTile(const X, Y: Word): Byte;
     procedure SetTile(const X, Y: Word; const Value: Byte);
     procedure GrowNodeAllocator(var Buffer: TCPFInfo);
@@ -2078,6 +2079,56 @@ begin
 end;
 {$endif}
 
+procedure TTileMap.UpdateCellMasks(const ChangedArea: TRect);
+const
+  NOT_TOP_MASK = not (_0 or _1 or _2);
+  NOT_RIGHT_MASK = not (_2 or _3 or _4);
+  NOT_BOTTOM_MASK = not (_4 or _5 or _6);
+  NOT_LEFT_MASK = not (_6 or _7 or _0);
+  ROUND_MASKS: array[0..3] of Integer = (NOT_TOP_MASK, NOT_RIGHT_MASK, NOT_BOTTOM_MASK, NOT_LEFT_MASK);
+var
+  AWidth, AHeight: Integer;
+  X, Left, Top, Right, Bottom: Integer;
+  Rounded: Boolean;
+  CellOffsets: PCPFOffsets;
+  Cell: PCPFNode;
+  FlagHexagonal: Integer;
+  CellLineOffset: NativeUInt;
+
+  i, j: Integer;
+begin
+  AWidth := Self.Width;
+  AHeight := Self.Height;
+  Rounded := (Self.Kind = mkDiagonalEx);
+  CellOffsets := @Self.FInfo.CellOffsets;
+  Cell := @Self.FInfo.CellArray[0];
+  FlagHexagonal := Ord(Self.Kind = mkHexagonal);
+
+  X := ChangedArea.Left;
+  Left := X - Ord(X <> 0);
+  X := ChangedArea.Top;
+  Top := X - Ord(X <> 0);
+  X := ChangedArea.Right;
+  Right := X + Ord(X <> AWidth);
+  X := ChangedArea.Bottom;
+  Bottom := X + Ord(X <> AHeight);
+
+  CellLineOffset := (AWidth - (Right - Left)) * SizeOf(TCPFCell);
+  for j := Top to Bottom - 1 do
+  begin
+    for i := Left to Right - 1 do
+    begin
+
+
+
+      Inc(Cell);
+    end;
+
+    // next line
+    Inc(NativeUInt(Cell), CellLineOffset);
+  end;
+end;
+
 procedure TTileMap.Clear;
 begin
   {$ifNdef CPFLIB}
@@ -3436,8 +3487,13 @@ initialization
     System.GetMemoryManager(MemoryManager);
   {$endif}
   {$if Defined(DEBUG) and not Defined(CPFLIB)}
- // TTileMap(nil).DoFindPath(TTileMapParams(nil^));
- // TTileMapPtr(nil).DoFindPathLoop(nil);
+    TTileMap(nil).UpdateCellMasks(Rect(0, 0, 0, 0));
+
+  // anti hint
+  // TTileMap(nil).DoFindPath(TTileMapParams(nil^));
+  TTileMapPtr(nil).DoFindPathLoop(nil);
+  TTileMapPtr(nil).CalculateHeuristics(PPoint(nil)^, PPoint(nil)^);
+  TTileMapPtr(nil).AddHeuristedNodes(nil, nil);
   {$ifend}
 
 end.
