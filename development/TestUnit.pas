@@ -41,14 +41,14 @@ begin
       Writeln(Format('Map find path from (%d,%d) to (%d,%d)...', [Start.X, Start.Y, Finish.X, Finish.Y]));
       Path := Map.FindPath(Start, Finish, Weights);
 
-      if (Path.PointsCount = 0) then
+      if (Path.Count = 0) then
       begin
         Writeln('Path not found.');
       end else
       begin
-        Writeln(Format('Points: %d, Distance: %0.2f.', [Path.PointsCount, Path.Distance]));
+        Writeln(Format('Points: %d, Distance: %0.2f.', [Path.Count, Path.Distance]));
 
-        for i := 0 to Path.PointsCount - 1 do
+        for i := 0 to Path.Count - 1 do
         with Path.Points[i] do
           Writeln(Format('%d)  [%d, %d]', [i, X, Y]));
       end;
