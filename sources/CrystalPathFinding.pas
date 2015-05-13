@@ -301,11 +301,11 @@ type
       LargeModifier: NativeInt;
       {$endif}
       Count: NativeUInt;
-      Items: array[0..31] of Pointer;
+      Buffers: array[0..31] of Pointer;
     end;
   end;
-  TCPFNodeItems = array[0..31] of NativeUInt;
-  PCPFNodeItems = ^TCPFNodeItems;
+  TCPFNodeBuffers = array[0..31] of NativeUInt;
+  PCPFNodeBuffers = ^TCPFNodeBuffers;
 
   TCPFStart = record
     X: Integer;
@@ -364,7 +364,7 @@ type
   private
     FNodes: record
       Storage: record
-        Items: array[0..31] of Pointer;
+        Buffers: array[0..31] of Pointer;
         Count: NativeUInt;
       end;
       Heuristed: record
@@ -2031,7 +2031,7 @@ begin
 
   // node storage
   for i := NativeInt(FNodes.Storage.Count) - 1 downto 0 do
-    CPFFreeMem(FNodes.Storage.Items[i]);
+    CPFFreeMem(FNodes.Storage.Buffers[i]);
 
   // cells
   CPFFreeMem(Pointer(FInfo.CellArray));
@@ -2128,7 +2128,7 @@ begin
      (AllocatorCount <> FInfo.NodeAllocator.Count) then
     CPFException('Incorrect node allocator data');
 
-  if (AllocatorCount >= High(FNodes.Storage.Items)) then
+  if (AllocatorCount >= High(FNodes.Storage.Buffers)) then
     RaiseOutOfMemory(FCallAddress);
 
   // nodes count in storage item
@@ -2140,13 +2140,13 @@ begin
   // allocate if needed
   if (AllocatorCount = FNodes.Storage.Count) then
   begin
-    CPFGetMem(FNodes.Storage.Items[AllocatorCount] , Count * SizeOf(TCPFNode));
+    CPFGetMem(FNodes.Storage.Buffers[AllocatorCount] , Count * SizeOf(TCPFNode));
     Inc(FNodes.Storage.Count);
   end;
-  FInfo.NodeAllocator.Items[AllocatorCount] := FNodes.Storage.Items[AllocatorCount];
+  FInfo.NodeAllocator.Buffers[AllocatorCount] := FNodes.Storage.Buffers[AllocatorCount];
 
   // Params
-  Node := FInfo.NodeAllocator.Items[AllocatorCount];
+  Node := FInfo.NodeAllocator.Buffers[AllocatorCount];
   Inc(FInfo.NodeAllocator.Count);
   FInfo.NodeAllocator.NewNode := Node;
   {$ifdef LARGEINT}
@@ -2165,13 +2165,11 @@ begin
     {$ifdef LARGEINT}
       Buffer.NodeAllocator.LargeModifier := FInfo.NodeAllocator.LargeModifier;
     {$endif}
-    Buffer.NodeAllocator.Items[AllocatorCount] := FInfo.NodeAllocator.Items[AllocatorCount];
+    Buffer.NodeAllocator.Buffers[AllocatorCount] := FInfo.NodeAllocator.Buffers[AllocatorCount];
   end;
 end;
 
 (*function TTileMap.AllocateNode(const X, Y: NativeInt): PCPFNode;
-type
-  TCPFNodeItems = array[0..31] of NativeUInt;
 var
   Coordinates: NativeUInt;
   Cell: PCPFCell;
@@ -2179,7 +2177,7 @@ var
   NodeInfo: NativeUInt;
 
   {$ifdef LARGEINT}
-    CPFNodeItems: ^TCPFNodeItems;
+    NodeBuffers: PCPFNodeBuffers;
     NODEPTR_MODIFIER: NativeInt;
   {$else}
 const
@@ -2223,9 +2221,9 @@ begin
   begin
     // NodePtr --> Pointer
     {$ifdef LARGEINT}
-      CPFNodeItems := Pointer(@FInfo.NodeAllocator.Buffers);
+      NodeBuffers := Pointer(@FInfo.NodeAllocator.Buffers);
       ChildNode := Pointer(
-        (CPFNodeItems[NativeUInt(ChildNode) shr LARGE_NODEPTR_OFFSET]) +
+        (NodeBuffers[NativeUInt(ChildNode) shr LARGE_NODEPTR_OFFSET]) +
         (NativeUInt(ChildNode) and NODEPTR_CLEAN_MASK) );
     {$else}
       ChildNode := Pointer(NativeInt(ChildNode) and NODEPTR_CLEAN_MASK);
@@ -2489,7 +2487,7 @@ end;
 
 procedure FloodTileMapSectors(Cell: PCPFCell; Sector: PByte;
   const Offsets: TCPFOffsets
-  {$ifdef LARGEINT}; NodeItems: PCPFNodeItems{$endif});
+  {$ifdef LARGEINT}; NodeBuffers: PCPFNodeBuffers{$endif});
 label
   clearbit;
 var
@@ -2507,7 +2505,7 @@ begin
   begin
     Mask := PCPFNode
       (
-        {$ifdef LARGEINT}NodeItems[Mask shr LARGE_NODEPTR_OFFSET] +{$endif}
+        {$ifdef LARGEINT}NodeBuffers[Mask shr LARGE_NODEPTR_OFFSET] +{$endif}
         Mask and NODEPTR_CLEAN_MASK
       ).NodeInfo;
   end;
@@ -2528,7 +2526,7 @@ begin
         begin
           Offset := PCPFNode
             (
-              {$ifdef LARGEINT}NodeItems[Offset shr LARGE_NODEPTR_OFFSET] +{$endif}
+              {$ifdef LARGEINT}NodeBuffers[Offset shr LARGE_NODEPTR_OFFSET] +{$endif}
               Offset and NODEPTR_CLEAN_MASK
             ).NodeInfo;
         end;
@@ -2568,9 +2566,10 @@ begin
     begin
       Offset := Offsets[Flags and 7];
 
-      FloodTileMapSectors({ChildCell} PCPFCell(NativeInt(Cell) + Offset * SizeOf(TCPFCell)),
-        {ChildSector}PByte(NativeInt(Sector) + Offset),
-        Offsets{$ifdef LARGEINT}, NodeItems{$endif});
+      FloodTileMapSectors(
+        {ChildCell} PCPFCell(NativeInt(Cell) + Offset * SizeOf(TCPFCell)),
+        {ChildSector} PByte(NativeInt(Sector) + Offset),
+        Offsets{$ifdef LARGEINT}, NodeBuffers{$endif});
     end;
 
     Mask := (Mask xor Flags) and $ff00;
@@ -2589,7 +2588,7 @@ var
   CurrentSector, SectorOverflow: NativeUInt;
   SectorOffsets: TCPFOffsets;
   {$ifdef LARGEINT}
-    NodeItems: PCPFNodeItems;
+    NodeBuffers: PCPFNodeBuffers;
   {$endif}
 begin
   if (FActualInfo.Sectors = nil) then
@@ -2599,7 +2598,7 @@ begin
   FActualInfo.SectorsChanged := False;
 
   {$ifdef LARGEINT}
-  NodeItems := Pointer(@FInfo.NodeAllocator.Items);
+  NodeBuffers := Pointer(@FInfo.NodeAllocator.Items);
   {$endif}
 
   SectorOffsets := FSectorOffsets;
@@ -2615,7 +2614,7 @@ begin
       begin
         CellInfo := PCPFNode
           (
-            {$ifdef LARGEINT}NodeItems[CellInfo shr LARGE_NODEPTR_OFFSET] +{$endif}
+            {$ifdef LARGEINT}NodeBuffers[CellInfo shr LARGE_NODEPTR_OFFSET] +{$endif}
             CellInfo and NODEPTR_CLEAN_MASK
           ).NodeInfo;
       end;
@@ -2635,7 +2634,7 @@ begin
         Inc(CurrentSector);
         Inc(CurrentSector, SectorOverflow);
         Sector^ := CurrentSector;
-          FloodTileMapSectors(Cell, Sector, SectorOffsets{$ifdef LARGEINT}, NodeItems{$endif});
+          FloodTileMapSectors(Cell, Sector, SectorOffsets{$ifdef LARGEINT}, NodeBuffers{$endif});
         CurrentSector := Sector^;
       end;
     end;
@@ -2761,7 +2760,7 @@ var
   {$endif}
 
   {$ifdef LARGEINT}
-    NodeItems: PCPFNodeItems;
+    NodeBuffers: PCPFNodeBuffers;
     NODEPTR_MODIFIER: NativeInt;
   {$endif}
 begin
@@ -2907,9 +2906,9 @@ begin
           // already node allocated and coordinates filled
           // need to fill path/parent and heuristics/way data
           {$ifdef LARGEINT}
-            NodeItems := Pointer(@Store.Info.NodeAllocator.Items);
+            NodeBuffers := Pointer(@Store.Info.NodeAllocator.Items);
             ChildNode := Pointer(
-              (NodeItems[ChildNodeInfo shr LARGE_NODEPTR_OFFSET]) +
+              (NodeBuffers[ChildNodeInfo shr LARGE_NODEPTR_OFFSET]) +
               (ChildNodeInfo and NODEPTR_CLEAN_MASK) );
           {$else}
             ChildNode := Pointer(ChildNodeInfo and NODEPTR_CLEAN_MASK);
@@ -2986,9 +2985,9 @@ begin
       end else
       begin
         {$ifdef LARGEINT}
-          NodeItems := Pointer(@Store.Info.NodeAllocator.Items);
+          NodeBuffers := Pointer(@Store.Info.NodeAllocator.Items);
           ChildNode := Pointer(
-            (NodeItems[ChildNodeInfo shr LARGE_NODEPTR_OFFSET]) +
+            (NodeBuffers[ChildNodeInfo shr LARGE_NODEPTR_OFFSET]) +
             (ChildNodeInfo and NODEPTR_CLEAN_MASK) );
         {$else}
           ChildNode := Pointer(ChildNodeInfo and NODEPTR_CLEAN_MASK);
