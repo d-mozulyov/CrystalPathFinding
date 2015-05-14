@@ -340,6 +340,7 @@ type
     FSectorTest: Boolean;
     FCaching: Boolean;
     FSameDiagonalWeight: Boolean;
+    FSectorOffsets: TCPFOffsets;
     FTileWeightScale: Double;
     FTileWeightScaleDiagonal: Double;
     FTileWeightLimit: Cardinal;
@@ -349,7 +350,6 @@ type
     DEFAULT_WEIGHT_VALUE_DIAGONAL: Cardinal;
     FTileDefaultWeight: Cardinal;
     FTileDefaultWeightDiagonal: Cardinal;
-    FSectorOffsets: TCPFOffsets;
 
     procedure RaiseCoordinates(const X, Y: Integer; const Id: TCPFExceptionString);
     procedure UpdateCellMasks(const ChangedArea: TRect);
@@ -1383,6 +1383,14 @@ const
   _6 = (1 shl 6);
   _7 = (1 shl 7);
 
+  DEFAULT_MASKS: array[TTileMapKind] of Word = (
+    {mkSimple}     (_1 or _3 or _5 or _7) * $0101,
+    {mkDiagonal}   $FF * $0101,
+    {mkDiagonalEx} $FF * $0101,
+    {mkHexagonal}  (_0 or _1 or _3 or _5 or _6 or _7) +
+                   (_1 or _2 or _3 or _4 or _5 or _7) * $0100
+  );
+
   POINT_OFFSETS: array[0..7] of TYXSmallPoint = (
     {0} (y: -1; x: -1),
     {1} (y: -1; x:  0),
@@ -1937,7 +1945,7 @@ begin
       CPFExceptionFmt('Incorrect map kind: %d, high value mkHexagonal is %d', [Ord(AKind), Ord(High(TTileMapKind))]);
   end;
 
-  // fill Params
+  // fill params
   FWidth := AWidth;
   FHeight := AHeight;
   FKind := AKind;
@@ -1945,7 +1953,14 @@ begin
   FSectorTest := False;
   FCaching := True;
 
-  // path/weight limit Params
+  // offsets
+  for i := 0 to 7 do
+  begin
+    FSectorOffsets[i] := POINT_OFFSETS[i].y * FInfo.MapWidth + POINT_OFFSETS[i].x;
+    FInfo.CellOffsets[i] := SizeOf(TCPFCell) * FSectorOffsets[i];
+  end;
+
+  // path/weight limit params
   FSameDiagonalWeight := (not (AKind in [mkDiagonal, mkDiagonalEx])) or ASameDiagonalWeight;
   Max := AWidth;
   Min := AHeight;
@@ -1988,13 +2003,6 @@ begin
   FActualInfo.FinishPoint.X := -1;
   FActualInfo.FinishPoint.Y := -1;
   FActualInfo.Weights.Count := 255;
-
-  // offsets
-  for i := 0 to 7 do
-  begin
-    FSectorOffsets[i] := POINT_OFFSETS[i].y * FInfo.MapWidth + POINT_OFFSETS[i].x;
-    FInfo.CellOffsets[i] := SizeOf(TCPFCell) * FSectorOffsets[i];
-  end;
 
   // internal buffers
   FActualInfo.Starts.Buffer.Initialize(Self);
@@ -2080,22 +2088,30 @@ end;
 {$endif}
 
 procedure TTileMap.UpdateCellMasks(const ChangedArea: TRect);
+label
+  fillmask, nextcell;
 const
   NOT_TOP_MASK = not (_0 or _1 or _2);
   NOT_RIGHT_MASK = not (_2 or _3 or _4);
   NOT_BOTTOM_MASK = not (_4 or _5 or _6);
   NOT_LEFT_MASK = not (_6 or _7 or _0);
-  ROUND_MASKS: array[0..3] of Integer = (NOT_TOP_MASK, NOT_RIGHT_MASK, NOT_BOTTOM_MASK, NOT_LEFT_MASK);
 var
   AWidth, AHeight: Integer;
-  X, Left, Top, Right, Bottom: Integer;
+  X, Y, Left, Top, Right, Bottom: Integer;
   Rounded: Boolean;
   CellOffsets: PCPFOffsets;
-  Cell: PCPFNode;
+  Cell: PCPFCell;
+  Node: PCPFNode;
   FlagHexagonal: Integer;
   CellLineOffset: NativeUInt;
 
   i, j: Integer;
+  CellInfo: NativeUInt;
+  DefaultMask, Mask, Flags: Integer;
+
+  {$ifdef LARGEINT}
+    NodeBuffers: PCPFNodeBuffers;
+  {$endif}
 begin
   AWidth := Self.Width;
   AHeight := Self.Height;
@@ -2103,7 +2119,13 @@ begin
   CellOffsets := @Self.FInfo.CellOffsets;
   Cell := @Self.FInfo.CellArray[0];
   FlagHexagonal := Ord(Self.Kind = mkHexagonal);
+  DefaultMask := DEFAULT_MASKS[Self.Kind];
 
+  {$ifdef LARGEINT}
+  NodeBuffers := Pointer(@FInfo.NodeAllocator.Buffers);
+  {$endif}
+
+  // around area
   X := ChangedArea.Left;
   Left := X - Ord(X <> 0);
   X := ChangedArea.Top;
@@ -2113,14 +2135,103 @@ begin
   X := ChangedArea.Bottom;
   Bottom := X + Ord(X <> AHeight);
 
+  // max i/j values
+  Dec(AWidth);
+  Dec(AHeight);
+
+  // each cell loop
   CellLineOffset := (AWidth - (Right - Left)) * SizeOf(TCPFCell);
   for j := Top to Bottom - 1 do
   begin
     for i := Left to Right - 1 do
     begin
+      // tile barier test
+      CellInfo := Cell.NodePtr;
+      if (CellInfo and NODEPTR_FLAG_ALLOCATED <> 0) then
+      begin
+        Node := PCPFNode(
+            {$ifdef LARGEINT}NodeBuffers[CellInfo shr LARGE_NODEPTR_OFFSET] +{$endif}
+            CellInfo and NODEPTR_CLEAN_MASK
+          );
+        if (Node.Tile = 0) then
+        begin
+          Node.Mask := 0;
+          goto nextcell;
+        end;
+      end else
+      if {$ifdef LARGEINT}
+           (CellInfo <= $ffffff)
+         {$else}
+           (CellInfo and Integer($ff000000){Tile} = 0{TILE_BARIER})
+         {$endif} then
+      begin
+        Cell.Mask := 0;
+        goto nextcell;
+      end;
 
+      // default mask
+      Mask := DefaultMask;
+      if (FlagHexagonal and j and 1 <> 0) then
+      begin
+        if (i = AWidth) then
+        begin
+          Mask := 0;
+          goto fillmask;
+        end;
+        Mask := Mask shl 8;
+      end;
+      Mask := Mask and $ff00;
 
+      Flags := (1 shl 8){bit} + 0{child};
+      repeat
+        if (Mask and Flags <> 0) then
+        begin
+          CellInfo := Flags and 7;
+          X := i + POINT_OFFSETS[CellInfo].x;
+          Y := j + POINT_OFFSETS[CellInfo].y;
 
+          if (Cardinal(Y) > Cardinal(AHeight)) or
+             (Cardinal(X) > Cardinal(AWidth - (FlagHexagonal and Y and 1))) then
+          begin
+
+           // clearbit:
+            Mask := (Mask xor Flags) and $ff00;
+          end;
+
+          // todo tile barier
+        end;
+
+        X := Flags and $ff00;
+        Inc(Flags);
+        Inc(Flags, X);
+      until (Mask < Flags);
+
+      // mask to byte
+      Mask := Mask shr 8;
+
+      // rounded
+      if (Rounded) then
+      begin
+        if (Mask and (1 shl 1) = 0) then Mask := Mask and NOT_TOP_MASK;
+        if (Mask and (1 shl 3) = 0) then Mask := Mask and NOT_RIGHT_MASK;
+        if (Mask and (1 shl 5) = 0) then Mask := Mask and NOT_BOTTOM_MASK;
+        if (Mask and (1 shl 7) = 0) then Mask := Mask and NOT_LEFT_MASK;
+      end;
+
+    fillmask:
+      CellInfo := Cell.NodePtr;
+      if (CellInfo and NODEPTR_FLAG_ALLOCATED <> 0) then
+      begin
+        PCPFNode(
+            {$ifdef LARGEINT}NodeBuffers[CellInfo shr LARGE_NODEPTR_OFFSET] +{$endif}
+            CellInfo and NODEPTR_CLEAN_MASK
+          ).Mask := Mask;
+      end else
+      begin
+        Cell.Mask := Mask;
+      end;
+
+    nextcell:
       Inc(Cell);
     end;
 
@@ -2196,7 +2307,7 @@ begin
   end;
   FInfo.NodeAllocator.Buffers[AllocatorCount] := FNodes.Storage.Buffers[AllocatorCount];
 
-  // Params
+  // params
   Node := FInfo.NodeAllocator.Buffers[AllocatorCount];
   Inc(FInfo.NodeAllocator.Count);
   FInfo.NodeAllocator.NewNode := Node;
@@ -2649,7 +2760,7 @@ begin
   FActualInfo.SectorsChanged := False;
 
   {$ifdef LARGEINT}
-  NodeBuffers := Pointer(@FInfo.NodeAllocator.Items);
+  NodeBuffers := Pointer(@FInfo.NodeAllocator.Buffers);
   {$endif}
 
   SectorOffsets := FSectorOffsets;
@@ -2957,7 +3068,7 @@ begin
           // already node allocated and coordinates filled
           // need to fill path/parent and heuristics/way data
           {$ifdef LARGEINT}
-            NodeBuffers := Pointer(@Store.Info.NodeAllocator.Items);
+            NodeBuffers := Pointer(@Store.Info.NodeAllocator.Buffers);
             ChildNode := Pointer(
               (NodeBuffers[ChildNodeInfo shr LARGE_NODEPTR_OFFSET]) +
               (ChildNodeInfo and NODEPTR_CLEAN_MASK) );
@@ -3036,7 +3147,7 @@ begin
       end else
       begin
         {$ifdef LARGEINT}
-          NodeBuffers := Pointer(@Store.Info.NodeAllocator.Items);
+          NodeBuffers := Pointer(@Store.Info.NodeAllocator.Buffers);
           ChildNode := Pointer(
             (NodeBuffers[ChildNodeInfo shr LARGE_NODEPTR_OFFSET]) +
             (ChildNodeInfo and NODEPTR_CLEAN_MASK) );
@@ -3059,7 +3170,7 @@ begin
         NodeXY{ChildPath} := ChildNode.Path;
         if (Path >= NodeXY{ChildPath}) then goto nextchild_continue;
 
-        // new Params
+        // new parameters
         ChildNode.NodeInfo := ParentBits;
         ChildXY{ChildSortValue} := ChildNode.SortValue;
         ChildNode.Path := Path;
