@@ -2342,6 +2342,10 @@ var
   _X, _Y: Word;
   _Self: Pointer;
   CellInfo: NativeUInt;
+
+  {$ifdef LARGEINT}
+    NodeBuffers: PCPFNodeBuffers;
+  {$endif}
 begin
   if (X >= Width) or (Y >= Height)  then
   begin
@@ -2360,8 +2364,11 @@ begin
     CellInfo := Self.FInfo.CellArray[Width * Y + X].NodePtr;
     if (CellInfo and NODEPTR_FLAG_ALLOCATED <> 0) then
     begin
+      {$ifdef LARGEINT}
+      NodeBuffers := Pointer(@FInfo.NodeAllocator.Buffers);
+      {$endif}
       Result := PCPFNode(
-                {$ifdef LARGEINT}FInfo.NodeAllocator.Buffers[CellInfo shr LARGE_NODEPTR_OFFSET] +{$endif}
+                {$ifdef LARGEINT}NodeBuffers[CellInfo shr LARGE_NODEPTR_OFFSET] +{$endif}
                 CellInfo and NODEPTR_CLEAN_MASK
                  ).Tile;
     end else
@@ -2379,6 +2386,10 @@ var
   Node: PCPFNode;
   CellInfo, ValueInfo: NativeUInt;
   ChangedArea: TRect;
+
+  {$ifdef LARGEINT}
+    NodeBuffers: PCPFNodeBuffers;
+  {$endif}
 begin
   CellInfo := Width;
   if (X >= Word(CellInfo){Width}) or (Y >= Height)  then
@@ -2402,8 +2413,11 @@ begin
     CellInfo := Cell.NodePtr;
     if (CellInfo and NODEPTR_FLAG_ALLOCATED <> 0) then
     begin
+      {$ifdef LARGEINT}
+      NodeBuffers := Pointer(@FInfo.NodeAllocator.Buffers);
+      {$endif}
       Node := PCPFNode(
-                {$ifdef LARGEINT}FInfo.NodeAllocator.Buffers[CellInfo shr LARGE_NODEPTR_OFFSET] +{$endif}
+                {$ifdef LARGEINT}NodeBuffers[CellInfo shr LARGE_NODEPTR_OFFSET] +{$endif}
                 CellInfo and NODEPTR_CLEAN_MASK
                  );
       CellInfo := Node.NodeInfo shr 24;
@@ -2434,11 +2448,132 @@ end;
 
 procedure TTileMap.Update(const ATiles: PByte; const X, Y, AWidth,
   AHeight: Word; const Pitch: NativeInt);
-begin
-  {$ifNdef CPFLIB}
-    FCallAddress := ReturnAddress;
+var
+  SelfWidth, SelfHeight: Integer;
+  Cell, TopLineCell, FinalCell: PCPFCell;
+  CellWidthSize, CellLineOffset, TileLineOffset: NativeInt;
+  PTile: PByte;
+  CellInfo, ValueInfo: NativeUInt;
+  FlagsChanged: NativeUInt;
+  ChangedArea: TRect;
+
+  Store: record
+    Self: Pointer;
+    ATiles: PByte;
+  end;
+  {$ifdef CPUX86}
+  _Self: Pointer;
   {$endif}
 
+  {$ifdef LARGEINT}
+    NodeBuffers: PCPFNodeBuffers;
+  {$endif}
+begin
+  Store.Self := Pointer({$ifdef CPFLIB}@Self{$else}Self{$endif});
+  {$ifdef CPUX86}
+  Store.ATiles := ATiles;
+  {$endif}
+
+  with ChangedArea do
+  begin
+    Left := X;
+    Right := Left + AWidth;
+    Top := Y;
+    Bottom := Top + AHeight;
+
+    {$ifNdef CPFLIB}
+      {$ifdef CPUX86}TTileMapPtr(Store.Self).{$endif}FCallAddress := ReturnAddress;
+    {$endif}
+
+    {$ifdef CPUX86}
+      _Self := Store.Self;
+      SelfWidth := TTileMapPtr(_Self).Width;
+      SelfHeight := TTileMapPtr(_Self).Height;
+    {$else}
+      SelfWidth := Self.Width;
+      SelfHeight := Self.Height;
+    {$endif}
+
+    if (Right > SelfWidth) or (Bottom > SelfHeight) or
+      (Left = Right) or (Top = Bottom) then
+    begin
+      {$ifdef CPUX86}TTileMapPtr(_Self).{$endif}CPFExceptionFmt('Invalid point range (%d..%d, %d..%d) on the %dx%d map',
+        [Left, Right - 1, Top, Bottom - 1, SelfWidth, SelfHeight]);
+    end;
+  end;
+
+  {$ifdef LARGEINT}
+  NodeBuffers := Pointer(@FInfo.NodeAllocator.Buffers);
+  {$endif}
+
+  Cell := @{$ifdef CPUX86}TTileMapPtr(Store.Self).{$endif}FInfo.CellArray[ChangedArea.Top * SelfWidth + ChangedArea.Left];
+  CellWidthSize := AWidth * SizeOf(TCPFCell);
+  CellLineOffset := (SelfWidth - AWidth) * SizeOf(TCPFCell);
+  FinalCell := Pointer(NativeInt(Cell) + (AWidth + (AHeight * SelfWidth)) * SizeOf(TCPFCell));
+  TileLineOffset := (Pitch - AWidth);
+
+  FlagsChanged := 0;
+  PTile := {$ifdef CPUX86}Store.{$endif}ATiles;
+  // for j := 1 to AHeight do
+  repeat
+    //for i := 1 to AWidth do
+    TopLineCell := Pointer(NativeInt(Cell) + CellWidthSize);
+    repeat
+      CellInfo := Cell.NodePtr;
+      if (CellInfo and NODEPTR_FLAG_ALLOCATED <> 0) then
+      begin
+        {$if (not Defined(CPUX86)) or Defined(FPC)}
+        with PCPFNode(
+                  {$ifdef LARGEINT}NodeBuffers[CellInfo shr LARGE_NODEPTR_OFFSET] +{$endif}
+                  CellInfo and NODEPTR_CLEAN_MASK
+                   )^ do
+        begin
+          CellInfo := NodeInfo shr 24;
+          ValueInfo := PTile^;
+          Tile := ValueInfo;
+        end;
+        {$else}
+          CellInfo := CellInfo and NODEPTR_CLEAN_MASK;
+          ValueInfo := NativeUInt(PTile^) or (PCPFNode(CellInfo).NodeInfo and $ff000000);
+          PCPFNode(CellInfo).Tile := ValueInfo;
+          CellInfo := ValueInfo shr 24;
+          ValueInfo := Byte(ValueInfo);
+        {$ifend}
+      end else
+      begin
+        CellInfo := CellInfo shr 24;
+        ValueInfo := PTile^;
+        Cell.Tile := ValueInfo;
+      end;
+
+      Dec(CellInfo);
+      Dec(ValueInfo);
+      FlagsChanged := FlagsChanged or ((CellInfo or ValueInfo) shl 1) or
+        NativeUInt(CellInfo <> ValueInfo);
+
+      Inc(Cell);
+      Inc(PTile);
+    until (Cell = TopLineCell);
+
+    Inc(NativeInt(Cell), CellLineOffset);
+    Inc(PTile, TileLineOffset);
+  until (Cell = FinalCell);
+
+  // nothing changed case
+  CellInfo := FlagsChanged;
+  if (CellInfo and 1 = 0) then Exit;
+
+  // update flags and masks
+  with TTileMapPtr(Store.Self){$ifdef CPFLIB}^{$endif} do
+  begin
+    FActualInfo.TilesChanged := True;
+
+    if (NativeInt(CellInfo or 1) = -1) then
+    begin
+      FActualInfo.SectorsChanged := True;
+      UpdateCellMasks(ChangedArea);
+    end;
+  end;
 end;
 
 procedure TTileMap.GrowNodeAllocator(var Buffer: TCPFInfo);
@@ -3763,7 +3898,8 @@ initialization
     System.GetMemoryManager(MemoryManager);
   {$endif}
   {$if Defined(DEBUG) and not Defined(CPFLIB)}
-    TTileMap(nil).SetTile(0, 0, 1);
+    //DoTileMapUpdate(TTileMapUpdateInfo(nil^));
+    TTileMap(nil).Update(nil, 0, 0, 0, 0, 0);
 
     TTileMap(nil).UpdateCellMasks(Rect(0, 0, 0, 0));
 
