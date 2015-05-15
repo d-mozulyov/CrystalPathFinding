@@ -354,7 +354,7 @@ type
     procedure RaiseCoordinates(const X, Y: Integer; const Id: TCPFExceptionString);
     procedure UpdateCellMasks(const ChangedArea: TRect);
     function GetTile(const X, Y: Word): Byte;
-    procedure SetTile(const X, Y: Word; const Value: Byte);
+    procedure SetTile(const X, Y: Word; Value: Byte);
     procedure GrowNodeAllocator(var Buffer: TCPFInfo);
 //    function AllocateNode(const X, Y: NativeInt): PCPFNode;
     function CalculateHeuristics(const Start, Finish: TPoint): NativeInt;
@@ -2338,21 +2338,98 @@ begin
 end;
 
 function TTileMap.GetTile(const X, Y: Word): Byte;
+var
+  _X, _Y: Word;
+  _Self: Pointer;
+  CellInfo: NativeUInt;
 begin
-  {$ifNdef CPFLIB}
-    FCallAddress := ReturnAddress;
-  {$endif}
+  if (X >= Width) or (Y >= Height)  then
+  begin
+    _Self := Pointer({$ifdef CPFLIB}@Self{$else}Self{$endif});
+    _X := X;
+    _Y := Y;
 
+    {$ifNdef CPFLIB}
+      TTileMapPtr(_Self).FCallAddress := ReturnAddress;
+    {$endif}
 
-  Result := 0;
+    TTileMapPtr(_Self).RaiseCoordinates(_X, _Y, 'tile');
+    Result := 0;
+  end else
+  begin
+    CellInfo := Self.FInfo.CellArray[Width * Y + X].NodePtr;
+    if (CellInfo and NODEPTR_FLAG_ALLOCATED <> 0) then
+    begin
+      Result := PCPFNode(
+                {$ifdef LARGEINT}FInfo.NodeAllocator.Buffers[CellInfo shr LARGE_NODEPTR_OFFSET] +{$endif}
+                CellInfo and NODEPTR_CLEAN_MASK
+                 ).Tile;
+    end else
+    begin
+      Result := CellInfo shr 24;
+    end;
+  end;
 end;
 
-procedure TTileMap.SetTile(const X, Y: Word; const Value: Byte);
+procedure TTileMap.SetTile(const X, Y: Word; Value: Byte);
+var
+  _X, _Y: Word;
+  _Self: Pointer;
+  Cell: PCPFCell;
+  Node: PCPFNode;
+  CellInfo, ValueInfo: NativeUInt;
+  ChangedArea: TRect;
 begin
-  {$ifNdef CPFLIB}
-    FCallAddress := ReturnAddress;
-  {$endif}
+  CellInfo := Width;
+  if (X >= Word(CellInfo){Width}) or (Y >= Height)  then
+  begin
+    _Self := Pointer({$ifdef CPFLIB}@Self{$else}Self{$endif});
+    _X := X;
+    _Y := Y;
 
+    {$ifNdef CPFLIB}
+      TTileMapPtr(_Self).FCallAddress := ReturnAddress;
+    {$endif}
+
+    TTileMapPtr(_Self).RaiseCoordinates(_X, _Y, 'tile');
+  end else
+  begin
+    ChangedArea.Left := X;
+    ChangedArea.Top := Y;
+    Cell := Pointer(CellInfo{Width} * Y + X);
+    Inc(NativeUInt(Cell), NativeUInt(Self.FInfo.CellArray));
+
+    CellInfo := Cell.NodePtr;
+    if (CellInfo and NODEPTR_FLAG_ALLOCATED <> 0) then
+    begin
+      Node := PCPFNode(
+                {$ifdef LARGEINT}FInfo.NodeAllocator.Buffers[CellInfo shr LARGE_NODEPTR_OFFSET] +{$endif}
+                CellInfo and NODEPTR_CLEAN_MASK
+                 );
+      CellInfo := Node.NodeInfo shr 24;
+      ValueInfo := Value;
+      if (CellInfo = ValueInfo) then Exit;
+      Node.Tile := ValueInfo;
+    end else
+    begin
+      CellInfo := CellInfo shr 24;
+      ValueInfo := Value;
+      if (CellInfo = ValueInfo) then Exit;
+      Cell.Tile := ValueInfo;
+    end;
+
+    Dec(CellInfo);
+    Dec(ValueInfo);
+    FActualInfo.TilesChanged := True;
+    CellInfo := CellInfo or ValueInfo;
+    if (NativeInt(CellInfo) = -1) then
+    begin
+      ChangedArea.Right := ChangedArea.Left;
+      ChangedArea.Bottom := ChangedArea.Top;
+      FActualInfo.SectorsChanged := True;
+      UpdateCellMasks(ChangedArea);
+    end;
+  end;
 end;
 
 procedure TTileMap.Update(const ATiles: PByte; const X, Y, AWidth,
@@ -3686,6 +3763,8 @@ initialization
     System.GetMemoryManager(MemoryManager);
   {$endif}
   {$if Defined(DEBUG) and not Defined(CPFLIB)}
+    TTileMap(nil).SetTile(0, 0, 1);
+
     TTileMap(nil).UpdateCellMasks(Rect(0, 0, 0, 0));
 
   // anti hint
