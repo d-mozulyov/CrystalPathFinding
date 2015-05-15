@@ -1387,8 +1387,8 @@ const
     {mkSimple}     (_1 or _3 or _5 or _7) * $0101,
     {mkDiagonal}   $FF * $0101,
     {mkDiagonalEx} $FF * $0101,
-    {mkHexagonal}  (_0 or _1 or _3 or _5 or _6 or _7) +
-                   (_1 or _2 or _3 or _4 or _5 or _7) * $0100
+    {mkHexagonal}  (_0 or _1 or _3 or _5 or _6 or _7) * $0100 +
+                   (_1 or _2 or _3 or _4 or _5 or _7)
   );
 
   POINT_OFFSETS: array[0..7] of TYXSmallPoint = (
@@ -1453,6 +1453,25 @@ const
     $00700001, $00700001, $00790001, $00F40001,
     $00F10002, $00F10002, $00F10002, $00000002,
     $00C10003, $00C10003, $00D50003, $00E30003
+  );
+
+  ROUNDED_MASKS: array[Byte] of Byte = (
+    $00, $00, $02, $02, $00, $00, $02, $02, $08, $08, $0A, $0A, $08, $08, $0E, $0E,
+    $00, $00, $02, $02, $00, $00, $02, $02, $08, $08, $0A, $0A, $08, $08, $0E, $0E,
+    $20, $20, $22, $22, $20, $20, $22, $22, $28, $28, $2A, $2A, $28, $28, $2E, $2E,
+    $20, $20, $22, $22, $20, $20, $22, $22, $38, $38, $3A, $3A, $38, $38, $3E, $3E,
+    $00, $00, $02, $02, $00, $00, $02, $02, $08, $08, $0A, $0A, $08, $08, $0E, $0E,
+    $00, $00, $02, $02, $00, $00, $02, $02, $08, $08, $0A, $0A, $08, $08, $0E, $0E,
+    $20, $20, $22, $22, $20, $20, $22, $22, $28, $28, $2A, $2A, $28, $28, $2E, $2E,
+    $20, $20, $22, $22, $20, $20, $22, $22, $38, $38, $3A, $3A, $38, $38, $3E, $3E,
+    $80, $80, $82, $83, $80, $80, $82, $83, $88, $88, $8A, $8B, $88, $88, $8E, $8F,
+    $80, $80, $82, $83, $80, $80, $82, $83, $88, $88, $8A, $8B, $88, $88, $8E, $8F,
+    $A0, $A0, $A2, $A3, $A0, $A0, $A2, $A3, $A8, $A8, $AA, $AB, $A8, $A8, $AE, $AF,
+    $A0, $A0, $A2, $A3, $A0, $A0, $A2, $A3, $B8, $B8, $BA, $BB, $B8, $B8, $BE, $BF,
+    $80, $80, $82, $83, $80, $80, $82, $83, $88, $88, $8A, $8B, $88, $88, $8E, $8F,
+    $80, $80, $82, $83, $80, $80, $82, $83, $88, $88, $8A, $8B, $88, $88, $8E, $8F,
+    $E0, $E0, $E2, $E3, $E0, $E0, $E2, $E3, $E8, $E8, $EA, $EB, $E8, $E8, $EE, $EF,
+    $E0, $E0, $E2, $E3, $E0, $E0, $E2, $E3, $F8, $F8, $FA, $FB, $F8, $F8, $FE, $FF
   );
 
 
@@ -1673,6 +1692,39 @@ begin
   LookupLine(S);
 end;
 
+procedure AddRoundMasks(Line: Integer; Finalize: Boolean);
+const
+  NOT_TOP_MASK = not (_0 or _1 or _2);
+  NOT_RIGHT_MASK = not (_2 or _3 or _4);
+  NOT_BOTTOM_MASK = not (_4 or _5 or _6);
+  NOT_LEFT_MASK = not (_6 or _7 or _0);
+var
+  i: Integer;
+  Buffer: array[0..15] of Byte;
+  Mask: Byte;
+  S: string;
+begin
+  for i := 0 to 15 do
+  begin
+    Mask := Line * 16 + i;
+
+    if (Mask and (1 shl 1) = 0) then Mask := Mask and NOT_TOP_MASK;
+    if (Mask and (1 shl 3) = 0) then Mask := Mask and NOT_RIGHT_MASK;
+    if (Mask and (1 shl 5) = 0) then Mask := Mask and NOT_BOTTOM_MASK;
+    if (Mask and (1 shl 7) = 0) then Mask := Mask and NOT_LEFT_MASK;
+
+    Buffer[i] := Mask;
+  end;
+
+  S := Format('  $%0.2x, $%0.2x, $%0.2x, $%0.2x, $%0.2x, $%0.2x, $%0.2x, $%0.2x'+
+              ', $%0.2x, $%0.2x, $%0.2x, $%0.2x, $%0.2x, $%0.2x, $%0.2x, $%0.2x',
+    [Buffer[0], Buffer[1], Buffer[2], Buffer[3], Buffer[4], Buffer[5], Buffer[6], Buffer[7],
+     Buffer[8], Buffer[9], Buffer[10], Buffer[11], Buffer[12], Buffer[13], Buffer[14], Buffer[15]]);
+
+  if (not Finalize) then S := S + ',';
+  LookupLine(S);
+end;
+
 procedure GenerateLookups;
 const
   MIN_WEIGHT_VALUE: Single = 0.1;
@@ -1681,6 +1733,7 @@ const
 var
   Way, WayX, WayY: Integer;
   Child: Integer;
+  Line: Integer;
 begin
   LookupsText := TStringList.Create;
   try
@@ -1731,6 +1784,14 @@ begin
     end;
     LookupLine(');');
 
+    // ROUNDED_MASKS
+    LookupLine;
+    LookupLine('ROUNDED_MASKS: array[Byte] of Byte = (');
+    for Line := 0 to 15 do
+    begin
+      AddRoundMasks(Line, Line = 15);
+    end;
+    LookupLine(');');
 
     LookupsText.SaveToFile('Lookup.txt');
   finally
@@ -2089,19 +2150,13 @@ end;
 
 procedure TTileMap.UpdateCellMasks(const ChangedArea: TRect);
 label
-  fillmask, nextcell;
-const
-  NOT_TOP_MASK = not (_0 or _1 or _2);
-  NOT_RIGHT_MASK = not (_2 or _3 or _4);
-  NOT_BOTTOM_MASK = not (_4 or _5 or _6);
-  NOT_LEFT_MASK = not (_6 or _7 or _0);
+  clearbit, fillmask, nextcell;
 var
-  AWidth, AHeight: Integer;
+  MaxI, MaxJ: Integer;
   X, Y, Left, Top, Right, Bottom: Integer;
   Rounded: Boolean;
   CellOffsets: PCPFOffsets;
   Cell: PCPFCell;
-  Node: PCPFNode;
   FlagHexagonal: Integer;
   CellLineOffset: NativeUInt;
 
@@ -2113,8 +2168,8 @@ var
     NodeBuffers: PCPFNodeBuffers;
   {$endif}
 begin
-  AWidth := Self.Width;
-  AHeight := Self.Height;
+  MaxI := Self.Width - 1;
+  MaxJ := Self.Height - 1;
   Rounded := (Self.Kind = mkDiagonalEx);
   CellOffsets := @Self.FInfo.CellOffsets;
   Cell := @Self.FInfo.CellArray[0];
@@ -2126,82 +2181,100 @@ begin
   {$endif}
 
   // around area
+  X := ChangedArea.Right;
+  Right := X + Ord(X <= MaxI);
+  X := ChangedArea.Bottom;
+  Bottom := X + Ord(X <= MaxJ);
   X := ChangedArea.Left;
   Left := X - Ord(X <> 0);
   X := ChangedArea.Top;
-  Top := X - Ord(X <> 0);
-  X := ChangedArea.Right;
-  Right := X + Ord(X <> AWidth);
-  X := ChangedArea.Bottom;
-  Bottom := X + Ord(X <> AHeight);
-
-  // max i/j values
-  Dec(AWidth);
-  Dec(AHeight);
+  Top := X;
+  Dec(Top, Ord(X <> 0));
 
   // each cell loop
-  CellLineOffset := (AWidth - (Right - Left)) * SizeOf(TCPFCell);
-  for j := Top to Bottom - 1 do
-  begin
-    for i := Left to Right - 1 do
-    begin
+  X := MaxI + 1{Width};
+  Inc(Cell, Top * X{Width} + Left);
+  CellLineOffset := (X{Width} - (Right - Left)) * SizeOf(TCPFCell);
+  // for j := Top to Bottom - 1 do
+  j := Top;
+  repeat
+    //for i := Left to Right - 1 do
+    i := Left;
+    repeat
       // tile barier test
       CellInfo := Cell.NodePtr;
-      if (CellInfo and NODEPTR_FLAG_ALLOCATED <> 0) then
+      if (CellInfo and NODEPTR_FLAG_ALLOCATED = 0) then
       begin
-        Node := PCPFNode(
-            {$ifdef LARGEINT}NodeBuffers[CellInfo shr LARGE_NODEPTR_OFFSET] +{$endif}
-            CellInfo and NODEPTR_CLEAN_MASK
-          );
-        if (Node.Tile = 0) then
+        if {$ifdef LARGEINT}
+             (CellInfo <= $ffffff)
+           {$else}
+             (CellInfo and Integer($ff000000){Tile} = 0{TILE_BARIER})
+           {$endif} then
         begin
-          Node.Mask := 0;
+          Cell.Mask := 0;
           goto nextcell;
         end;
       end else
-      if {$ifdef LARGEINT}
-           (CellInfo <= $ffffff)
-         {$else}
-           (CellInfo and Integer($ff000000){Tile} = 0{TILE_BARIER})
-         {$endif} then
       begin
-        Cell.Mask := 0;
-        goto nextcell;
+        with PCPFNode(
+            {$ifdef LARGEINT}NodeBuffers[CellInfo shr LARGE_NODEPTR_OFFSET] +{$endif}
+            CellInfo and NODEPTR_CLEAN_MASK
+             )^ do
+        if (Tile = 0) then
+        begin
+          Mask := 0;
+          goto nextcell;
+        end;
       end;
 
       // default mask
       Mask := DefaultMask;
-      if (FlagHexagonal and j and 1 <> 0) then
+      if (FlagHexagonal and j <> 0) then
       begin
-        if (i = AWidth) then
-        begin
-          Mask := 0;
-          goto fillmask;
-        end;
         Mask := Mask shl 8;
+        if (i = MaxI) then goto fillmask{Mask = 0};
       end;
       Mask := Mask and $ff00;
 
+      // each child loop
       Flags := (1 shl 8){bit} + 0{child};
       repeat
         if (Mask and Flags <> 0) then
         begin
           CellInfo := Flags and 7;
-          X := i + POINT_OFFSETS[CellInfo].x;
-          Y := j + POINT_OFFSETS[CellInfo].y;
 
-          if (Cardinal(Y) > Cardinal(AHeight)) or
-             (Cardinal(X) > Cardinal(AWidth - (FlagHexagonal and Y and 1))) then
+          X := POINT_OFFSETS[CellInfo].x;
+          Y := POINT_OFFSETS[CellInfo].y;
+          Inc(Y, j);
+          Inc(X, i);
+
+          if (Cardinal(Y) > Cardinal(MaxJ)) or
+             (Cardinal(X) > Cardinal(MaxI - (FlagHexagonal and Y))) then
+            goto clearbit;
+
+          // tile barier
+          CellInfo := PCPFCell(NativeInt(Cell) + CellOffsets[{$ifdef CPUX86}Flags and 7{$else}CellInfo{$endif}]).NodePtr;
+          if (CellInfo and NODEPTR_FLAG_ALLOCATED = 0) then
           begin
-
-           // clearbit:
-            Mask := (Mask xor Flags) and $ff00;
+            if {$ifdef LARGEINT}
+                 (CellInfo <= $ffffff)
+               {$else}
+                 (CellInfo and Integer($ff000000){Tile} = 0{TILE_BARIER})
+               {$endif} then goto clearbit;
+          end else
+          begin
+            if (PCPFNode(
+                {$ifdef LARGEINT}NodeBuffers[CellInfo shr LARGE_NODEPTR_OFFSET] +{$endif}
+                CellInfo and NODEPTR_CLEAN_MASK
+                ).Tile = 0) then
+            begin
+              clearbit:
+              Mask := (Mask xor Flags) and -8;
+            end;
           end;
-
-          // todo tile barier
         end;
 
-        X := Flags and $ff00;
+        X := Flags and -8;
         Inc(Flags);
         Inc(Flags, X);
       until (Mask < Flags);
@@ -2212,10 +2285,7 @@ begin
       // rounded
       if (Rounded) then
       begin
-        if (Mask and (1 shl 1) = 0) then Mask := Mask and NOT_TOP_MASK;
-        if (Mask and (1 shl 3) = 0) then Mask := Mask and NOT_RIGHT_MASK;
-        if (Mask and (1 shl 5) = 0) then Mask := Mask and NOT_BOTTOM_MASK;
-        if (Mask and (1 shl 7) = 0) then Mask := Mask and NOT_LEFT_MASK;
+        Mask := ROUNDED_MASKS[Mask];
       end;
 
     fillmask:
@@ -2232,12 +2302,30 @@ begin
       end;
 
     nextcell:
-      Inc(Cell);
-    end;
+      {$ifdef CPUX86}
+        X := i + 1;
+        Inc(Cell);
+        i := X;
+        if (X = Right) then Break;
+      {$else}
+        Inc(i);
+        Inc(Cell);
+        if (i = Right) then Break;
+      {$endif}
+    until (False);
 
     // next line
-    Inc(NativeUInt(Cell), CellLineOffset);
-  end;
+    {$ifdef CPUX86}
+      X := j + 1;
+      Inc(NativeUInt(Cell), CellLineOffset);
+      j := X;
+      if (X = Bottom) then Break;
+    {$else}
+      Inc(j);
+      Inc(NativeUInt(Cell), CellLineOffset);
+      if (j = Bottom) then Break;
+    {$endif}
+  until (False);
 end;
 
 procedure TTileMap.Clear;
@@ -2709,13 +2797,13 @@ begin
       end else
       begin
         clearbit:
-        Mask := (Mask xor Flags) and $ff00;
+        Mask := (Mask xor Flags) and -8;
       end;
     end;
 
     // bit << 1, child++
     if (Flags = (1 shl (8+7)) + 7) then Break;
-    Offset := Flags and $ff00;
+    Offset := Flags and -8;
     Inc(Flags);
     Inc(Flags, Offset);
   until (False);
@@ -2734,8 +2822,8 @@ begin
         Offsets{$ifdef LARGEINT}, NodeBuffers{$endif});
     end;
 
-    Mask := (Mask xor Flags) and $ff00;
-    Offset := Flags and $ff00;
+    Mask := (Mask xor Flags) and -8;
+    Offset := Flags and -8;
     Inc(Flags);
     Inc(Flags, Offset);
   end;
