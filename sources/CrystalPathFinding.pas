@@ -412,7 +412,7 @@ type
     procedure AddHeuristedNodes(const First, Last: PCPFNode);
     procedure ReleaseAttainableNodes;
     procedure ReleaseHeuristedNodes;
-    // procedure ReleaseAllocatedNodes;
+    procedure ReleaseAllocatedNodes(const CleanupCells: Boolean);
   {$ifdef CPFLIB}
   public
     procedure Destroy;
@@ -1383,6 +1383,11 @@ const
   _6 = (1 shl 6);
   _7 = (1 shl 7);
 
+  NOT_TOP_MASK = not (_0 or _1 or _2);
+  NOT_RIGHT_MASK = not (_2 or _3 or _4);
+  NOT_BOTTOM_MASK = not (_4 or _5 or _6);
+  NOT_LEFT_MASK = not (_6 or _7 or _0);
+
   DEFAULT_MASKS: array[TTileMapKind] of Word = (
     {mkSimple}     (_1 or _3 or _5 or _7) * $0101,
     {mkDiagonal}   $FF * $0101,
@@ -1693,11 +1698,6 @@ begin
 end;
 
 procedure AddRoundMasks(Line: Integer; Finalize: Boolean);
-const
-  NOT_TOP_MASK = not (_0 or _1 or _2);
-  NOT_RIGHT_MASK = not (_2 or _3 or _4);
-  NOT_BOTTOM_MASK = not (_4 or _5 or _6);
-  NOT_LEFT_MASK = not (_6 or _7 or _0);
 var
   i: Integer;
   Buffer: array[0..15] of Byte;
@@ -2058,11 +2058,6 @@ begin
   else
   if (FTileDefaultWeight < FTileWeightMinimum) then FTileDefaultWeight := FTileWeightMinimum;
   if (FTileDefaultWeightDiagonal < FTileWeightMinimum) then FTileDefaultWeightDiagonal := FTileWeightMinimum;
-
-  // "actual" information
-  FActualInfo.TilesChanged := True;
-  FActualInfo.FinishPoint.X := -1;
-  FActualInfo.FinishPoint.Y := -1;
   FActualInfo.Weights.Count := 255;
 
   // internal buffers
@@ -2077,8 +2072,6 @@ begin
   Clear;
 
   // nodes initialization
-  FNodes.Heuristed.First.Next := @FNodes.Heuristed.Last;
-  FNodes.Heuristed.Last.Prev := @FNodes.Heuristed.First;
   GrowNodeAllocator(FInfo);
 end;
 
@@ -2152,7 +2145,7 @@ procedure TTileMap.UpdateCellMasks(const ChangedArea: TRect);
 label
   clearbit, fillmask, nextcell;
 var
-  MaxI, MaxJ: Integer;
+  MaximumI, MaximumJ: Integer;
   X, Y, Left, Top, Right, Bottom: Integer;
   Rounded: Boolean;
   CellOffsets: PCPFOffsets;
@@ -2168,8 +2161,8 @@ var
     NodeBuffers: PCPFNodeBuffers;
   {$endif}
 begin
-  MaxI := Self.Width - 1;
-  MaxJ := Self.Height - 1;
+  MaximumI := Self.Width - 1;
+  MaximumJ := Self.Height - 1;
   Rounded := (Self.Kind = mkDiagonalEx);
   CellOffsets := @Self.FInfo.CellOffsets;
   Cell := @Self.FInfo.CellArray[0];
@@ -2182,9 +2175,9 @@ begin
 
   // around area
   X := ChangedArea.Right;
-  Right := X + Ord(X <= MaxI);
+  Right := X + Ord(X <= MaximumI);
   X := ChangedArea.Bottom;
-  Bottom := X + Ord(X <= MaxJ);
+  Bottom := X + Ord(X <= MaximumJ);
   X := ChangedArea.Left;
   Left := X - Ord(X <> 0);
   X := ChangedArea.Top;
@@ -2192,7 +2185,7 @@ begin
   Dec(Top, Ord(X <> 0));
 
   // each cell loop
-  X := MaxI + 1{Width};
+  X := MaximumI + 1{Width};
   Inc(Cell, Top * X{Width} + Left);
   CellLineOffset := (X{Width} - (Right - Left)) * SizeOf(TCPFCell);
   // for j := Top to Bottom - 1 do
@@ -2232,7 +2225,7 @@ begin
       if (FlagHexagonal and j <> 0) then
       begin
         Mask := Mask shl 8;
-        if (i = MaxI) then goto fillmask{Mask = 0};
+        if (i = MaximumI) then goto fillmask{Mask = 0};
       end;
       Mask := Mask and $ff00;
 
@@ -2248,8 +2241,8 @@ begin
           Inc(Y, j);
           Inc(X, i);
 
-          if (Cardinal(Y) > Cardinal(MaxJ)) or
-             (Cardinal(X) > Cardinal(MaxI - (FlagHexagonal and Y))) then
+          if (Cardinal(Y) > Cardinal(MaximumJ)) or
+             (Cardinal(X) > Cardinal(MaximumI - (FlagHexagonal and Y))) then
             goto clearbit;
 
           // tile barier
@@ -2328,13 +2321,118 @@ begin
   until (False);
 end;
 
+
+{$ifNdef CPFLIB}
+procedure TTileMapClear(const Self: TTileMap); forward;
 procedure TTileMap.Clear;
 begin
-  {$ifNdef CPFLIB}
-    FCallAddress := ReturnAddress;
-  {$endif}
+  FCallAddress := ReturnAddress;
+  TTileMapClear(Self);
+end;
+procedure TTileMapClear(const Self: TTileMap);
+{$else}
+procedure TTileMap.Clear;
+{$endif}
+const
+  HEXAGONAL_CELL_EVEN = $01000000 or (_0 or _1 or _3 or _5 or _6 or _7) shl 8;
+  HEXAGONAL_CELL_ODD = $01000000 or (_1 or _2 or _3 or _4 or _5 or _7) shl 8;
+var
+  i: NativeInt;
+  Cell: PCPFCell;
+  MaximumI, Size: NativeInt;
+  NotRightMask: Integer{Byte};
+begin
+  // release nodes
+  Self.ReleaseAllocatedNodes(False);
+  Self.FNodes.Heuristed.First.Next := @Self.FNodes.Heuristed.Last;
+  Self.FNodes.Heuristed.Last.Prev := @Self.FNodes.Heuristed.First;
+  Self.FActualInfo.FinishPoint.X := -1;
+  Self.FActualInfo.FinishPoint.Y := -1;
 
+  // cells
+  if (Self.Kind = mkHexagonal) then
+  begin
+    Cell := @Self.FInfo.CellArray[0];
+    Size := Self.Width * SizeOf(TCPFCell);
 
+    for i := 0 to NativeInt(Self.Height shr 1) - 1 do
+    begin
+      FillCardinal(PCardinal(Cell), Size shr 2, HEXAGONAL_CELL_EVEN);
+      Inc(NativeInt(Cell), Size);
+      FillCardinal(PCardinal(Cell), Size shr 2, HEXAGONAL_CELL_ODD);
+      Inc(NativeInt(Cell), Size);
+    end;
+
+    if (Self.Height and 1 <> 0) then
+      FillCardinal(PCardinal(Cell), Size shr 2, HEXAGONAL_CELL_EVEN);
+  end else
+  begin
+    FillCardinal(PCardinal(Self.FInfo.CellArray), Self.FCellCount,
+     (Cardinal(DEFAULT_MASKS[Self.Kind]) and $ff00) or $01000000);
+  end;
+  Self.FActualInfo.TilesChanged := True;
+
+  // around cells
+  MaximumI:= Self.Width - 1;
+  NotRightMask := NOT_RIGHT_MASK;
+  if (Self.Kind = mkHexagonal) then NotRightMask := NotRightMask and not (_1 or _5);
+  Cell := @Self.FInfo.CellArray[0];
+  begin
+    // top
+    Cell.Mask := Cell.Mask and (NOT_LEFT_MASK and NOT_TOP_MASK);
+    Inc(Cell);
+    for i := 1 to MaximumI do
+    begin
+      Cell.Mask := Cell.Mask and NOT_TOP_MASK;
+      Inc(Cell);
+    end;
+    Cell.Mask := Cell.Mask and Integer(NotRightMask and NOT_TOP_MASK);
+    Inc(Cell);
+
+    // each line
+    for i := 1 to NativeInt(Self.FHeight) - 2 do
+    begin
+      Cell.Mask := Cell.Mask and NOT_LEFT_MASK;
+      Inc(Cell, MaximumI);
+      Cell.Mask := Cell.Mask and NotRightMask;
+      Inc(Cell);
+    end;
+
+    // bottom
+    Cell.Mask := Cell.Mask and (NOT_LEFT_MASK and NOT_BOTTOM_MASK);
+    Inc(Cell);
+    for i := 1 to MaximumI do
+    begin
+      Cell.Mask := Cell.Mask and NOT_BOTTOM_MASK;
+      Inc(Cell);
+    end;
+    Cell.Mask := Cell.Mask and Integer(NotRightMask and NOT_BOTTOM_MASK);
+  end;
+
+  // hexagonal odd right
+  if (Self.Kind = mkHexagonal) and (MaximumI <> 0) then
+  begin
+    Size := (MaximumI + 1) * SizeOf(TCPFCell);
+    Cell := @Self.FInfo.CellArray[MaximumI*2 + 1];
+
+    for i := 0 to NativeInt(Self.Height shr 1) - 1 do
+    begin
+      Cell.Mask := Cell.Mask and NOT_BOTTOM_MASK;
+      Inc(NativeInt(Cell), Size);
+    end;
+  end;
+
+  // sectors
+  if (Self.SectorTest) then
+  begin
+    Size := (SizeOf(Byte) * Self.FCellCount + 3) and -4;
+    if (Self.FActualInfo.Sectors = nil) then Self.CPFGetMem(Pointer(Self.FActualInfo.Sectors), Size);
+    FillCardinal(PCardinal(Self.FActualInfo.Sectors), Size shr 2, $02020202);
+    Self.FActualInfo.SectorsChanged := False;
+  end else
+  begin
+    Self.FActualInfo.SectorsChanged := True;
+  end;
 end;
 
 function TTileMap.GetTile(const X, Y: Word): Byte;
@@ -3054,7 +3152,7 @@ var
   {$endif}
 begin
   if (FActualInfo.Sectors = nil) then
-    CPFGetMem(Pointer(FActualInfo.Sectors), SizeOf(Byte) * FCellCount);
+    CPFGetMem(Pointer(FActualInfo.Sectors), (SizeOf(Byte) * FCellCount + 3) and -4);
 
   ZeroMemory(FActualInfo.Sectors, SizeOf(Byte) * FCellCount);
   FActualInfo.SectorsChanged := False;
@@ -3152,10 +3250,15 @@ begin
   end;
 end;
 
-(*procedure TTileMap.ReleaseAllocatedNodes;
+procedure TTileMap.ReleaseAllocatedNodes(const CleanupCells: Boolean);
 begin
+  if (CleanupCells) then
+  begin
+    // todo
+  end;
+
   // todo
-end;*)
+end;
 
 function TTileMap.DoFindPathLoop(StartNode: PCPFNode): PCPFNode;
 label
@@ -3898,10 +4001,7 @@ initialization
     System.GetMemoryManager(MemoryManager);
   {$endif}
   {$if Defined(DEBUG) and not Defined(CPFLIB)}
-    //DoTileMapUpdate(TTileMapUpdateInfo(nil^));
-    TTileMap(nil).Update(nil, 0, 0, 0, 0, 0);
-
-    TTileMap(nil).UpdateCellMasks(Rect(0, 0, 0, 0));
+    TTileMapClear(TTileMap(nil));
 
   // anti hint
   // TTileMap(nil).DoFindPath(TTileMapParams(nil^));
