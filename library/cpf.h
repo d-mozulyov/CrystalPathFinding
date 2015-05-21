@@ -15,6 +15,7 @@
   typedef POINT TPoint;
   typedef unsigned short word;
   typedef unsigned char byte;
+  typedef signed size_t size_i;
  
   // map tile barrier
   #define TILE_BARRIER 0  
@@ -23,14 +24,15 @@
   typedef size_t TCPFHandle;
      
   // kind of map
-  typedef unsigned char TTileMapKind; enum {mkSimple, mkDiagonal, mkDiagonalEx, mkHexagonal}; /*sizeof(TTileMapKind) = 1*/
+  typedef unsigned char TTileMapKind; enum {mkSimple, mkDiagonal, mkDiagonalEx, mkHexagonal}; 
  
   // result of find path function
   struct TTileMapPath
   {
+      size_t  Index;  
 	  TPoint* Points;
-      signed size_t Count;
-      double Distance;
+      size_i  Count;
+      double  Distance;
   };
 
   // path finding parameters
@@ -61,7 +63,7 @@ namespace cpf_routine
   typedef void (*CPF_PROC_MAP_CLEAR)(TCPFHandle HMap, bool SameDiagonalWeight);
   typedef byte (*CPF_PROC_MAP_GET_TILE)(TCPFHandle HMap, word X, word Y);
   typedef void (*CPF_PROC_MAP_SET_TILE)(TCPFHandle HMap, word X, word Y, byte Value);
-  typedef void (*CPF_PROC_MAP_UPDATE)(TCPFHandle HMap, byte* Tiles, word X, word Y, word Width, word Height, signed size_t Pitch);
+  typedef void (*CPF_PROC_MAP_UPDATE)(TCPFHandle HMap, byte* Tiles, word X, word Y, word Width, word Height, size_i Pitch);
   typedef TTileMapPath (*CPF_PROC_FIND_PATH)(TCPFHandle HMap, TTileMapParams* Params, bool SectorTest, bool Caching);
 
   CPF_PROC_CREATE_WEIGHTS __cpfCreateWeights = NULL;
@@ -124,7 +126,7 @@ void    cpfDestroyMap(TCPFHandle& HMap)/*;*/{cpf_routine::__cpfDestroyMap(HMap);
 void    cpfMapClear(TCPFHandle HMap)/*;*/{cpf_routine::__cpfMapClear(HMap);}
 byte cpfMapGetTile(TCPFHandle HMap, word X, word Y)/*;*/{return cpf_routine::__cpfMapGetTile(HMap, X, Y);}
 void    cpfMapSetTile(TCPFHandle HMap, word X, word Y, byte Value)/*;*/{cpf_routine::__cpfMapSetTile(HMap, X, Y, Value);};
-void    cpfMapUpdate(TCPFHandle HMap, byte* Tiles, word X, word Y, word Width, word Height, signed size_t Pitch=0)/*;*/{cpf_routine::__cpfMapUpdate(HMap, Tiles, X, Y, Width, Height, Pitch);}
+void    cpfMapUpdate(TCPFHandle HMap, byte* Tiles, word X, word Y, word Width, word Height, size_i Pitch=0)/*;*/{cpf_routine::__cpfMapUpdate(HMap, Tiles, X, Y, Width, Height, Pitch);}
 TTileMapPath cpfFindPath(TCPFHandle HMap, TTileMapParams* Params, bool SectorTest=true, bool Caching=true)/*;*/{return cpf_routine::__cpfFindPath(HMap, Params, SectorTest, Caching);}
 
 

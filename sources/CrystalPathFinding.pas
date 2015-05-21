@@ -151,6 +151,7 @@ type
 
   // result of find path function
   TTileMapPath = record
+    Index: NativeInt;
     Points: PPointList;
     Count: NativeInt;
     Distance: Double;
@@ -312,7 +313,12 @@ type
     Y: Integer;
     Node: PCPFNode;
     AttainableNode: PCPFNode;
-    Distance: Double;
+    {$ifNdef LARGEINT}
+      __Align: Int64;
+    {$endif}
+    case Boolean of
+      True: (Distance: Double);
+      False: (DistanceAsInt64: Int64);
   end;
   PCPFStart = ^TCPFStart;
   TCPFStartArray = array[0..0] of TCPFStart;
@@ -399,9 +405,12 @@ type
         Count: NativeUInt;
       end;
       FoundPath: record
+        Index: NativeInt;
         Buffer: TCPFBuffer;
         Length: NativeUInt;
-        Distance: Double;
+        case Boolean of
+         True: (Distance: Double);
+         False: (DistanceAsInt64: Int64);
       end;
     end;
 
@@ -3734,22 +3743,32 @@ begin
 end;
 
 function TTileMap.DoFindPath(const Params: TTileMapParams): TTileMapPath;
+label
+  fill_result;
 var
   i: NativeUInt;
   MapWidth, MapHeight: Cardinal;
   FinishX, FinishY: Integer;
   S: PPoint;
   Actual, R, ActualFinish, ActualStarts: Boolean;
+  ResultPath: ^TTileMapPath;
+
+  FoundPaths: NativeUInt;
+  AttainableAlgorithm: Boolean;
+  StartPoint: PCPFStart;
+
 begin
   // test start points coordinates
   MapWidth := Self.Width;
   MapHeight := Self.Height;
   S := Params.Starts;
-  if (Params.StartsCount <> 0) then
-  for i := 0 to Params.StartsCount - 1 do
+  for i := 1 to Params.StartsCount do
   begin
     if (Cardinal(S.X) >= MapWidth) or (Cardinal(S.Y) >= MapHeight) then
+    begin
       RaiseCoordinates(S.X, S.Y, 'start');
+      Exit;
+    end;
 
     Inc(S);
   end;
@@ -3757,15 +3776,20 @@ begin
   // test finish point coordinates
   S := @Params.Finish;
   if (Cardinal(S.X) >= MapWidth) or (Cardinal(S.Y) >= MapHeight) then
+  begin
     RaiseCoordinates(S.X, S.Y, 'finish');
+    Exit;
+  end;
 
   // test excluded points coordinates
   S := Params.Excludes;
-  if (Params.ExcludesCount <> 0) then
-  for i := 0 to Params.ExcludesCount - 1 do
+  for i := 1 to Params.ExcludesCount do
   begin
     if (Cardinal(S.X) >= MapWidth) or (Cardinal(S.Y) >= MapHeight) then
+    begin
       RaiseCoordinates(S.X, S.Y, 'excluded');
+      Exit;
+    end;
 
     Inc(S);
   end;
@@ -3773,9 +3797,11 @@ begin
   // no start points case
   if (Params.StartsCount = 0) then
   begin
-    Result.Points := nil;
-    Result.Count := 0;
-    Result.Distance := 0;
+    ResultPath := @Result;
+    ResultPath.Index := 0;
+    ResultPath.Points := nil;
+    ResultPath.Count := 0;
+    ResultPath.Distance := 0;
     Exit;
   end;
 
@@ -3783,15 +3809,17 @@ begin
   FinishX := Params.Finish.X;
   FinishY := Params.Finish.Y;
   S := Params.Starts;
-  for i := 0 to Params.StartsCount - 1 do
+  for i := Params.StartsCount downto 1 do
   begin
     if (S.X = FinishX) and (S.Y = FinishY) then
     begin
       FActualInfo.PathlessFinishPoint.X := FinishX;
       FActualInfo.PathlessFinishPoint.Y := FinishY;
-      Result.Points := Pointer(@FActualInfo.PathlessFinishPoint);
-      Result.Count := 1;
-      Result.Distance := 0;
+      ResultPath := @Result;
+      ResultPath.Index := (NativeUInt(S) - NativeUInt(Params.Starts)) div SizeOf(TPoint);
+      ResultPath.Points := Pointer(@FActualInfo.PathlessFinishPoint);
+      ResultPath.Count := 1;
+      ResultPath.Distance := 0;
       Exit;
     end;
 
@@ -3827,7 +3855,7 @@ begin
     end;
 
     // excluded points
-    if (FActualInfo.Excludes.Count + Params.ExcludesCount <> 0) then
+    if (FActualInfo.Excludes.Count or Params.ExcludesCount <> 0) then
     begin
       R := ActualizeExcludes(Params.Excludes, Params.ExcludesCount, Actual);
       Actual := R and Actual;
@@ -3838,6 +3866,8 @@ begin
       ReleaseAttainableNodes;
 
     // actualize finish point
+    FinishX := Params.Finish.X;
+    FinishY := Params.Finish.Y;
     FActualInfo.FinishPoint.X := FinishX;
     FActualInfo.FinishPoint.Y := FinishY;
     FInfo.FinishPoint.X := FinishX;
@@ -3851,23 +3881,23 @@ begin
     ActualStarts := ActualizeStarts(Params.Starts, Params.StartsCount, Actual);
 
     // path is already exists case
-    if (Actual) and (ActualStarts) then
-    begin
-      Result.Points := FActualInfo.FoundPath.Buffer.Memory;
-      Result.Count := FActualInfo.FoundPath.Length;
-      Result.Distance := FActualInfo.FoundPath.Distance;
-      Exit;
-    end;
+    if (Actual and ActualStarts) then goto fill_result;
 
     // sectors
     if (SectorTest) then
     begin
       if (FActualInfo.Sectors = nil) or (FActualInfo.SectorsChanged) then
         ActualizeSectors;
+
+      // finish sector
+      // todo
     end else
     begin
       if (FActualInfo.Sectors <> nil) then
         CPFFreeMem(Pointer(FActualInfo.Sectors));
+
+      // finish sector
+      // todo
     end;
   end;
 
@@ -3878,11 +3908,60 @@ begin
   end;
 
   // start points
-  // todo
+  FoundPaths := Params.StartsCount;
+  StartPoint := FActualInfo.Starts.Buffer.Memory;
+  AttainableAlgorithm := (FoundPaths <> 0) or (Self.FCaching);
+  for i := Params.StartsCount downto 1 do
+  begin
 
+    StartPoint.AttainableNode := Self.DoFindPathLoop(StartPoint.Node);
+
+    if (StartPoint.AttainableNode.NodeInfo and FLAG_ATTAINABLE = 0) then
+    begin
+      StartPoint.Distance := 1.7976931348623157081e+308{MaxDouble};
+      Dec(FoundPaths);
+    end else
+    begin
+
+    end;
+
+    Inc(StartPoint);
+  end;
+
+  // best path
+  FActualInfo.FoundPath.Index := 0;
+  FActualInfo.FoundPath.Length := 0;
+  FActualInfo.FoundPath.Distance := 0;
+  if (FoundPaths = 0) then goto fill_result;
+  StartPoint := FActualInfo.Starts.Buffer.Memory;
+  if (not AttainableAlgorithm) then
+  begin
+
+    // todo
+  end else
+  begin
+    FActualInfo.FoundPath.Distance := StartPoint.Distance;
+    Inc(StartPoint);
+
+    for i := Params.StartsCount downto 2 do
+    begin
+      if (StartPoint.DistanceAsInt64 < FActualInfo.FoundPath.DistanceAsInt64) then
+      begin
+        FActualInfo.FoundPath.Index := (NativeUInt(StartPoint) - NativeUInt(FActualInfo.Starts.Buffer.Memory)) div SizeOf(TCPFStart);
+        FActualInfo.FoundPath.Distance := StartPoint.Distance;
+      end;
+
+      Inc(StartPoint);
+    end;
+  end;
 
   // found path
-  //Result := FFindResult;
+fill_result:
+  ResultPath := @Result;
+  ResultPath.Index := FActualInfo.FoundPath.Index;
+  ResultPath.Points := FActualInfo.FoundPath.Buffer.Memory;
+  ResultPath.Count := FActualInfo.FoundPath.Length;
+  ResultPath.Distance := FActualInfo.FoundPath.Distance;
 end;
 (*label
   calculate_result;
@@ -4001,11 +4080,9 @@ initialization
     System.GetMemoryManager(MemoryManager);
   {$endif}
   {$if Defined(DEBUG) and not Defined(CPFLIB)}
-    TTileMapClear(TTileMap(nil));
 
+  TTileMap(nil).DoFindPath(TTileMapParams(nil^));
   // anti hint
-  // TTileMap(nil).DoFindPath(TTileMapParams(nil^));
-  TTileMapPtr(nil).DoFindPathLoop(nil);
   TTileMapPtr(nil).CalculateHeuristics(PPoint(nil)^, PPoint(nil)^);
   TTileMapPtr(nil).AddHeuristedNodes(nil, nil);
   {$ifend}

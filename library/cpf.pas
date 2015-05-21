@@ -102,6 +102,7 @@ type
 
   // result of find path function
   TTileMapPath = packed record
+    Index: NativeUInt;
     Points: PPointList;
     Count: NativeInt;
     Distance: Double;
