@@ -3866,12 +3866,14 @@ begin
       ReleaseAttainableNodes;
 
     // actualize finish point
-    FinishX := Params.Finish.X;
-    FinishY := Params.Finish.Y;
+    {$ifdef CPUX86}
+      FinishX := Params.Finish.X;
+    {$endif}
     FActualInfo.FinishPoint.X := FinishX;
-    FActualInfo.FinishPoint.Y := FinishY;
     FInfo.FinishPoint.X := FinishX;
-    FInfo.FinishPoint.Y := FinishY;
+    FinishX := FinishY;
+    FActualInfo.FinishPoint.Y := FinishX;
+    FInfo.FinishPoint.Y := FinishX;
 
     // heuristics points
     if (not ActualFinish) then
