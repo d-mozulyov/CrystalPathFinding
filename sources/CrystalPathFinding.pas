@@ -321,8 +321,6 @@ type
       False: (DistanceAsInt64: Int64);
   end;
   PCPFStart = ^TCPFStart;
-  TCPFStartArray = array[0..0] of TCPFStart;
-  PCPFStartArray = ^TCPFStartArray;
 
   // path finding parameters
   TTileMapParams = record
@@ -362,8 +360,8 @@ type
     function GetTile(const X, Y: Word): Byte;
     procedure SetTile(const X, Y: Word; Value: Byte);
     procedure GrowNodeAllocator(var Buffer: TCPFInfo);
-//    function AllocateNode(const X, Y: NativeInt): PCPFNode;
     function CalculateHeuristics(const Start, Finish: TPoint): NativeInt;
+    function AllocateHeuristedNode(const X, Y: NativeInt): PCPFNode;
 //    procedure ClearMapCells(Node: PCPFNode; Count: NativeUInt); overload;
 //    procedure ClearMapCells(Node: PCPFNode{as list}); overload;
     function DoFindPathLoop(StartNode: PCPFNode): PCPFNode;
@@ -2738,8 +2736,45 @@ begin
   end;
 end;
 
-(*function TTileMap.AllocateNode(const X, Y: NativeInt): PCPFNode;
+function TTileMap.CalculateHeuristics(const Start, Finish: TPoint): NativeInt;
 var
+  dX, dY, X, Y: NativeInt;
+  Mask: NativeInt;
+begin
+  dY := Start.Y - Finish.Y;
+  dX := Start.X - Finish.X;
+
+  // Y := Abs(dY)
+  Mask := -(dY shr HIGH_NATIVE_BIT);
+  Y := (dY xor Mask) - Mask;
+
+  // X := Abs(dY)
+  Mask := -(dX shr HIGH_NATIVE_BIT);
+  X := (dX xor Mask) - Mask;
+
+  if (Self.FKind < mkHexagonal) then
+  begin
+    if (X <= Y) then
+    begin
+      Result := X * FInfo.HeuristicsDiagonal + (Y - X) * FInfo.HeuristicsLine;
+    end else
+    begin
+      Result := Y * FInfo.HeuristicsDiagonal + (X - Y) * FInfo.HeuristicsLine;
+    end;
+  end else
+  begin
+    X := X - ((Mask xor Finish.Y) and Y and 1) - (Y shr 1);
+    Result := Y + (X and ((X shr HIGH_NATIVE_BIT) - 1));
+    Result := Result * FInfo.HeuristicsLine;
+  end;
+end;
+
+function TTileMap.AllocateHeuristedNode(const X, Y: NativeInt): PCPFNode;
+begin
+  Result := nil;
+  // todo
+end;
+(*var
   Coordinates: NativeUInt;
   Cell: PCPFCell;
   ChildNode: PCPFNode;
@@ -2801,39 +2836,6 @@ begin
 
   Result := ChildNode;
 end; *)
-
-function TTileMap.CalculateHeuristics(const Start, Finish: TPoint): NativeInt;
-var
-  dX, dY, X, Y: NativeInt;
-  Mask: NativeInt;
-begin
-  dY := Start.Y - Finish.Y;
-  dX := Start.X - Finish.X;
-
-  // Y := Abs(dY)
-  Mask := -(dY shr HIGH_NATIVE_BIT);
-  Y := (dY xor Mask) - Mask;
-
-  // X := Abs(dY)
-  Mask := -(dX shr HIGH_NATIVE_BIT);
-  X := (dX xor Mask) - Mask;
-
-  if (Self.FKind < mkHexagonal) then
-  begin
-    if (X <= Y) then
-    begin
-      Result := X * FInfo.HeuristicsDiagonal + (Y - X) * FInfo.HeuristicsLine;
-    end else
-    begin
-      Result := Y * FInfo.HeuristicsDiagonal + (X - Y) * FInfo.HeuristicsLine;
-    end;
-  end else
-  begin
-    X := X - ((Mask xor Finish.Y) and Y and 1) - (Y shr 1);
-    Result := Y + (X and ((X shr HIGH_NATIVE_BIT) - 1));
-    Result := Result * FInfo.HeuristicsLine;
-  end;
-end;
 
 (*procedure TTileMap.ClearMapCells(Node: PCPFNode; Count: NativeUInt);
 var
@@ -3744,7 +3746,7 @@ end;
 
 function TTileMap.DoFindPath(const Params: TTileMapParams): TTileMapPath;
 label
-  fill_result;
+  path_found, path_not_found, fill_result;
 var
   i: NativeUInt;
   MapWidth, MapHeight: Cardinal;
@@ -3753,10 +3755,12 @@ var
   Actual, R, ActualFinish, ActualStarts: Boolean;
   ResultPath: ^TTileMapPath;
 
-  FoundPaths: NativeUInt;
+  FinishSector: Byte;
   AttainableAlgorithm: Boolean;
+  FoundPaths: NativeUInt;
   StartPoint: PCPFStart;
-
+  FailureNode: TCPFNode;
+  Node: PCPFNode;
 begin
   // test start points coordinates
   MapWidth := Self.Width;
@@ -3782,6 +3786,8 @@ begin
   end;
 
   // test excluded points coordinates
+  FinishX := Params.Finish.X;
+  FinishY := Params.Finish.Y;
   S := Params.Excludes;
   for i := 1 to Params.ExcludesCount do
   begin
@@ -3791,11 +3797,14 @@ begin
       Exit;
     end;
 
+    if (S.X = FinishX) and (S.Y = FinishY) then
+      FinishX := -1{finish excluded flag};
+
     Inc(S);
   end;
 
-  // no start points case
-  if (Params.StartsCount = 0) then
+  // no start points or finish excluded case
+  if (Params.StartsCount = 0) or (FinishX < 0) then
   begin
     ResultPath := @Result;
     ResultPath.Index := 0;
@@ -3806,8 +3815,6 @@ begin
   end;
 
   // start is finish case
-  FinishX := Params.Finish.X;
-  FinishY := Params.Finish.Y;
   S := Params.Starts;
   for i := Params.StartsCount downto 1 do
   begin
@@ -3891,49 +3898,94 @@ begin
       if (FActualInfo.Sectors = nil) or (FActualInfo.SectorsChanged) then
         ActualizeSectors;
 
-      // finish sector
-      // todo
+      FinishSector := PByte(NativeInt(FActualInfo.Sectors) +
+        NativeInt(Self.Width) * Params.Finish.Y + Params.Finish.X)^;
     end else
     begin
       if (FActualInfo.Sectors <> nil) then
         CPFFreeMem(Pointer(FActualInfo.Sectors));
 
-      // finish sector
-      // todo
+      FinishSector := SECTOR_EMPTY;
     end;
   end;
 
-  // excluded points todo
+  // basic path initialization
+  FActualInfo.FoundPath.Index := 0;
+  FActualInfo.FoundPath.Length := 0;
+  FActualInfo.FoundPath.Distance := 0;
+  if (FinishSector = SECTOR_PATHLESS) then goto fill_result;
+
+  // excluded points
   if (not Actual) then
   begin
-    // todo
+    S := Params.Excludes;
+    for i := Params.ExcludesCount downto 1 do
+    begin
+      Node := AllocateHeuristedNode(S.X, S.Y);
+      Node.ParentMask := 0{locked flag};
+
+      Inc(S);
+    end;
   end;
 
-  // start points
+  // finish point node
+  Node := AllocateHeuristedNode(Params.Finish.X, Params.Finish.Y);
+  Node.NodeInfo := FLAG_KNOWN_PATH or FLAG_ATTAINABLE;
+
+  // each start point find algorithm
   FoundPaths := Params.StartsCount;
   StartPoint := FActualInfo.Starts.Buffer.Memory;
   AttainableAlgorithm := (FoundPaths <> 0) or (Self.FCaching);
+  FailureNode.SortValue := SORTVALUE_LIMIT;
+  FailureNode.Path := SORTVALUE_LIMIT;
+  Cardinal(FailureNode.Coordinates) := High(Cardinal);
+  FailureNode.NodeInfo := FLAG_KNOWN_PATH {+ not FLAG_ATTAINABLE};
   for i := Params.StartsCount downto 1 do
   begin
-
-    StartPoint.AttainableNode := Self.DoFindPathLoop(StartPoint.Node);
-
-    if (StartPoint.AttainableNode.NodeInfo and FLAG_ATTAINABLE = 0) then
+    // sector test
+    if (FinishSector <> SECTOR_EMPTY{Self.SectorTest}) then
     begin
-      StartPoint.Distance := 1.7976931348623157081e+308{MaxDouble};
-      Dec(FoundPaths);
+      if (FinishSector <> PByte(NativeInt(FActualInfo.Sectors) +
+        NativeInt(Self.Width) * StartPoint.Y + StartPoint.X)^) then
+        goto path_not_found;
+    end;
+
+    // allocate start node
+    Node := AllocateHeuristedNode(StartPoint.X, StartPoint.Y);
+    StartPoint.Node := Node;
+    if (Node.NodeInfo and FLAG_KNOWN_PATH <> 0) then
+    begin
+      StartPoint.AttainableNode := Node;
+      if (Node.NodeInfo and FLAG_ATTAINABLE <> 0) then
+      begin
+        goto path_found;
+      end else
+      begin
+        goto path_not_found;
+      end;
+    end;
+
+    // find path loop
+    Node.Next := @FailureNode;
+    FailureNode.Prev := Node;
+    StartPoint.AttainableNode := Self.DoFindPathLoop(Node);
+    if (StartPoint.AttainableNode.NodeInfo and FLAG_ATTAINABLE <> 0) then
+    begin
+      path_found:
+
+
     end else
     begin
+      path_not_found:
 
+      StartPoint.Distance := 1.7976931348623157081e+308{MaxDouble};
+      Dec(FoundPaths);
     end;
 
     Inc(StartPoint);
   end;
 
   // best path
-  FActualInfo.FoundPath.Index := 0;
-  FActualInfo.FoundPath.Length := 0;
-  FActualInfo.FoundPath.Distance := 0;
   if (FoundPaths = 0) then goto fill_result;
   StartPoint := FActualInfo.Starts.Buffer.Memory;
   if (not AttainableAlgorithm) then
@@ -3964,60 +4016,9 @@ fill_result:
   ResultPath.Points := FActualInfo.FoundPath.Buffer.Memory;
   ResultPath.Count := FActualInfo.FoundPath.Length;
   ResultPath.Distance := FActualInfo.FoundPath.Distance;
+  if (ResultPath.Count = 0) then
+    ResultPath.Points := nil;
 end;
-(*label
-  calculate_result;
-var
-  StartNode, FinishNode, Node: PCPFNode;
-  FailureNode: TCPFNode;
-  Start: PPoint;
-begin
-  // todo
-
-  Start := Params.Starts;
-
-  // todo
-
-  // get and inspect/fill start node
-  StartNode := nil;//AllocateNode(Start.X, Start.Y);
-  if (StartNode.NodeInfo and FLAG_KNOWN_PATH <> 0) then
-  begin
-    Node := StartNode;
-    goto calculate_result;
-  end;
-  // todo
-  StartNode.Path := 0;
-  StartNode.SortValue := 0{Path} + CalculateHeuristics(Start^, Params.Finish);
-
-  // cache finish point and mark as known attainable
-  FinishNode := nil;//AllocateNode(Start.X, Start.Y);
-  FinishNode.NodeInfo := FLAG_KNOWN_PATH or FLAG_ATTAINABLE;
-
-  // run finding loop
-  FailureNode.NodeInfo := FLAG_KNOWN_PATH {+ !FLAG_ATTAINABLE};
-  StartNode.Next := @FailureNode;
-  FailureNode.Prev := StartNode;
-  Node := DoFindPathLoop(StartNode);
-  if (FCaching) then
-  begin
-    // MarkCachedPath(StartNode,
-  end else
-  begin
-    // ?
-  end;
-
-calculate_result:
-  if (Node.NodeInfo and FLAG_ATTAINABLE = 0) then
-  begin
-    Result := nil;
-  end else
-  begin
-    Result := @FFindResult;
-    // ToDo
-
-    // todo calculate
-  end;
-end; *)
 
 function TTileMap.FindPath(const Params: TTileMapParams): TTileMapPath;
 begin
