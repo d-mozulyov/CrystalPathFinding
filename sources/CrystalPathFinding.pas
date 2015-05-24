@@ -391,8 +391,12 @@ type
 
         Cardinals: array[0..255] of Cardinal;
         CardinalsDiagonal: array[0..255] of Cardinal;
-        Singles: array[0..255] of Single;
-        SinglesDiagonal: array[0..255] of Single;
+      case Boolean of
+        False: (
+                 Singles: array[0..255] of Single;
+                 SinglesDiagonal: array[0..255] of Single;
+                );
+         True: (SingleValues: array[0..1, 0..255] of Single);
       end;
       Starts: record
         Buffer: TCPFBuffer;
@@ -420,6 +424,9 @@ type
     procedure ReleaseAttainableNodes;
     procedure ReleaseHeuristedNodes;
     procedure ReleaseAllocatedNodes(const CleanupCells: Boolean);
+    procedure CacheAttainableNodes(const StartPoint: PCPFStart; const FinishNode: PCPFNode);
+    procedure FillAttainablePath(const StartPoint: PCPFStart);
+    procedure FillFoundPath(const StartPoint: PCPFStart; const FinishNode: PCPFNode);
   {$ifdef CPFLIB}
   public
     procedure Destroy;
@@ -3744,6 +3751,220 @@ begin
   TTileMapPtr(Store.Self).FInfo.NodeAllocator.NewNode := Store.Info.NodeAllocator.NewNode;
 end;
 
+procedure TTileMap.CacheAttainableNodes(const StartPoint: PCPFStart; const FinishNode: PCPFNode);
+begin
+  // todo
+end;
+
+procedure TTileMap.FillAttainablePath(const StartPoint: PCPFStart);
+begin
+  // todo
+end;
+
+procedure TTileMap.FillFoundPath(const StartPoint: PCPFStart; const FinishNode: PCPFNode);
+type
+  TWeightCounts = packed record
+    Line: Integer;
+    Diagonal: Integer;
+  end;
+  TWeightCountsBuffer = packed record
+  case Boolean of
+    False: (WeightCounts: array[0..1{255} - 1] of TWeightCounts);
+    True: (Values: array[0..1{255}*2 - 1] of Integer);
+  end;
+var
+  Buffer: TWeightCountsBuffer;
+  CellOffsets: PCPFOffsets;
+  Cell: PCPFCell;
+  StartNode, Node: PCPFNode;
+  NodePtrs, N: NativeUInt;
+  Length, i: NativeUInt;
+  WeightCounts: ^TWeightCounts;
+  Point: PPoint;
+
+  Store: record
+    FinishNode: PCPFNode;
+    NodePtrs: Cardinal;
+   {$ifdef CPUX86}
+      Length: NativeUInt;
+   {$else}
+      _Self: Pointer;
+   {$endif}
+  end;
+  {$ifdef LARGEINT}
+    NodeBuffers: PCPFNodeBuffers;
+  {$endif}
+  {$ifNdef CPUX86}
+    _Self: Pointer;
+    _Buffer: ^TWeightCountsBuffer;
+  {$endif}
+begin
+  // basic parameters
+  StartNode := StartPoint.Node;
+  Node := FinishNode;
+  Store.FinishNode := FinishNode;
+  {$ifNdef CPUX86}
+  _Self := Pointer({$ifdef CPFLIB}@Self{$else}Self{$endif});
+  Store._Self := _Self;
+  with TTileMapPtr(_Self){$ifdef CPFLIB}^{$endif} do
+  {$endif}
+  begin
+    Cell := @FInfo.CellArray[NativeInt(Node.Coordinates.Y) * Width + Node.Coordinates.X];
+    {$ifNdef CPUX86}
+    CellOffsets := @FInfo.CellOffsets;
+    {$endif}
+    {$ifdef LARGEINT}
+    NodeBuffers := Pointer(@FInfo.NodeAllocator.Buffers);
+    {$endif}
+  end;
+
+  // detect high tile(s) and path length
+  N := Node.NodeInfo;
+  {$ifdef CPUX86}
+    NodePtrs := (N and $ff000000) + 1;
+  {$else}
+    Length := 1;
+    NodePtrs := N;
+  {$endif}
+  repeat
+    // next cell
+    {$ifdef CPUX86}
+    CellOffsets := @FInfo.CellOffsets;
+    {$endif}
+    Inc(NativeInt(Cell), CellOffsets[N and 7{parent}]);
+
+    // cell node
+    {$ifdef LARGEINT}
+      N := Cell.NodePtr;
+      Node := Pointer(
+        (NodeBuffers[N shr LARGE_NODEPTR_OFFSET]) +
+        (N and NODEPTR_CLEAN_MASK) );
+    {$else}
+      Node := Pointer(Cell.NodePtr and NODEPTR_CLEAN_MASK);
+    {$endif}
+
+    // tile and length increment
+    N := Node.NodeInfo;
+    {$ifdef CPUX86}
+      Inc(NodePtrs);
+      NodePtrs := NodePtrs or (N and $ff000000);
+    {$else}
+      Inc(Length);
+      NodePtrs := NodePtrs or N;
+    {$endif}
+  until (StartNode = Node);
+
+  // path points buffer allocate
+  {$ifdef CPUX86}
+    Length := N and $ffffff;
+  {$endif}
+  {$ifNdef CPUX86}
+  _Self := Store._Self;
+  with TTileMapPtr(_Self){$ifdef CPFLIB}^{$endif} do
+  {$endif}
+  begin
+    FActualInfo.FoundPath.Length := Length;
+    Length{Size} := Length * SizeOf(TPoint);
+    {$ifdef CPUX86}Store.Length := Length;{$endif}
+    with FActualInfo.FoundPath.Buffer do
+    if (Length{Size} > FAllocatedSize) then Realloc(Length{Size});
+  end;
+
+  // clear weigths counters
+  NodePtrs := NodePtrs shr 24;
+  WeightCounts := @Buffer.WeightCounts[0];
+  {$ifdef CPUX86}Store.NodePtrs := NodePtrs;{$endif}
+  for i := 0 to NodePtrs{HighTile} do
+  begin
+    PInt64(WeightCounts)^ := 0;
+    Inc(WeightCounts);
+  end;
+
+  // fill points and counters
+  Node := Store.FinishNode;
+  {$ifNdef CPUX86}
+  _Self := Store._Self;
+  with TTileMapPtr(_Self){$ifdef CPFLIB}^{$endif} do
+  {$endif}
+  begin
+    Cell := @FInfo.CellArray[NativeInt(Node.Coordinates.Y) * Width + Node.Coordinates.X];
+    Point := FActualInfo.FoundPath.Buffer.FMemory;
+  end;
+  Inc(NativeUInt(Point), {$ifdef CPUX86}Store.{$endif}Length{Size});
+  Dec(Point);
+  N := Cardinal(Node.Coordinates);
+  Point.Y := Word(N);
+  Point.X := N shr 16;
+  N := Node.NodeInfo;
+  {$ifdef CPUX86}
+    Inc(Buffer.Values[((N shr 23) and -2) + (N and 1)]);
+  {$else}
+    _Buffer := @Buffer;
+    Inc(_Buffer.Values[((N shr 23) and -2) + (N and 1)]);
+  {$endif}
+  repeat
+    // next cell
+    {$ifdef CPUX86}
+    CellOffsets := @FInfo.CellOffsets;
+    {$endif}
+    Inc(NativeInt(Cell), CellOffsets[N and 7{parent}]);
+
+    // cell node
+    {$ifdef LARGEINT}
+      N := Cell.NodePtr;
+      Node := Pointer(
+        (NodeBuffers[N shr LARGE_NODEPTR_OFFSET]) +
+        (N and NODEPTR_CLEAN_MASK) );
+    {$else}
+      Node := Pointer(Cell.NodePtr and NODEPTR_CLEAN_MASK);
+    {$endif}
+
+    // coordinates
+    Dec(Point);
+    N := Cardinal(Node.Coordinates);
+    Point.Y := Word(N);
+    Point.X := N shr 16;
+
+    // counters
+    N := Node.NodeInfo;
+    {$ifdef CPUX86}
+      Inc(Buffer.Values[((N shr 23) and -2) + (N and 1)]);
+    {$else}
+      _Buffer := @Buffer;
+      Inc(_Buffer.Values[((N shr 23) and -2) + (N and 1)]);
+    {$endif}
+  until (StartNode = Node);
+
+  // distance
+  {$ifNdef CPUX86}
+  _Self := Store._Self;
+  with TTileMapPtr(_Self){$ifdef CPFLIB}^{$endif} do
+  {$endif}
+  begin
+    FActualInfo.FoundPath.Distance := 0;
+    WeightCounts := @Buffer.WeightCounts[0];
+    for i := 0 to {$ifdef CPUX86}Store.{$endif}NodePtrs{HighTile} do
+    begin
+      if (PInt64(WeightCounts)^ <> 0) then
+      begin
+        FActualInfo.FoundPath.Distance := FActualInfo.FoundPath.Distance +
+          (WeightCounts.Diagonal * FActualInfo.Weights.SinglesDiagonal[i]) +
+          (WeightCounts.Line * FActualInfo.Weights.Singles[i]);
+      end;
+
+      Inc(WeightCounts);
+    end;
+
+    // distance correction
+    N := StartNode.NodeInfo;
+    FActualInfo.FoundPath.Distance := FActualInfo.FoundPath.Distance -
+      HALF * FActualInfo.Weights.SingleValues[(N and Ord(not FSameDiagonalWeight)), N shr 24];
+    N := Store.FinishNode.NodeInfo;
+    FActualInfo.FoundPath.Distance := FActualInfo.FoundPath.Distance -
+      HALF * FActualInfo.Weights.SingleValues[(N and Ord(not FSameDiagonalWeight)), N shr 24];
+  end;
+end;
+
 function TTileMap.DoFindPath(const Params: TTileMapParams): TTileMapPath;
 label
   path_found, path_not_found, fill_result;
@@ -3758,9 +3979,10 @@ var
   FinishSector: Byte;
   AttainableAlgorithm: Boolean;
   FoundPaths: NativeUInt;
-  StartPoint: PCPFStart;
+  StartPoint, BestStartPoint: PCPFStart;
   FailureNode: TCPFNode;
   Node: PCPFNode;
+  FinishNode: PCPFNode;
 begin
   // test start points coordinates
   MapWidth := Self.Width;
@@ -3784,6 +4006,9 @@ begin
     RaiseCoordinates(S.X, S.Y, 'finish');
     Exit;
   end;
+
+  // pathless finish tile
+  // todo
 
   // test excluded points coordinates
   FinishX := Params.Finish.X;
@@ -3931,11 +4156,12 @@ begin
   // finish point node
   Node := AllocateHeuristedNode(Params.Finish.X, Params.Finish.Y);
   Node.NodeInfo := FLAG_KNOWN_PATH or FLAG_ATTAINABLE;
+  FinishNode := Node;
 
   // each start point find algorithm
   FoundPaths := Params.StartsCount;
   StartPoint := FActualInfo.Starts.Buffer.Memory;
-  AttainableAlgorithm := (FoundPaths <> 0) or (Self.FCaching);
+  AttainableAlgorithm := (FoundPaths > 1) or (Self.FCaching);
   FailureNode.SortValue := SORTVALUE_LIMIT;
   FailureNode.Path := SORTVALUE_LIMIT;
   Cardinal(FailureNode.Coordinates) := High(Cardinal);
@@ -3953,6 +4179,8 @@ begin
     // allocate start node
     Node := AllocateHeuristedNode(StartPoint.X, StartPoint.Y);
     StartPoint.Node := Node;
+    // pathless start tile
+    // todo
     if (Node.NodeInfo and FLAG_KNOWN_PATH <> 0) then
     begin
       StartPoint.AttainableNode := Node;
@@ -3973,7 +4201,16 @@ begin
     begin
       path_found:
 
-
+      if (AttainableAlgorithm) then
+      begin
+        CacheAttainableNodes(StartPoint, FinishNode);
+        // another interface?
+        // todo
+      end else
+      begin
+        FillFoundPath(StartPoint, FinishNode);
+        goto fill_result;
+      end;
     end else
     begin
       path_not_found:
@@ -3985,29 +4222,19 @@ begin
     Inc(StartPoint);
   end;
 
-  // best path
+  // best start point (attainable algorithm)
   if (FoundPaths = 0) then goto fill_result;
   StartPoint := FActualInfo.Starts.Buffer.Memory;
-  if (not AttainableAlgorithm) then
+  BestStartPoint := StartPoint;
+  Inc(StartPoint);
+  for i := Params.StartsCount downto 2 do
   begin
+    if (StartPoint.DistanceAsInt64 < BestStartPoint.DistanceAsInt64) then
+      BestStartPoint := StartPoint;
 
-    // todo
-  end else
-  begin
-    FActualInfo.FoundPath.Distance := StartPoint.Distance;
     Inc(StartPoint);
-
-    for i := Params.StartsCount downto 2 do
-    begin
-      if (StartPoint.DistanceAsInt64 < FActualInfo.FoundPath.DistanceAsInt64) then
-      begin
-        FActualInfo.FoundPath.Index := (NativeUInt(StartPoint) - NativeUInt(FActualInfo.Starts.Buffer.Memory)) div SizeOf(TCPFStart);
-        FActualInfo.FoundPath.Distance := StartPoint.Distance;
-      end;
-
-      Inc(StartPoint);
-    end;
   end;
+  FillAttainablePath(BestStartPoint);
 
   // found path
 fill_result:
@@ -4084,6 +4311,7 @@ initialization
   {$endif}
   {$if Defined(DEBUG) and not Defined(CPFLIB)}
 
+  TTileMap(nil).FillFoundPath(nil, nil);
   TTileMap(nil).DoFindPath(TTileMapParams(nil^));
   // anti hint
   TTileMapPtr(nil).CalculateHeuristics(PPoint(nil)^, PPoint(nil)^);
