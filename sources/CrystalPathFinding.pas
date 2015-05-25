@@ -3751,15 +3751,89 @@ begin
 end;
 
 procedure TTileMap.CacheAttainablePath(var StartPoint: TCPFStart; const FinishNode: PCPFNode);
+var
+  Left, Right: PCPFNode;
+  Node: PCPFNode;
 begin
+  // cache finish attainable
+  if (FinishNode.SortValue < NATTANABLE_LENGTH_LIMIT) then
+  begin
+    Left := FinishNode.Prev;
+    Right := FinishNode.Next;
+    Left.Next := Right;
+    Right.Prev := Left;
+    FinishNode.nAttainableLength := not Cardinal(1);
+    FinishNode.AttainableDistance := 0;
+  end;
+
   // todo
+
+
+  Node := StartPoint.Node;
+  StartPoint.Length := not Node.nAttainableLength;
+  StartPoint.Distance := Node.AttainableDistance;
 end;
 
 procedure TTileMap.FillAttainablePath(const StartNode, FinishNode: PCPFNode);
+var
+  Node: PCPFNode;
+  Cell: PCPFCell;
+  Point: PPoint;
+  CellOffsets: PCPFOffsets;
+  N: NativeUInt;
+
+  {$ifdef LARGEINT}
+    NodeBuffers: PCPFNodeBuffers;
+  {$endif}
 begin
-  // todo
+  // parameters
+  Node := StartNode;
+  Cell := @FInfo.CellArray[NativeInt(Node.Coordinates.Y) * Width + Node.Coordinates.X];
+  Point := FActualInfo.FoundPath.Buffer.Memory;
+  CellOffsets := @FInfo.CellOffsets;
+  {$ifdef LARGEINT}
+  NodeBuffers := Pointer(@FInfo.NodeAllocator.Buffers);
+  {$endif}
 
+  // each node loop
+  repeat
+    // coordinates
+    {$ifdef CPUX86}
+      Point.Y := Node.Coordinates.Y;
+      Point.X := Node.Coordinates.X;
+    {$else}
+      N := Cardinal(Node.Coordinates);
+      {$ifdef LARGEINT}
+        PNativeUInt(Point)^ := (NativeUInt(Word(N)) shl 32) + (N shr 16);
+      {$else}
+        Point.Y := Word(N);
+        Point.X := N shr 16;
+      {$endif}
+    {$endif}
+    Inc(Point);
 
+    // known child cell
+    Inc(NativeInt(Cell), CellOffsets[(Node.NodeInfo shr 3) and 7]);
+
+    // cell node
+    {$ifdef LARGEINT}
+      N := Cell.NodePtr;
+      Node := Pointer(
+        (NodeBuffers[N shr LARGE_NODEPTR_OFFSET]) +
+        (N and NODEPTR_CLEAN_MASK) );
+    {$else}
+      Node := Pointer(Cell.NodePtr and NODEPTR_CLEAN_MASK);
+    {$endif}
+  until (Node = FinishNode);
+
+  // finish node coordinates
+  N := Cardinal(Node.Coordinates);
+  {$ifdef LARGEINT}
+    PNativeUInt(Point)^ := (NativeUInt(Word(N)) shl 32) + (N shr 16);
+  {$else}
+    Point.Y := Word(N);
+    Point.X := N shr 16;
+  {$endif}
 end;
 
 procedure TTileMap.FillStandardPath(const StartNode, FinishNode: PCPFNode);
@@ -3895,8 +3969,12 @@ begin
   Inc(NativeUInt(Point), {$ifdef CPUX86}Store.{$endif}Length{Size});
   Dec(Point);
   N := Cardinal(Node.Coordinates);
-  Point.Y := Word(N);
-  Point.X := N shr 16;
+  {$ifdef LARGEINT}
+    PNativeUInt(Point)^ := (NativeUInt(Word(N)) shl 32) + (N shr 16);
+  {$else}
+    Point.Y := Word(N);
+    Point.X := N shr 16;
+  {$endif}
   N := Node.NodeInfo;
   {$ifdef CPUX86}
     Inc(Buffer.Values[((N shr 23) and -2) + (N and 1)]);
@@ -3924,8 +4002,12 @@ begin
     // coordinates
     Dec(Point);
     N := Cardinal(Node.Coordinates);
-    Point.Y := Word(N);
-    Point.X := N shr 16;
+    {$ifdef LARGEINT}
+      PNativeUInt(Point)^ := (NativeUInt(Word(N)) shl 32) + (N shr 16);
+    {$else}
+      Point.Y := Word(N);
+      Point.X := N shr 16;
+    {$endif}
 
     // counters
     N := Node.NodeInfo;
@@ -3988,7 +4070,12 @@ var
   Node: PCPFNode;
   FinishNode: PCPFNode;
 
-  {$ifdef CPUX86}Params: TTileMapParams;{$endif}
+  {$ifdef CPUX86}
+    Params: TTileMapParams;
+  {$endif}
+  {$ifdef LARGEINT}
+    NodeBuffers: PCPFNodeBuffers;
+  {$endif}
 begin
   // stack copy parameters to one register save
   {$ifdef CPUX86}Params := _;{$endif}
@@ -4023,8 +4110,11 @@ begin
   CellInfo := Cell.NodePtr;
   if (CellInfo and NODEPTR_FLAG_ALLOCATED <> 0) then
   begin
+    {$ifdef LARGEINT}
+    NodeBuffers := Pointer(@FInfo.NodeAllocator.Buffers);
+    {$endif}
     CellInfo := PCPFNode(
-              {$ifdef LARGEINT}FInfo.NodeAllocator.Buffers[CellInfo shr LARGE_NODEPTR_OFFSET] +{$endif}
+              {$ifdef LARGEINT}NodeBuffers[CellInfo shr LARGE_NODEPTR_OFFSET] +{$endif}
               CellInfo and NODEPTR_CLEAN_MASK
                ).NodeInfo;
   end;
@@ -4331,8 +4421,7 @@ initialization
   {$if Defined(DEBUG) and not Defined(CPFLIB)}
 
 
-  //TTileMap(nil).FillAttainablePath(nil, nil);
-  TTileMap(nil).DoFindPath(TTileMapParams(nil^));
+  TTileMap(nil).CacheAttainablePath(TCPFStart(nil^), nil);
   // anti hint
   TTileMapPtr(nil).CalculateHeuristics(PPoint(nil)^, PPoint(nil)^);
   TTileMapPtr(nil).AddHeuristedNodes(nil, nil);
