@@ -312,13 +312,12 @@ type
     X: Integer;
     Y: Integer;
     Node: PCPFNode;
-    AttainableNode: PCPFNode;
     {$ifNdef LARGEINT}
       __Align: Int64;
     {$endif}
     case Boolean of
-      True: (Distance: Double);
-      False: (DistanceAsInt64: Int64);
+      True: (AttainableNode: PCPFNode; Distance: Double);
+      False: (Length: NativeUInt; DistanceAsInt64: Int64);
   end;
   PCPFStart = ^TCPFStart;
 
@@ -365,7 +364,7 @@ type
 //    procedure ClearMapCells(Node: PCPFNode; Count: NativeUInt); overload;
 //    procedure ClearMapCells(Node: PCPFNode{as list}); overload;
     function DoFindPathLoop(StartNode: PCPFNode): PCPFNode;
-    function DoFindPath(const Params: TTileMapParams): TTileMapPath;
+    function DoFindPath(const {$ifdef CPUX86}_{$else}Params{$endif}: TTileMapParams): TTileMapPath;
   private
     FNodes: record
       Storage: record
@@ -424,9 +423,9 @@ type
     procedure ReleaseAttainableNodes;
     procedure ReleaseHeuristedNodes;
     procedure ReleaseAllocatedNodes(const CleanupCells: Boolean);
-    procedure CacheAttainableNodes(const StartPoint: PCPFStart; const FinishNode: PCPFNode);
-    procedure FillAttainablePath(const StartPoint: PCPFStart);
-    procedure FillFoundPath(const StartPoint: PCPFStart; const FinishNode: PCPFNode);
+    procedure CacheAttainablePath(var StartPoint: TCPFStart; const FinishNode: PCPFNode);
+    procedure FillAttainablePath(const StartNode, FinishNode: PCPFNode);
+    procedure FillStandardPath(const StartNode, FinishNode: PCPFNode);
   {$ifdef CPFLIB}
   public
     procedure Destroy;
@@ -3751,17 +3750,19 @@ begin
   TTileMapPtr(Store.Self).FInfo.NodeAllocator.NewNode := Store.Info.NodeAllocator.NewNode;
 end;
 
-procedure TTileMap.CacheAttainableNodes(const StartPoint: PCPFStart; const FinishNode: PCPFNode);
+procedure TTileMap.CacheAttainablePath(var StartPoint: TCPFStart; const FinishNode: PCPFNode);
 begin
   // todo
 end;
 
-procedure TTileMap.FillAttainablePath(const StartPoint: PCPFStart);
+procedure TTileMap.FillAttainablePath(const StartNode, FinishNode: PCPFNode);
 begin
   // todo
+
+
 end;
 
-procedure TTileMap.FillFoundPath(const StartPoint: PCPFStart; const FinishNode: PCPFNode);
+procedure TTileMap.FillStandardPath(const StartNode, FinishNode: PCPFNode);
 type
   TWeightCounts = packed record
     Line: Integer;
@@ -3769,14 +3770,14 @@ type
   end;
   TWeightCountsBuffer = packed record
   case Boolean of
-    False: (WeightCounts: array[0..1{255} - 1] of TWeightCounts);
-    True: (Values: array[0..1{255}*2 - 1] of Integer);
+    False: (WeightCounts: array[0..255 - 1] of TWeightCounts);
+    True: (Values: array[0..255*2 - 1] of Integer);
   end;
 var
   Buffer: TWeightCountsBuffer;
   CellOffsets: PCPFOffsets;
   Cell: PCPFCell;
-  StartNode, Node: PCPFNode;
+  Node: PCPFNode;
   NodePtrs, N: NativeUInt;
   Length, i: NativeUInt;
   WeightCounts: ^TWeightCounts;
@@ -3784,12 +3785,13 @@ var
 
   Store: record
     FinishNode: PCPFNode;
-    NodePtrs: Cardinal;
-   {$ifdef CPUX86}
+    {$ifdef CPUX86}
+      StartNode: PCPFNode;
+      NodePtrs: NativeUInt;
       Length: NativeUInt;
-   {$else}
+    {$else}
       _Self: Pointer;
-   {$endif}
+    {$endif}
   end;
   {$ifdef LARGEINT}
     NodeBuffers: PCPFNodeBuffers;
@@ -3800,7 +3802,7 @@ var
   {$endif}
 begin
   // basic parameters
-  StartNode := StartPoint.Node;
+  {$ifdef CPUX86}Store.StartNode := StartNode;{$endif}
   Node := FinishNode;
   Store.FinishNode := FinishNode;
   {$ifNdef CPUX86}
@@ -3852,7 +3854,7 @@ begin
       Inc(Length);
       NodePtrs := NodePtrs or N;
     {$endif}
-  until (StartNode = Node);
+  until ({$ifdef CPUX86}Store.{$endif}StartNode = Node);
 
   // path points buffer allocate
   {$ifdef CPUX86}
@@ -3933,7 +3935,7 @@ begin
       _Buffer := @Buffer;
       Inc(_Buffer.Values[((N shr 23) and -2) + (N and 1)]);
     {$endif}
-  until (StartNode = Node);
+  until ({$ifdef CPUX86}Store.{$endif}StartNode = Node);
 
   // distance
   {$ifNdef CPUX86}
@@ -3956,7 +3958,7 @@ begin
     end;
 
     // distance correction
-    N := StartNode.NodeInfo;
+    N := {$ifdef CPUX86}Store.{$endif}StartNode.NodeInfo;
     FActualInfo.FoundPath.Distance := FActualInfo.FoundPath.Distance -
       HALF * FActualInfo.Weights.SingleValues[(N and Ord(not FSameDiagonalWeight)), N shr 24];
     N := Store.FinishNode.NodeInfo;
@@ -3965,12 +3967,14 @@ begin
   end;
 end;
 
-function TTileMap.DoFindPath(const Params: TTileMapParams): TTileMapPath;
+function TTileMap.DoFindPath(const {$ifdef CPUX86}_{$else}Params{$endif}: TTileMapParams): TTileMapPath;
 label
   path_found, path_not_found, fill_result;
 var
   i: NativeUInt;
   MapWidth, MapHeight: Cardinal;
+  Cell: PCPFCell;
+  CellInfo, NodeInfo: NativeUInt;
   FinishX, FinishY: Integer;
   S: PPoint;
   Actual, R, ActualFinish, ActualStarts: Boolean;
@@ -3983,7 +3987,12 @@ var
   FailureNode: TCPFNode;
   Node: PCPFNode;
   FinishNode: PCPFNode;
+
+  {$ifdef CPUX86}Params: TTileMapParams;{$endif}
 begin
+  // stack copy parameters to one register save
+  {$ifdef CPUX86}Params := _;{$endif}
+
   // test start points coordinates
   MapWidth := Self.Width;
   MapHeight := Self.Height;
@@ -4008,11 +4017,21 @@ begin
   end;
 
   // pathless finish tile
-  // todo
-
-  // test excluded points coordinates
   FinishX := Params.Finish.X;
   FinishY := Params.Finish.Y;
+  Cell := @FInfo.CellArray[Integer(MapWidth) * FinishY + FinishX];
+  CellInfo := Cell.NodePtr;
+  if (CellInfo and NODEPTR_FLAG_ALLOCATED <> 0) then
+  begin
+    CellInfo := PCPFNode(
+              {$ifdef LARGEINT}FInfo.NodeAllocator.Buffers[CellInfo shr LARGE_NODEPTR_OFFSET] +{$endif}
+              CellInfo and NODEPTR_CLEAN_MASK
+               ).NodeInfo;
+  end;
+  if (FActualInfo.Weights.Cardinals[CellInfo shr 24] = PATHLESS_TILE_WEIGHT) then
+    FinishX := -1{finish excluded flag};
+
+  // test excluded points coordinates
   S := Params.Excludes;
   for i := 1 to Params.ExcludesCount do
   begin
@@ -4098,14 +4117,10 @@ begin
       ReleaseAttainableNodes;
 
     // actualize finish point
-    {$ifdef CPUX86}
-      FinishX := Params.Finish.X;
-    {$endif}
     FActualInfo.FinishPoint.X := FinishX;
     FInfo.FinishPoint.X := FinishX;
-    FinishX := FinishY;
-    FActualInfo.FinishPoint.Y := FinishX;
-    FInfo.FinishPoint.Y := FinishX;
+    FActualInfo.FinishPoint.Y := FinishY;
+    FInfo.FinishPoint.Y := FinishY;
 
     // heuristics points
     if (not ActualFinish) then
@@ -4178,13 +4193,13 @@ begin
 
     // allocate start node
     Node := AllocateHeuristedNode(StartPoint.X, StartPoint.Y);
+    NodeInfo := Node.NodeInfo;
     StartPoint.Node := Node;
-    // pathless start tile
-    // todo
-    if (Node.NodeInfo and FLAG_KNOWN_PATH <> 0) then
+    if (FActualInfo.Weights.Cardinals[NodeInfo shr 24] = PATHLESS_TILE_WEIGHT) then goto path_not_found;
+    if (NodeInfo and FLAG_KNOWN_PATH <> 0) then
     begin
       StartPoint.AttainableNode := Node;
-      if (Node.NodeInfo and FLAG_ATTAINABLE <> 0) then
+      if (NodeInfo and FLAG_ATTAINABLE <> 0) then
       begin
         goto path_found;
       end else
@@ -4203,26 +4218,24 @@ begin
 
       if (AttainableAlgorithm) then
       begin
-        CacheAttainableNodes(StartPoint, FinishNode);
-        // another interface?
-        // todo
+        CacheAttainablePath(StartPoint^, FinishNode);
       end else
       begin
-        FillFoundPath(StartPoint, FinishNode);
+        FillStandardPath(StartPoint.Node, FinishNode);
         goto fill_result;
       end;
     end else
     begin
       path_not_found:
 
-      StartPoint.Distance := 1.7976931348623157081e+308{MaxDouble};
+      StartPoint.DistanceAsInt64 := $7fefffffffffffff{MaxDouble};
       Dec(FoundPaths);
     end;
 
     Inc(StartPoint);
   end;
 
-  // best start point (attainable algorithm)
+  // find the best start point (attainable algorithm)
   if (FoundPaths = 0) then goto fill_result;
   StartPoint := FActualInfo.Starts.Buffer.Memory;
   BestStartPoint := StartPoint;
@@ -4234,9 +4247,15 @@ begin
 
     Inc(StartPoint);
   end;
-  FillAttainablePath(BestStartPoint);
 
-  // found path
+  // fill best start point parameters and path (attainable algorithm)
+  FActualInfo.FoundPath.Index := (NativeUInt(BestStartPoint) - NativeUInt(FActualInfo.Starts.Buffer.Memory)) div SizeOf(TCPFStart);
+  FActualInfo.FoundPath.Distance := BestStartPoint.Distance;
+  FActualInfo.FoundPath.Length := BestStartPoint.Length;
+  with FActualInfo.FoundPath.Buffer do Alloc(FActualInfo.FoundPath.Length * SizeOf(TPoint));
+  FillAttainablePath(BestStartPoint.Node, FinishNode);
+
+  // fill found path result
 fill_result:
   ResultPath := @Result;
   ResultPath.Index := FActualInfo.FoundPath.Index;
@@ -4311,7 +4330,8 @@ initialization
   {$endif}
   {$if Defined(DEBUG) and not Defined(CPFLIB)}
 
-  TTileMap(nil).FillFoundPath(nil, nil);
+
+  //TTileMap(nil).FillAttainablePath(nil, nil);
   TTileMap(nil).DoFindPath(TTileMapParams(nil^));
   // anti hint
   TTileMapPtr(nil).CalculateHeuristics(PPoint(nil)^, PPoint(nil)^);
