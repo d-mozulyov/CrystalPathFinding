@@ -3751,27 +3751,240 @@ begin
 end;
 
 procedure TTileMap.CacheAttainablePath(var StartPoint: TCPFStart; const FinishNode: PCPFNode);
+//label
+//  cell_parent;
+label
+  cacheloop;
+type
+  TSingleWeigths = array[0..255] of Single;
+const
+  CHILDS_BITS_CLEAR_MASK = not Integer(7 shl 3);
 var
+  Cell: PCPFCell;
+  CellOffsets: PCPFOffsets;
+  //L, R{, Left, Right}: PCPFNode;
   Left, Right: PCPFNode;
-  Node: PCPFNode;
-begin
-  // cache finish attainable
-  if (FinishNode.SortValue < NATTANABLE_LENGTH_LIMIT) then
-  begin
-    Left := FinishNode.Prev;
-    Right := FinishNode.Next;
-    Left.Next := Right;
-    Right.Prev := Left;
-    FinishNode.nAttainableLength := not Cardinal(1);
-    FinishNode.AttainableDistance := 0;
+
+  ParentNode, Node: PCPFNode;
+  ParentNodeInfo, NodeInfo: NativeUInt;
+  nLength: Cardinal;
+  SingleWeigths: ^TSingleWeigths;
+
+  Store: record
+    {$ifdef CPUX86}
+    StartPoint: PCPFStart;
+    StartPointNode: PCPFNode;
+    SingleLineWeigths: ^TSingleWeigths;
+    CellOffsets: PCPFOffsets;
+    {$endif}
+    Cell: PCPFCell;
   end;
 
-  // todo
+  {$ifNdef CPUX86}
+    W1, W2: Double;
+    StartPointNode: PCPFNode;
+    SingleLineWeigths: ^TSingleWeigths;
+  {$endif}
+
+  {$ifdef LARGEINT}
+    NodeBuffers: PCPFNodeBuffers;
+  {$endif}
+begin
+  // store parameters
+  {$ifdef CPUX86}
+    Store.StartPoint := @StartPoint;
+    Store.StartPointNode := StartPoint.Node;
+    Store.SingleLineWeigths := Pointer(@FActualInfo.Weights.Singles);
+  {$else}
+    StartPointNode := StartPoint.Node;
+    SingleLineWeigths := Pointer(@FActualInfo.Weights.Singles);
+  {$endif}
+
+  {$ifdef LARGEINT}
+    NodeBuffers := Pointer(@FInfo.NodeAllocator.Buffers);
+  {$endif}
+
+  // cache finish attainable
+  with FinishNode^ do
+  if (SortValue < NATTANABLE_LENGTH_LIMIT) then
+  begin
+    Left := Prev;
+    Right := Next;
+    Left.Next := Right;
+    Right.Prev := Left;
+    nAttainableLength := not Cardinal(1);
+    AttainableDistance := 0;
+  end;
+ (* if (FinishNode.SortValue < NATTANABLE_LENGTH_LIMIT) then
+  begin
+    L := FinishNode.Prev;
+    R := FinishNode.Next;
+    L.Next := R;
+    R.Prev := L;
+    FinishNode.nAttainableLength := not Cardinal(1);
+    FinishNode.AttainableDistance := 0;
+  end; *)
+
+  // remove from list: attainable --> cached
+  Node := StartPoint.AttainableNode;
+  Cell := @FInfo.CellArray[NativeInt(Node.Coordinates.Y) * Width + Node.Coordinates.X];
+  Store.Cell := Cell;
+  CellOffsets := @FInfo.CellOffsets;
+  {$ifdef CPUX86}
+  Store.CellOffsets := CellOffsets;
+  {$endif}
+  ParentNode := nil;
+  repeat
+    // remove from list
+  (*  {$ifdef CPUX86}
+      nLength{Right} := Cardinal(ParentNode.Next);
+      NodeInfo{Left} := Cardinal(ParentNode.Prev);
+      PCPFNode(nLength{Right}).Prev := PCPFNode(NodeInfo{Left});
+      PCPFNode(NodeInfo{Left}).Next := PCPFNode(nLength{Right});
+
+    {$else}
+      Right := ParentNode.Next;
+      Left := ParentNode.Prev;
+      Right.Prev := Left;
+      Left.Next := Right;
+    {$endif}  *)
+
+    // store node
+    Node.Prev := ParentNode;
+    ParentNode := Node;
+
+    // child cell
+    Inc(NativeInt(Cell), CellOffsets[7{(Node.NodeInfo shr 3) and 7}]);
+
+    // cell node
+    {$ifdef LARGEINT}
+      NodeInfo := Cell.NodePtr;
+      Node := Pointer(
+        (NodeBuffers[NodeInfo shr LARGE_NODEPTR_OFFSET]) +
+        (NodeInfo and NODEPTR_CLEAN_MASK) );
+    {$else}
+      Node := Pointer(Cell.NodePtr and NODEPTR_CLEAN_MASK);
+    {$endif}
+
+    // length of cached node
+    nLength := Node.SortValue;
+  until (nLength >= NATTANABLE_LENGTH_LIMIT);
+  Node := ParentNode;
+  nLength := Node.SortValue;
+
+  // cache: attainable <-- cached
+  repeat
+    // parameters
+    ParentNodeInfo := ParentNode.NodeInfo;
+    SingleWeigths := {$ifdef CPUX86}Store.{$endif}SingleLineWeigths;
+    Dec(nLength){increment};
+    Inc(NativeInt(SingleWeigths), (ParentNodeInfo and (1 shl 3)) shl (10 - 3));
+
+    // length and distance
+    ParentNode.nAttainableLength := nLength;
+    {$ifdef CPUX86}
+      ParentNode.AttainableDistance := Node.AttainableDistance +
+        HALF * (SingleWeigths[ParentNodeInfo shr 24] + SingleWeigths[NativeUInt(Node.NodeInfo) shr 24]);
+    {$else}
+      W1 := SingleWeigths[ParentNodeInfo shr 24];
+      W2 := SingleWeigths[NativeUInt(Node.NodeInfo) shr 24]);
+      ParentNode.AttainableDistance := Node.AttainableDistance + HALF * (W1 + W2);
+    {$endif}
+
+    // next node
+    Node := ParentNode;
+    ParentNode := ParentNode.Prev;
+  until (ParentNode = nil){Node = StartPoint.AttainableNode};
+
+  // remove from list and cache: start node <-- attainable
+  Cell := Store.Cell;
+  NodeInfo := NativeUInt(Node.NodeInfo) + 4{invert parent};
+  cacheloop: // repeat
+    // parent cell
+    {$ifdef CPUX86}
+      NodeInfo := NodeInfo and 7;
+      CellOffsets := Store.CellOffsets;
+    {$endif}
+
+    Inc(NativeInt(Cell), CellOffsets[NodeInfo{$ifNdef CPUX86} and 7{$endif}]);
+//    ParentNodeInfo := {$ifdef CPUX86}Store.{$endif}CellOffsets[NodeInfo{$ifNdef CPUX86} and 7{$endif}];
+//    Inc(NativeUInt(Cell), ParentNodeInfo);
+
+//    Inc(ParentNodeInfo, NativeUInt(Cell));
+//    NativeUInt(Cell) := ParentNodeInfo;
+
+    // cell node
+    {$ifdef LARGEINT}
+      ParentNodeInfo := Cell.NodePtr;
+      ParentNode := Pointer(
+        (NodeBuffers[ParentNodeInfo shr LARGE_NODEPTR_OFFSET]) +
+        (ParentNodeInfo and NODEPTR_CLEAN_MASK) );
+    {$else}
+      ParentNode := Pointer(Cell.NodePtr and NODEPTR_CLEAN_MASK);
+      //ParentNode := Pointer(Cell.NodePtr);
+    {$endif}
 
 
-  Node := StartPoint.Node;
-  StartPoint.Length := not Node.nAttainableLength;
-  StartPoint.Distance := Node.AttainableDistance;
+
+   (*   nLength{Right} := Cardinal(ParentNode.Next);
+      ParentNodeInfo{Left} := Cardinal(ParentNode.Prev);
+      PCPFNode(nLength{Right}).Prev := PCPFNode(ParentNodeInfo{Left});
+      PCPFNode(ParentNodeInfo{Left}).Next := PCPFNode(nLength{Right});
+   *)
+    ParentNodeInfo := ParentNode.NodeInfo;
+
+    // child and flags
+    ParentNode.NodeInfo := (ParentNodeInfo and CHILDS_BITS_CLEAR_MASK) +
+      (((NodeInfo{$ifNdef CPUX86} and 7{$endif}) shl 3) + (FLAG_KNOWN_PATH + FLAG_ATTAINABLE));
+
+    // remove from list
+  (*  {$ifdef CPUX86}
+      nLength{Right} := Cardinal(ParentNode.Next);
+      NodeInfo{Left} := Cardinal(ParentNode.Prev);
+      PCPFNode(nLength{Right}).Prev := PCPFNode(NodeInfo{Left});
+      PCPFNode(NodeInfo{Left}).Next := PCPFNode(nLength{Right});
+    {$else}
+      Right := ParentNode.Next;
+      Left := ParentNode.Prev;
+      Right.Prev := Left;
+      Left.Next := Right;
+    {$endif} *)
+
+
+
+    // parameters
+    {$ifdef CPUX86}
+    nLength := Node.nAttainableLength;
+    {$endif}
+    Dec(nLength){increment};
+    SingleWeigths := {$ifdef CPUX86}Store.{$endif}SingleLineWeigths;
+
+    // length and distance
+    ParentNode.nAttainableLength := nLength;
+    Inc(NativeInt(SingleWeigths), ((ParentNodeInfo and 1) shl 10));
+    {$ifdef CPUX86}
+      ParentNode.AttainableDistance := Node.AttainableDistance +
+        HALF * (SingleWeigths[Node.NodeInfo shr 24] + SingleWeigths[ParentNodeInfo shr 24]);
+
+      NodeInfo := ParentNode.NodeInfo;
+    {$else}
+      W1 := SingleWeigths[ParentNodeInfo shr 24];
+      W2 := SingleWeigths[NodeInfo shr 24]);
+      ParentNode.AttainableDistance := Left.AttainableDistance + HALF * (W1 + W2);
+
+      NodeInfo := ParentNodeInfo;
+    {$endif}
+    Node := ParentNode;
+    Inc(NodeInfo, 4{invert parent});
+  if (ParentNode <> {$ifdef CPUX86}Store.{$endif}StartPointNode) then goto cacheloop;
+  // until (ParentNode <> {$ifdef CPUX86}Store.{$endif}StartPointNode);
+
+  // result length and distance
+  with {$ifdef CPUX86}Store.StartPoint^{$else}StartPoint{$endif} do
+  begin
+    Length :=  not {$ifdef CPUX86}ParentNode.nAttainableLength{$else}nLength{$endif};
+    Distance := ParentNode.AttainableDistance;
+  end;
 end;
 
 procedure TTileMap.FillAttainablePath(const StartNode, FinishNode: PCPFNode);
