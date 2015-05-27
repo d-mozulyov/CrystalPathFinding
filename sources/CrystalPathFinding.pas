@@ -371,7 +371,7 @@ type
         Buffers: array[0..31] of Pointer;
         Count: NativeUInt;
       end;
-      Heuristed: record
+      HeuristedPool: record
         First: TCPFNode;
         Last: TCPFNode;
       end;
@@ -419,6 +419,7 @@ type
     function ActualizeStarts(Points: PPoint; Count: NativeUInt; Compare: Boolean): Boolean;
     function ActualizeExcludes(Points: PPoint; Count: NativeUInt; Compare: Boolean): Boolean;
     procedure ActualizeSectors;
+    procedure FlushHeuristedNodes(const StartPoint: TCPFStart; const FailureNode: TCPFNode);
     procedure AddHeuristedNodes(const First, Last: PCPFNode);
     procedure ReleaseAttainableNodes;
     procedure ReleaseHeuristedNodes;
@@ -2357,8 +2358,8 @@ var
 begin
   // release nodes
   Self.ReleaseAllocatedNodes(False);
-  Self.FNodes.Heuristed.First.Next := @Self.FNodes.Heuristed.Last;
-  Self.FNodes.Heuristed.Last.Prev := @Self.FNodes.Heuristed.First;
+  Self.FNodes.HeuristedPool.First.Next := @Self.FNodes.HeuristedPool.Last;
+  Self.FNodes.HeuristedPool.Last.Prev := @Self.FNodes.HeuristedPool.First;
   Self.FActualInfo.FinishPoint.X := -1;
   Self.FActualInfo.FinishPoint.Y := -1;
 
@@ -3221,15 +3222,60 @@ begin
   end;
 end;
 
+procedure TTileMap.FlushHeuristedNodes(const StartPoint: TCPFStart;
+  const FailureNode: TCPFNode);
+var
+  HeuristedPoolNode: PCPFNode;
+  Node, AttainableNode, Buffer: PCPFNode;
+begin
+  // mark up last list end
+  FailureNode.Prev.Next := nil;
+
+  // start point nodes
+  Node := StartPoint.Node;
+  AttainableNode := StartPoint.AttainableNode;
+
+  // first node
+  Node.Prev := @FNodes.HeuristedPool.First;
+  HeuristedPoolNode := FNodes.HeuristedPool.First.Next;
+  FNodes.HeuristedPool.First.Next := Node;
+
+  // process each node
+  if (AttainableNode.NodeInfo and FLAG_ATTAINABLE <> 0) then
+  begin
+    // retrieve parent mask (unlock)
+    while (Node <> AttainableNode) do
+    begin
+      Node.ParentMask := $ff;
+      Node := Node.Next;
+    end;
+
+  end else
+  begin
+    // retrieve parent mask (unlock)
+    // markup as KnownPath Unattainable
+    Buffer := Node;
+    repeat
+      Node := Buffer;
+      Buffer := Buffer.Next;
+      Node.NodeInfo := Node.NodeInfo or ($00ff0000{parent mask} or FLAG_KNOWN_PATH);
+    until (Buffer = nil);
+  end;
+
+  // last node
+  Node.Next := HeuristedPoolNode;
+  HeuristedPoolNode.Prev := Node;
+end;
+
 procedure TTileMap.AddHeuristedNodes(const First, Last: PCPFNode);
 var
   Next: PCPFNode;
 begin
-  Next := FNodes.Heuristed.First.Next;
+  Next := FNodes.HeuristedPool.First.Next;
 
   // FNodes.Heuristed.First + First
-  FNodes.Heuristed.First.Next := First;
-  First.Prev := @FNodes.Heuristed.First;
+  FNodes.HeuristedPool.First.Next := First;
+  First.Prev := @FNodes.HeuristedPool.First;
 
   // Last + Next
   Last.Next := Next;
@@ -3249,10 +3295,10 @@ var
   Coordinates, MapWidth: NativeInt;
 begin
   // take node list
-  Node := FNodes.Heuristed.First.Next;
-  if (Node = @FNodes.Heuristed.Last) then Exit;
-  FNodes.Heuristed.First.Next := @FNodes.Heuristed.Last;
-  FNodes.Heuristed.Last.Prev := @FNodes.Heuristed.First;
+  Node := FNodes.HeuristedPool.First.Next;
+  if (Node = @FNodes.HeuristedPool.Last) then Exit;
+  FNodes.HeuristedPool.First.Next := @FNodes.HeuristedPool.Last;
+  FNodes.HeuristedPool.Last.Prev := @FNodes.HeuristedPool.First;
 
   // clear flag loop
   Cells := FInfo.CellArray;
@@ -4597,8 +4643,8 @@ initialization
   {$endif}
   {$if Defined(DEBUG) and not Defined(CPFLIB)}
 
+  TTileMapPtr(nil).FlushHeuristedNodes(TCPFStart(nil^), TCPFNode(nil^));
 
-  TTileMap(nil).CacheAttainablePath(TCPFStart(nil^), nil);
   // anti hint
   TTileMapPtr(nil).CalculateHeuristics(PPoint(nil)^, PPoint(nil)^);
   TTileMapPtr(nil).AddHeuristedNodes(nil, nil);
