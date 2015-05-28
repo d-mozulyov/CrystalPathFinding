@@ -359,8 +359,6 @@ type
     function GetTile(const X, Y: Word): Byte;
     procedure SetTile(const X, Y: Word; Value: Byte);
     procedure GrowNodeAllocator(var Buffer: TCPFInfo);
-    function CalculateHeuristics(const Start, Finish: TPoint): NativeInt;
-    function AllocateHeuristedNode(const X, Y: NativeInt): PCPFNode;
 //    procedure ClearMapCells(Node: PCPFNode; Count: NativeUInt); overload;
 //    procedure ClearMapCells(Node: PCPFNode{as list}); overload;
     function DoFindPathLoop(StartNode: PCPFNode): PCPFNode;
@@ -414,6 +412,9 @@ type
          False: (DistanceAsInt64: Int64);
       end;
     end;
+
+    {}function CalculateHeuristics(const Start, Finish: TPoint): NativeInt;
+    {}function AllocateHeuristedNode(const X, Y: NativeInt): PCPFNode;
 
     function ActualizeWeights(Weights: PCPFWeightsInfo; Compare: Boolean): Boolean;
     function ActualizeStarts(Points: PPoint; Count: NativeUInt; Compare: Boolean): Boolean;
@@ -3228,41 +3229,57 @@ var
   HeuristedPoolNode: PCPFNode;
   Node, AttainableNode, Buffer: PCPFNode;
 begin
-  // mark up last list end
+  // mark list end (nil)
   FailureNode.Prev.Next := nil;
 
   // start point nodes
-  Node := StartPoint.Node;
+  Buffer{Node} := StartPoint.Node;
   AttainableNode := StartPoint.AttainableNode;
 
-  // first node
-  Node.Prev := @FNodes.HeuristedPool.First;
+  // first heuristed pool node
+  Buffer{Node}.Prev := @FNodes.HeuristedPool.First;
   HeuristedPoolNode := FNodes.HeuristedPool.First.Next;
-  FNodes.HeuristedPool.First.Next := Node;
+  FNodes.HeuristedPool.First.Next := Buffer{Node};
 
   // process each node
   if (AttainableNode.NodeInfo and FLAG_ATTAINABLE <> 0) then
   begin
     // retrieve parent mask (unlock)
-    while (Node <> AttainableNode) do
+    // clear sort value
+    while (Buffer <> AttainableNode) do
     begin
+      Node := Buffer;
+      Buffer := Buffer.Next;
+
       Node.ParentMask := $ff;
-      Node := Node.Next;
+      Node.Path := SORTVALUE_LIMIT - (Node.SortValue - Node.Path);
+      Node.SortValue := SORTVALUE_LIMIT;
     end;
 
-  end else
-  begin
-    // retrieve parent mask (unlock)
-    // markup as KnownPath Unattainable
-    Buffer := Node;
+    // clear sort value
     repeat
       Node := Buffer;
       Buffer := Buffer.Next;
+
+      Node.Path := SORTVALUE_LIMIT - (Node.SortValue - Node.Path);
+      Node.SortValue := SORTVALUE_LIMIT;
+    until (Buffer = nil);
+  end else
+  begin
+    // retrieve parent mask (unlock)
+    // mark as KnownPath Unattainable
+    // clear node heuristics
+    repeat
+      Node := Buffer;
+      Buffer := Buffer.Next;
+
       Node.NodeInfo := Node.NodeInfo or ($00ff0000{parent mask} or FLAG_KNOWN_PATH);
+      Node.Path := SORTVALUE_LIMIT;
+      Node.SortValue := SORTVALUE_LIMIT;
     until (Buffer = nil);
   end;
 
-  // last node
+  // last heuristed pool node
   Node.Next := HeuristedPoolNode;
   HeuristedPoolNode.Prev := Node;
 end;
@@ -3409,8 +3426,7 @@ begin
   // Top initialization
   Node := StartNode.Next;
   Store.Top.Node := Node;
-  Node.Prev := StartNode;
-  Store.Top.SortValue := SORTVALUE_LIMIT;
+  Store.Top.SortValue := SORTVALUE_LIMIT{Node.SortValue};
 
   // finding loop from Start to Finish
   Node := StartNode;
@@ -4490,8 +4506,8 @@ begin
   FoundPaths := Params.StartsCount;
   StartPoint := FActualInfo.Starts.Buffer.Memory;
   AttainableAlgorithm := (FoundPaths > 1) or (Self.FCaching);
-  FailureNode.SortValue := SORTVALUE_LIMIT;
   FailureNode.Path := SORTVALUE_LIMIT;
+  FailureNode.SortValue := SORTVALUE_LIMIT;
   Cardinal(FailureNode.Coordinates) := High(Cardinal);
   FailureNode.NodeInfo := FLAG_KNOWN_PATH {+ not FLAG_ATTAINABLE};
   for i := Params.StartsCount downto 1 do
@@ -4643,9 +4659,8 @@ initialization
   {$endif}
   {$if Defined(DEBUG) and not Defined(CPFLIB)}
 
-  TTileMapPtr(nil).FlushHeuristedNodes(TCPFStart(nil^), TCPFNode(nil^));
-
   // anti hint
+  TTileMapPtr(nil).FlushHeuristedNodes(TCPFStart(nil^), TCPFNode(nil^));
   TTileMapPtr(nil).CalculateHeuristics(PPoint(nil)^, PPoint(nil)^);
   TTileMapPtr(nil).AddHeuristedNodes(nil, nil);
   {$ifend}
