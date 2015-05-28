@@ -413,9 +413,7 @@ type
       end;
     end;
 
-    {}function CalculateHeuristics(const Start, Finish: TPoint): NativeInt;
-    {}function AllocateHeuristedNode(const X, Y: NativeInt): PCPFNode;
-
+    function AllocateHeuristedNode(X, Y: NativeInt): PCPFNode;
     function ActualizeWeights(Weights: PCPFWeightsInfo; Compare: Boolean): Boolean;
     function ActualizeStarts(Points: PPoint; Count: NativeUInt; Compare: Boolean): Boolean;
     function ActualizeExcludes(Points: PPoint; Count: NativeUInt; Compare: Boolean): Boolean;
@@ -2744,107 +2742,6 @@ begin
   end;
 end;
 
-function TTileMap.CalculateHeuristics(const Start, Finish: TPoint): NativeInt;
-var
-  dX, dY, X, Y: NativeInt;
-  Mask: NativeInt;
-begin
-  dY := Start.Y - Finish.Y;
-  dX := Start.X - Finish.X;
-
-  // Y := Abs(dY)
-  Mask := -(dY shr HIGH_NATIVE_BIT);
-  Y := (dY xor Mask) - Mask;
-
-  // X := Abs(dY)
-  Mask := -(dX shr HIGH_NATIVE_BIT);
-  X := (dX xor Mask) - Mask;
-
-  if (Self.FKind < mkHexagonal) then
-  begin
-    if (X <= Y) then
-    begin
-      Result := X * FInfo.HeuristicsDiagonal + (Y - X) * FInfo.HeuristicsLine;
-    end else
-    begin
-      Result := Y * FInfo.HeuristicsDiagonal + (X - Y) * FInfo.HeuristicsLine;
-    end;
-  end else
-  begin
-    X := X - ((Mask xor Finish.Y) and Y and 1) - (Y shr 1);
-    Result := Y + (X and ((X shr HIGH_NATIVE_BIT) - 1));
-    Result := Result * FInfo.HeuristicsLine;
-  end;
-end;
-
-function TTileMap.AllocateHeuristedNode(const X, Y: NativeInt): PCPFNode;
-begin
-  Result := nil;
-  // todo
-end;
-(*var
-  Coordinates: NativeUInt;
-  Cell: PCPFCell;
-  ChildNode: PCPFNode;
-  NodeInfo: NativeUInt;
-
-  {$ifdef LARGEINT}
-    NodeBuffers: PCPFNodeBuffers;
-    NODEPTR_MODIFIER: NativeInt;
-  {$else}
-const
-    NODEPTR_MODIFIER = NODEPTR_FLAG_CALCULATED;
-  {$endif}
-begin
-  Coordinates := Y + (X shl 16);
-  Cell := @FInfo.Cells[X + FInfo.MapWidth * Y];
-
-  // clear bits?
-  ChildNode := Pointer(NativeUInt(Cell.NodePtr));
-  if (NativeInt(ChildNode) and NODEPTR_FLAG_CALCULATED = 0) then
-  begin
-    Result := FInfo.NodeAllocator.NewNode;
-    Cardinal(Result.Coordinates) := Coordinates;
-    {$ifdef LARGEINT}
-      Cell.NodePtr := NativeUInt(NativeInt(Result) + FInfo.NodeAllocator.LargeModifier);
-    {$else}
-      Cell.NodePtr := NativeUInt(Result);
-    {$endif}
-
-    // tile, mask --> (0, mask, 0, tile)
-    NodeInfo := PWord(Cell)^;
-    NodeInfo := (NodeInfo + (NodeInfo shl 24)) and Integer($00ff00ff);
-    Result.NodeInfo := NodeInfo;
-
-    // set next allocable node
-    if (Result = FInfo.NodeAllocator.NewNodeLimit) then
-    begin
-      GrowNodeAllocator(FInfo.NodeAllocator);
-    end else
-    begin
-      Inc(Result);
-      FInfo.NodeAllocator.NewNode := Result;
-      Dec(Result);
-    end;
-
-
-
-  end else
-  begin
-    // NodePtr --> Pointer
-    {$ifdef LARGEINT}
-      NodeBuffers := Pointer(@FInfo.NodeAllocator.Buffers);
-      ChildNode := Pointer(
-        (NodeBuffers[NativeUInt(ChildNode) shr LARGE_NODEPTR_OFFSET]) +
-        (NativeUInt(ChildNode) and NODEPTR_CLEAN_MASK) );
-    {$else}
-      ChildNode := Pointer(NativeInt(ChildNode) and NODEPTR_CLEAN_MASK);
-    {$endif}
-  end;
-
-  Result := ChildNode;
-end; *)
-
 (*procedure TTileMap.ClearMapCells(Node: PCPFNode; Count: NativeUInt);
 var
   TopNode: PCPFNode;
@@ -2884,6 +2781,139 @@ begin
     Node := Node.Next;
   end;
 end; *)
+
+function TTileMap.AllocateHeuristedNode(X, Y: NativeInt): PCPFNode;
+var
+  Cell: PCPFCell;
+  Node, Right: PCPFNode;
+  NodeInfo: NativeUInt;
+  Mask: NativeInt;
+  SortValue: Cardinal;
+
+  {$ifdef LARGEINT}
+    NodeBuffers: PCPFNodeBuffers;
+  {$endif}
+begin
+  Cell := @FInfo.CellArray[FInfo.MapWidth * Y + X];
+
+  {$ifdef LARGEINT}
+  NodeBuffers := Pointer(@FInfo.NodeAllocator.Buffers);
+  {$endif}
+
+  NodeInfo := Cell.NodePtr;
+  if (NodeInfo and NODEPTR_FLAG_HEURISTED = 0) then
+  begin
+    if (NodeInfo and NODEPTR_FLAG_ALLOCATED = 0) then
+    begin
+      // allocate new node
+      Node := FInfo.NodeAllocator.NewNode;
+      Node.NodeInfo := NodeInfo;
+      {$ifdef LARGEINT}
+        Cell.NodePtr := NativeUInt(NativeInt(Node) + FInfo.NodeAllocator.LargeModifier +
+          (NODEPTR_FLAG_HEURISTED + NODEPTR_FLAG_ALLOCATED));
+      {$else}
+        Cell.NodePtr := NativeUInt(Node) + (NODEPTR_FLAG_HEURISTED + NODEPTR_FLAG_ALLOCATED);
+      {$endif}
+      Cardinal(Node.Coordinates) := Y + (X shl 16);
+
+      // set next allocable node
+      if (Node <> FInfo.NodeAllocator.NewNodeLimit) then
+      begin
+        Inc(Node);
+        FInfo.NodeAllocator.NewNode := Node;
+        Dec(Node);
+      end else
+      begin
+        GrowNodeAllocator(FInfo);
+      end;
+    end else
+    begin
+      // take allocated node, mark as heuristed
+      {$ifdef LARGEINT}
+        Node := Pointer(
+          (NodeBuffers[NodeInfo shr LARGE_NODEPTR_OFFSET]) +
+          (NodeInfo and NODEPTR_CLEAN_MASK) );
+        Cell.NodePtr := NodeInfo + NODEPTR_FLAG_HEURISTED;
+      {$else}
+        Node := Pointer(NodeInfo and NODEPTR_CLEAN_MASK);
+        Cell.NodePtr := Cardinal(Node) + (NODEPTR_FLAG_HEURISTED + NODEPTR_FLAG_ALLOCATED);
+      {$endif}
+    end;
+
+    // heuristics data
+    // (dX, dY) = Node.Coordinates - FInfo.FinishPoint;
+    Mask := Cardinal(FInfo.FinishPoint);
+    Y := Y - Word(Mask);
+    X := X - (Mask shr 16);
+
+    // Way
+    Mask := 2*Byte(Y > 0) + (Y shr HIGH_NATIVE_BIT);
+    Mask := Mask * 3;
+    Mask := Mask + 2*Byte(X > 0);
+    Mask := Mask - 1 + (X shr {$ifdef CPUX86}31{$else}HIGH_NATIVE_BIT{$endif}); // Delphi compiler optimization bug
+    Node.NodeInfo := Node.NodeInfo or Cardinal(Mask shl 3);
+
+    // Y := Abs(dY)
+    Mask := -(Y shr HIGH_NATIVE_BIT);
+    Y := Y xor Mask;
+    Dec(Y, Mask);
+
+    // X := Abs(dX)
+    Mask := -(X shr HIGH_NATIVE_BIT);
+    X := X xor Mask;
+    Dec(X, Mask);
+
+    // calculate
+    Node.SortValue := SORTVALUE_LIMIT;
+    if (FKind <> mkHexagonal) then
+    begin
+      if (X <= Y) then
+      begin
+        Node.Path := SORTVALUE_LIMIT -
+           Cardinal(X * FInfo.HeuristicsDiagonal + (Y - X) * FInfo.HeuristicsLine);
+      end else
+      begin
+        Node.Path := SORTVALUE_LIMIT -
+           Cardinal(Y * FInfo.HeuristicsDiagonal + (X - Y) * FInfo.HeuristicsLine);
+      end;
+    end else
+    begin
+      X := X - ((Mask xor PNativeInt(@FInfo.FinishPoint)^) and Y and 1) - (Y shr 1);
+      Node.Path := SORTVALUE_LIMIT -
+         Cardinal(FInfo.HeuristicsLine * (Y + (X and ((X shr HIGH_NATIVE_BIT) - 1))));
+    end;
+  end else
+  begin
+    {$ifdef LARGEINT}
+      Node := Pointer(
+        (NodeBuffers[NodeInfo shr LARGE_NODEPTR_OFFSET]) +
+        (NodeInfo and NODEPTR_CLEAN_MASK) );
+    {$else}
+      Node := Pointer(NodeInfo and NODEPTR_CLEAN_MASK);
+    {$endif}
+
+    // already in heuristed pool case
+    SortValue := Node.SortValue;
+    if (SortValue < NATTANABLE_LENGTH_LIMIT) then
+    begin
+      Result := Node;
+      Exit;
+    end;
+
+    // clear sort value
+    Node.Path := SORTVALUE_LIMIT - (SortValue - Node.Path);
+    Node.SortValue := SORTVALUE_LIMIT;
+  end;
+
+  // add to heuristed pool
+  Right := FNodes.HeuristedPool.First.Next;
+  Node.Next := Right;
+  Right.Prev := Node;
+  FNodes.HeuristedPool.First.Next := Node;
+
+  // result
+  Result := Node;
+end;
 
 function TTileMap.ActualizeWeights(Weights: PCPFWeightsInfo; Compare: Boolean): Boolean;
 label
@@ -4659,9 +4689,11 @@ initialization
   {$endif}
   {$if Defined(DEBUG) and not Defined(CPFLIB)}
 
+  TTileMapPtr(nil).AllocateHeuristedNode(0, 0);
+
   // anti hint
   TTileMapPtr(nil).FlushHeuristedNodes(TCPFStart(nil^), TCPFNode(nil^));
-  TTileMapPtr(nil).CalculateHeuristics(PPoint(nil)^, PPoint(nil)^);
+ // TTileMapPtr(nil).CalculateHeuristics(PPoint(nil)^, PPoint(nil)^);
   TTileMapPtr(nil).AddHeuristedNodes(nil, nil);
   {$ifend}
 
