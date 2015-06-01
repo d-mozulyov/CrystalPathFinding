@@ -162,12 +162,14 @@ type
     property Handle: TCPFHandle read FHandle;
     property Tiles[const X, Y: Word]: Byte read GetTile write SetTile; default;
 
-    function FindPath(const Params: TTileMapParams): TTileMapPath; overload; {$ifdef INLINESUPPORT}inline;{$endif}
+    function FindPath(const Params: TTileMapParams; const FullPath: Boolean = True): TTileMapPath; overload; {$ifdef INLINESUPPORT}inline;{$endif}
     function FindPath(const Start, Finish: TPoint; const Weights: TCPFHandle = 0;
-      const Excludes: PPoint = nil; const ExcludesCount: NativeUInt = 0): TTileMapPath; overload; {$ifdef INLINESUPPORT}inline;{$endif}
+      const Excludes: PPoint = nil; const ExcludesCount: NativeUInt = 0;
+      const FullPath: Boolean = True): TTileMapPath; overload; {$ifdef INLINESUPPORT}inline;{$endif}
     function FindPath(const Starts: PPoint; const StartsCount: NativeUInt;
       const Finish: TPoint; const Weights: TCPFHandle = 0;
-      const Excludes: PPoint = nil; const ExcludesCount: NativeUInt = 0): TTileMapPath; overload; {$ifdef INLINESUPPORT}inline;{$endif}
+      const Excludes: PPoint = nil; const ExcludesCount: NativeUInt = 0;
+      const FullPath: Boolean = True): TTileMapPath; overload; {$ifdef INLINESUPPORT}inline;{$endif}
   end;
 
 
@@ -186,7 +188,7 @@ procedure cpfMapClear(HMap: TCPFHandle); cdecl; external cpf_lib;
 procedure cpfMapUpdate(HMap: TCPFHandle; Tiles: PByte; X, Y, Width, Height: Word; Pitch: NativeInt = 0); cdecl; external cpf_lib;
 function  cpfMapGetTile(HMap: TCPFHandle; X, Y: Word): Byte; cdecl; external cpf_lib;
 procedure cpfMapSetTile(HMap: TCPFHandle; X, Y: Word; Value: Byte); cdecl; external cpf_lib;
-function  cpfFindPath(HMap: TCPFHandle; Params: PTileMapParams; SectorTest: Boolean = False; Caching: Boolean = True): TTileMapPath; cdecl; external cpf_lib;
+function  cpfFindPath(HMap: TCPFHandle; Params: PTileMapParams; SectorTest: Boolean = False; Caching: Boolean = True; FullPath: Boolean = True): TTileMapPath; cdecl; external cpf_lib;
 
 implementation
 var
@@ -335,14 +337,14 @@ begin
   cpfMapClear(FHandle);
 end;
 
-function TTileMap.FindPath(const Params: TTileMapParams): TTileMapPath;
+function TTileMap.FindPath(const Params: TTileMapParams; const FullPath: Boolean): TTileMapPath;
 begin
-  Result := cpfFindPath(FHandle, @Params, FSectorTest, FCaching);
+  Result := cpfFindPath(FHandle, @Params, FSectorTest, FCaching, FullPath);
 end;
 
 function TTileMap.FindPath(const Start, Finish: TPoint;
   const Weights: TCPFHandle; const Excludes: PPoint;
-  const ExcludesCount: NativeUInt): TTileMapPath;
+  const ExcludesCount: NativeUInt; const FullPath: Boolean): TTileMapPath;
 var
   Params: TTileMapParams;
 begin
@@ -353,12 +355,13 @@ begin
   Params.Excludes := Excludes;
   Params.ExcludesCount := ExcludesCount;
 
-  Result := cpfFindPath(FHandle, @Params, FSectorTest, FCaching);
+  Result := cpfFindPath(FHandle, @Params, FSectorTest, FCaching, FullPath);
 end;
 
 function TTileMap.FindPath(const Starts: PPoint; const StartsCount: NativeUInt;
-   const Finish: TPoint; const Weights: TCPFHandle = 0;
-   const Excludes: PPoint = nil; const ExcludesCount: NativeUInt = 0): TTileMapPath;
+   const Finish: TPoint; const Weights: TCPFHandle;
+   const Excludes: PPoint; const ExcludesCount: NativeUInt;
+   const FullPath: Boolean): TTileMapPath;
 var
   Params: TTileMapParams;
 begin
@@ -369,7 +372,7 @@ begin
   Params.Excludes := Excludes;
   Params.ExcludesCount := ExcludesCount;
 
-  Result := cpfFindPath(FHandle, @Params, FSectorTest, FCaching);
+  Result := cpfFindPath(FHandle, @Params, FSectorTest, FCaching, FullPath);
 end;
 
 

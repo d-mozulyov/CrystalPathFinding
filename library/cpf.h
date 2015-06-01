@@ -64,7 +64,7 @@ namespace cpf_routine
   typedef byte (*CPF_PROC_MAP_GET_TILE)(TCPFHandle HMap, word X, word Y);
   typedef void (*CPF_PROC_MAP_SET_TILE)(TCPFHandle HMap, word X, word Y, byte Value);
   typedef void (*CPF_PROC_MAP_UPDATE)(TCPFHandle HMap, byte* Tiles, word X, word Y, word Width, word Height, size_i Pitch);
-  typedef TTileMapPath (*CPF_PROC_FIND_PATH)(TCPFHandle HMap, TTileMapParams* Params, bool SectorTest, bool Caching);
+  typedef TTileMapPath (*CPF_PROC_FIND_PATH)(TCPFHandle HMap, TTileMapParams* Params, bool SectorTest, bool Caching, bool FullPath);
 
   CPF_PROC_CREATE_WEIGHTS __cpfCreateWeights = NULL;
   CPF_PROC_DESTROY_WEIGHTS __cpfDestroyWeights = NULL;
@@ -127,7 +127,7 @@ void    cpfMapClear(TCPFHandle HMap)/*;*/{cpf_routine::__cpfMapClear(HMap);}
 byte cpfMapGetTile(TCPFHandle HMap, word X, word Y)/*;*/{return cpf_routine::__cpfMapGetTile(HMap, X, Y);}
 void    cpfMapSetTile(TCPFHandle HMap, word X, word Y, byte Value)/*;*/{cpf_routine::__cpfMapSetTile(HMap, X, Y, Value);};
 void    cpfMapUpdate(TCPFHandle HMap, byte* Tiles, word X, word Y, word Width, word Height, size_i Pitch=0)/*;*/{cpf_routine::__cpfMapUpdate(HMap, Tiles, X, Y, Width, Height, Pitch);}
-TTileMapPath cpfFindPath(TCPFHandle HMap, TTileMapParams* Params, bool SectorTest=true, bool Caching=true)/*;*/{return cpf_routine::__cpfFindPath(HMap, Params, SectorTest, Caching);}
+TTileMapPath cpfFindPath(TCPFHandle HMap, TTileMapParams* Params, bool SectorTest=true, bool Caching=true, bool FullPath=true)/*;*/{return cpf_routine::__cpfFindPath(HMap, Params, SectorTest, Caching, FullPath);}
 
 
 

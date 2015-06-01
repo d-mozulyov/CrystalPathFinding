@@ -362,7 +362,7 @@ type
 //    procedure ClearMapCells(Node: PCPFNode; Count: NativeUInt); overload;
 //    procedure ClearMapCells(Node: PCPFNode{as list}); overload;
     function DoFindPathLoop(StartNode: PCPFNode): PCPFNode;
-    function DoFindPath(const {$ifdef CPUX86}_{$else}Params{$endif}: TTileMapParams): TTileMapPath;
+    function DoFindPath(const {$ifdef CPUX86}_{$else}Params{$endif}: TTileMapParams; const FullPath: Boolean): TTileMapPath;
   private
     FNodes: record
       Storage: record
@@ -446,12 +446,14 @@ type
     property Caching: Boolean read FCaching write FCaching;
     property Tiles[const X, Y: Word]: Byte read GetTile write SetTile; default;
 
-    function FindPath(const Params: TTileMapParams): TTileMapPath; overload;
+    function FindPath(const Params: TTileMapParams; const FullPath: Boolean = True): TTileMapPath; overload;
     function FindPath(const Start, Finish: TPoint; const Weights: TTileMapWeightsPtr = nil;
-      const Excludes: PPoint = nil; const ExcludesCount: NativeUInt = 0): TTileMapPath; overload;
+      const Excludes: PPoint = nil; const ExcludesCount: NativeUInt = 0;
+      const FullPath: Boolean = True): TTileMapPath; overload;
     function FindPath(const Starts: PPoint; const StartsCount: NativeUInt;
       const Finish: TPoint; const Weights: TTileMapWeightsPtr = nil;
-      const Excludes: PPoint = nil; const ExcludesCount: NativeUInt = 0): TTileMapPath; overload;
+      const Excludes: PPoint = nil; const ExcludesCount: NativeUInt = 0;
+      const FullPath: Boolean = True): TTileMapPath; overload;
   end;
   TTileMapPtr = {$ifdef CPFLIB}^{$endif}TTileMap;
 
@@ -485,7 +487,7 @@ type
   procedure cpfMapUpdate(HMap: TCPFHandle; Tiles: PByte; X, Y, Width, Height: Word; Pitch: NativeInt = 0); cdecl;
   function  cpfMapGetTile(HMap: TCPFHandle; X, Y: Word): Byte; cdecl;
   procedure cpfMapSetTile(HMap: TCPFHandle; X, Y: Word; Value: Byte); cdecl;
-  function  cpfFindPath(HMap: TCPFHandle; Params: PTileMapParams; SectorTest: Boolean = False; Caching: Boolean = True): TTileMapPath; cdecl;
+  function  cpfFindPath(HMap: TCPFHandle; Params: PTileMapParams; SectorTest: Boolean = False; Caching: Boolean = True; FullPath: Boolean = True): TTileMapPath; cdecl;
 {$endif}
 
 implementation
@@ -1142,7 +1144,7 @@ begin
   TTileMapPtr(HMap).Tiles[X, Y] := Value;
 end;
 
-function  cpfFindPath(HMap: TCPFHandle; Params: PTileMapParams; SectorTest: Boolean = False; Caching: Boolean = True): TTileMapPath; cdecl;
+function  cpfFindPath(HMap: TCPFHandle; Params: PTileMapParams; SectorTest: Boolean = False; Caching: Boolean = True; FullPath: Boolean = True): TTileMapPath; cdecl;
 var
   Address: Pointer;
 begin
@@ -1161,7 +1163,7 @@ begin
   TCPFClassPtr(HMap).FCallAddress := Address;
   TTileMapPtr(HMap).SectorTest := SectorTest;
   TTileMapPtr(HMap).Caching := Caching;
-  Result := TTileMapPtr(HMap).DoFindPath(Params^);
+  Result := TTileMapPtr(HMap).DoFindPath(Params^, FullPath);
 end;
 {$endif .CPFAPI}
 
@@ -4318,7 +4320,8 @@ begin
   end;
 end;
 
-function TTileMap.DoFindPath(const {$ifdef CPUX86}_{$else}Params{$endif}: TTileMapParams): TTileMapPath;
+function TTileMap.DoFindPath(const {$ifdef CPUX86}_{$else}Params{$endif}: TTileMapParams;
+  const FullPath: Boolean): TTileMapPath;
 label
   path_found, path_not_found, fill_result;
 var
@@ -4611,8 +4614,24 @@ begin
   FActualInfo.FoundPath.Index := (NativeUInt(BestStartPoint) - NativeUInt(FActualInfo.Starts.Buffer.Memory)) div SizeOf(TCPFStart);
   FActualInfo.FoundPath.Distance := BestStartPoint.Distance;
   FActualInfo.FoundPath.Length := BestStartPoint.Length;
-  with FActualInfo.FoundPath.Buffer do Alloc(FActualInfo.FoundPath.Length * SizeOf(TPoint));
-  FillAttainablePath(BestStartPoint.Node, FinishNode);
+  if (FullPath) then
+  begin
+    with FActualInfo.FoundPath.Buffer do Alloc(FActualInfo.FoundPath.Length * SizeOf(TPoint));
+    FillAttainablePath(BestStartPoint.Node, FinishNode);
+  end else
+  begin
+    with FActualInfo.FoundPath.Buffer do Alloc(2 * SizeOf(TPoint));
+
+    S := FActualInfo.FoundPath.Buffer.Memory;
+    S.X := BestStartPoint.X;
+    S.Y := BestStartPoint.Y;
+    Inc(S);
+
+    NodeInfo := BestStartPoint.Node.NodeInfo;
+    NodeInfo{Child} := (NodeInfo shr 3) and 7;
+    S.X := BestStartPoint.X + POINT_OFFSETS[NodeInfo].x;
+    S.Y := BestStartPoint.Y + POINT_OFFSETS[NodeInfo].y;
+  end;
 
   // fill found path result
 fill_result:
@@ -4625,18 +4644,18 @@ fill_result:
     ResultPath.Points := nil;
 end;
 
-function TTileMap.FindPath(const Params: TTileMapParams): TTileMapPath;
+function TTileMap.FindPath(const Params: TTileMapParams; const FullPath: Boolean): TTileMapPath;
 begin
   {$ifNdef CPFLIB}
     FCallAddress := ReturnAddress;
   {$endif}
 
-  Result := DoFindPath(Params);
+  Result := DoFindPath(Params, FullPath);
 end;
 
 function TTileMap.FindPath(const Start, Finish: TPoint;
   const Weights: TTileMapWeightsPtr; const Excludes: PPoint;
-  const ExcludesCount: NativeUInt): TTileMapPath;
+  const ExcludesCount: NativeUInt; const FullPath: Boolean): TTileMapPath;
 var
   Params: TTileMapParams;
 begin
@@ -4651,12 +4670,13 @@ begin
   Params.Excludes := Excludes;
   Params.ExcludesCount := ExcludesCount;
 
-  Result := FindPath(Params);
+  Result := FindPath(Params, FullPath);
 end;
 
 function TTileMap.FindPath(const Starts: PPoint; const StartsCount: NativeUInt;
-   const Finish: TPoint; const Weights: TTileMapWeightsPtr = nil;
-   const Excludes: PPoint = nil; const ExcludesCount: NativeUInt = 0): TTileMapPath;
+   const Finish: TPoint; const Weights: TTileMapWeightsPtr;
+   const Excludes: PPoint; const ExcludesCount: NativeUInt;
+   const FullPath: Boolean): TTileMapPath;
 var
   Params: TTileMapParams;
 begin
@@ -4671,7 +4691,7 @@ begin
   Params.Excludes := Excludes;
   Params.ExcludesCount := ExcludesCount;
 
-  Result := FindPath(Params);
+  Result := FindPath(Params, FullPath);
 end;
 
 
@@ -4689,12 +4709,11 @@ initialization
   {$endif}
   {$if Defined(DEBUG) and not Defined(CPFLIB)}
 
-  TTileMapPtr(nil).AllocateHeuristedNode(0, 0);
+  TTileMapPtr(nil).FindPath(TTileMapParams(nil^), True);
 
   // anti hint
-  TTileMapPtr(nil).FlushHeuristedNodes(TCPFStart(nil^), TCPFNode(nil^));
- // TTileMapPtr(nil).CalculateHeuristics(PPoint(nil)^, PPoint(nil)^);
-  TTileMapPtr(nil).AddHeuristedNodes(nil, nil);
+//  TTileMapPtr(nil).FlushHeuristedNodes(TCPFStart(nil^), TCPFNode(nil^));
+//  TTileMapPtr(nil).AddHeuristedNodes(nil, nil);
   {$ifend}
 
 end.
