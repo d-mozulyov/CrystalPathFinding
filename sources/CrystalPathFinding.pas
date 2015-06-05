@@ -359,17 +359,14 @@ type
     function GetTile(const X, Y: Word): Byte;
     procedure SetTile(const X, Y: Word; Value: Byte);
     procedure GrowNodeAllocator(var Buffer: TCPFInfo);
-//    procedure ClearMapCells(Node: PCPFNode; Count: NativeUInt); overload;
-//    procedure ClearMapCells(Node: PCPFNode{as list}); overload;
     function DoFindPathLoop(StartNode: PCPFNode): PCPFNode;
-    function DoFindPath(const {$ifdef CPUX86}_{$else}Params{$endif}: TTileMapParams; const FullPath: Boolean): TTileMapPath;
+    function DoFindPath(const ParamsPtr: NativeUInt{high bit is FullPath}): TTileMapPath;
   private
     FNodes: record
       Storage: record
         Buffers: array[0..31] of Pointer;
         Count: NativeUInt;
       end;
-      // ExcludedPool? todo
       HeuristedPool: record
         First: TCPFNode;
         Last: TCPFNode;
@@ -408,6 +405,7 @@ type
       Excludes: record
         Buffer: TCPFBuffer;
         Count: NativeUInt;
+        NodeList: PCPFNode;
       end;
       FoundPath: record
         Index: NativeInt;
@@ -432,8 +430,7 @@ type
     procedure CacheAttainablePath(var StartPoint: TCPFStart; const FinishNode: PCPFNode);
     procedure FillAttainablePath(const StartNode, FinishNode: PCPFNode);
     procedure FillStandardPath(const StartNode, FinishNode: PCPFNode);
-    procedure {FlushHot?}FlushHeuristedNodes(const StartPoint: TCPFStart; const FailureNode: TCPFNode);
-//    procedure AddHeuristedNodes(const First, Last: PCPFNode);
+    procedure FlushHotNodes(const StartPoint: TCPFStart; const FailureNode: TCPFNode);
   {$ifdef CPFLIB}
   public
     procedure Destroy;
@@ -1171,7 +1168,7 @@ begin
   TCPFClassPtr(HMap).FCallAddress := Address;
   TTileMapPtr(HMap).SectorTest := SectorTest;
   TTileMapPtr(HMap).Caching := Caching;
-  Result := TTileMapPtr(HMap).DoFindPath(Params^, FullPath);
+  Result := TTileMapPtr(HMap).DoFindPath(NativeUInt(Params) + NativeUInt(FullPath) shl HIGH_NATIVE_BIT);
 end;
 {$endif .CPFAPI}
 
@@ -2749,46 +2746,6 @@ begin
   end;
 end;
 
-(*procedure TTileMap.ClearMapCells(Node: PCPFNode; Count: NativeUInt);
-var
-  TopNode: PCPFNode;
-  NodeInfo{XY}: NativeUInt;
-  MapWidth: NativeInt;
-  Cells: PCPFCellArray;
-begin
-  TopNode := Node;
-  Inc(TopNode, Count);
-
-  Cells := FInfo.Cells;
-  MapWidth := FInfo.MapWidth;
-
-  while (Node <> TopNode) do
-  begin
-    NodeInfo{XY} := Cardinal(Node.Coordinates);
-    Cells[(NativeInt(NodeInfo) shr 16){X} + MapWidth * {Y}Word(NodeInfo)].NodePtr := 0;
-
-    Inc(Node);
-  end;
-end;
-
-procedure TTileMap.ClearMapCells(Node: PCPFNode{as list});
-var
-  NodeInfo{XY}: NativeUInt;
-  MapWidth: NativeInt;
-  Cells: PCPFCellArray;
-begin
-  Cells := FInfo.Cells;
-  MapWidth := FInfo.MapWidth;
-
-  while (Node <> nil) do
-  begin
-    NodeInfo{XY} := Cardinal(Node.Coordinates);
-    Cells[(NativeInt(NodeInfo) shr 16){X} + MapWidth * {Y}Word(NodeInfo)].NodePtr := 0;
-
-    Node := Node.Next;
-  end;
-end; *)
-
 function TTileMap.AllocateHeuristedNode(X, Y: NativeInt): PCPFNode;
 var
   Cell: PCPFCell;
@@ -3260,10 +3217,10 @@ begin
   end;
 end;
 
-procedure TTileMap.FlushHeuristedNodes(const StartPoint: TCPFStart;
+procedure TTileMap.FlushHotNodes(const StartPoint: TCPFStart;
   const FailureNode: TCPFNode);
 var
-  HeuristedPoolNode: PCPFNode;
+  LastPoolNode: PCPFNode;
   Node, AttainableNode, Buffer: PCPFNode;
 begin
   // mark list end (nil)
@@ -3273,14 +3230,14 @@ begin
   Buffer{Node} := StartPoint.Node;
   AttainableNode := StartPoint.AttainableNode;
 
-  // first heuristed pool node
-  Buffer{Node}.Prev := @FNodes.HeuristedPool.First;
-  HeuristedPoolNode := FNodes.HeuristedPool.First.Next;
-  FNodes.HeuristedPool.First.Next := Buffer{Node};
-
   // process each node
   if (AttainableNode.NodeInfo and FLAG_ATTAINABLE <> 0) then
   begin
+    // first heuristed pool node
+    Buffer{Node}.Prev := @FNodes.HeuristedPool.First;
+    LastPoolNode := FNodes.HeuristedPool.First.Next;
+    FNodes.HeuristedPool.First.Next := Buffer{Node};
+
     // retrieve parent mask (unlock)
     // clear sort value
     while (Buffer <> AttainableNode) do
@@ -3303,6 +3260,11 @@ begin
     until (Buffer = nil);
   end else
   begin
+    // first unattainable pool node
+    Buffer{Node}.Prev := @FNodes.UnattainablePool.First;
+    LastPoolNode := FNodes.UnattainablePool.First.Next;
+    FNodes.UnattainablePool.First.Next := Buffer{Node};
+
     // retrieve parent mask (unlock)
     // mark as KnownPath Unattainable
     // clear node heuristics
@@ -3316,25 +3278,10 @@ begin
     until (Buffer = nil);
   end;
 
-  // last heuristed pool node
-  Node.Next := HeuristedPoolNode;
-  HeuristedPoolNode.Prev := Node;
+  // last heuristed or unattainable pool node
+  Node.Next := LastPoolNode;
+  LastPoolNode.Prev := Node;
 end;
-
-(*procedure TTileMap.AddHeuristedNodes(const First, Last: PCPFNode);
-var
-  Next: PCPFNode;
-begin
-  Next := FNodes.HeuristedPool.First.Next;
-
-  // FNodes.Heuristed.First + First
-  FNodes.HeuristedPool.First.Next := First;
-  First.Prev := @FNodes.HeuristedPool.First;
-
-  // Last + Next
-  Last.Next := Next;
-  Next.Prev := Last;
-end;*)
 
 procedure TTileMap.FreeStorageTopBuffer;
 var
@@ -3384,6 +3331,9 @@ begin
   // unattainable pool
   FNodes.UnattainablePool.First.Next := @FNodes.UnattainablePool.Last;
   FNodes.UnattainablePool.Last.Prev := @FNodes.UnattainablePool.First;
+
+  // excluded node list
+  FActualInfo.Excludes.NodeList := nil;
 
   // clear map cells
   if (ClearCells) and (FInfo.NodeAllocator.Count <> 0) then
@@ -3509,7 +3459,7 @@ begin
           NodeInfo := (NodeInfo and FLAGS_CLEAN_MASK) or NativeUInt(Mask shl 3);
           Node.NodeInfo := NodeInfo;
         {$else}
-          Node.NodeInfo := (Node.NodeInfo and FLAGS_CLEAN_MASK) or Cardinal(Mask shl 3);
+          Node.NodeInfo := ({$ifdef CPUX86}Node.{$endif}NodeInfo and FLAGS_CLEAN_MASK) or Cardinal(Mask shl 3);
         {$endif}
 
         // sort value and pool
@@ -4596,8 +4546,7 @@ begin
   end;
 end;
 
-function TTileMap.DoFindPath(const {$ifdef CPUX86}_{$else}Params{$endif}: TTileMapParams;
-  const FullPath: Boolean): TTileMapPath;
+function TTileMap.DoFindPath(const ParamsPtr: NativeUInt{high bit is FullPath}): TTileMapPath;
 const
   FLAG_CACHING = (1 shl 0);
   FLAG_FINISH = (1 shl 1);
@@ -4620,6 +4569,7 @@ var
   Flags, StartFlags: NativeUInt;
   ResultPath: ^TTileMapPath;
 
+  FullPath: Boolean;
   FinishSector: Byte;
   AttainableAlgorithm: Boolean;
   FoundPaths: NativeUInt;
@@ -4630,13 +4580,17 @@ var
 
   {$ifdef CPUX86}
     Params: TTileMapParams;
+  {$else}
+    Params: ^TTileMapParams;
   {$endif}
   {$ifdef LARGEINT}
     NodeBuffers: PCPFNodeBuffers;
   {$endif}
 begin
   // stack copy parameters to one register save
-  {$ifdef CPUX86}Params := _;{$endif}
+  Flags := ParamsPtr;
+  FullPath := Boolean(Flags shr HIGH_NATIVE_BIT);
+  Params := PTileMapParams(Flags and ((NativeUInt(1) shl HIGH_NATIVE_BIT) - 1)){$ifdef CPUX86}^{$endif};
 
   // test start points coordinates
   MapWidth := Self.Width;
@@ -4646,7 +4600,8 @@ begin
   begin
     if (Cardinal(S.X) >= MapWidth) or (Cardinal(S.Y) >= MapHeight) then
     begin
-      RaiseCoordinates(S.X, S.Y, 'start');
+      with S^ do
+      RaiseCoordinates(X, Y, 'start');
       Exit;
     end;
 
@@ -4658,14 +4613,17 @@ begin
   S := @Params.Finish;
   if (Cardinal(S.X) >= MapWidth) or (Cardinal(S.Y) >= MapHeight) then
   begin
-    RaiseCoordinates(S.X, S.Y, 'finish');
+    with S^ do
+    RaiseCoordinates(X, Y, 'finish');
     Exit;
   end;
 
   // pathless finish tile
   FinishX := Params.Finish.X;
+  {$ifNdef CPUX86}
   FinishY := Params.Finish.Y;
-  Cell := @FInfo.CellArray[Integer(MapWidth) * FinishY + FinishX];
+  {$endif}
+  Cell := @FInfo.CellArray[Integer(MapWidth) * {$ifdef CPUX86}Params.Finish.Y{$else}FinishY{$endif} + FinishX];
   CellInfo := Cell.NodePtr;
   if (CellInfo and NODEPTR_FLAG_ALLOCATED <> 0) then
   begin
@@ -4686,11 +4644,12 @@ begin
   begin
     if (Cardinal(S.X) >= MapWidth) or (Cardinal(S.Y) >= MapHeight) then
     begin
-      RaiseCoordinates(S.X, S.Y, 'excluded');
+      with S^ do
+      RaiseCoordinates(X, Y, 'excluded');
       Exit;
     end;
 
-    if (S.X = FinishX) and (S.Y = FinishY) then
+    if (S.X = FinishX) and (S.Y = {$ifdef CPUX86}Params.Finish.Y{$else}FinishY{$endif}) then
       FinishX := -1{finish excluded flag};
 
     Inc(S);
@@ -4709,6 +4668,9 @@ begin
 
   // start is finish case
   S := Params.Starts;
+  {$ifdef CPUX86}
+  FinishY := Params.Finish.Y;
+  {$endif}
   for i := Params.StartsCount downto 1 do
   begin
     if (S.X = FinishX) and (S.Y = FinishY) then
@@ -4730,8 +4692,8 @@ begin
   Flags := NativeUInt(FCaching) xor 1;{FLAG_CACHING}
   begin
     // finish point
-    if (FinishX <> Self.FActualInfo.FinishPoint.X) or
-       (FinishY <> Self.FActualInfo.FinishPoint.Y) then
+    if (0 <> (Self.FActualInfo.FinishPoint.X - FinishX) or
+         (Self.FActualInfo.FinishPoint.Y - FinishY)) then
     begin
       Flags := Flags or FLAG_FINISH;
 
@@ -4884,6 +4846,9 @@ begin
   // initialize excluded points
   if (Flags and (FLAG_EXCLUDED or FLAG_CLEAN) <> 0) then
   begin
+    // Excluded.NodeList
+    // todo
+
     S := Params.Excludes;
     for i := Params.ExcludesCount downto 1 do
     begin
@@ -4969,6 +4934,7 @@ begin
   Inc(StartPoint);
   for i := Params.StartsCount downto 2 do
   begin
+    // todo: fast comparison
     if (StartPoint.DistanceAsInt64 < BestStartPoint.DistanceAsInt64) then
       BestStartPoint := StartPoint;
 
@@ -4982,12 +4948,16 @@ begin
   if (FullPath) then
   begin
     FActualInfo.FoundPath.FullPath := True;
-    with FActualInfo.FoundPath.Buffer do Alloc(FActualInfo.FoundPath.Length * SizeOf(TPoint));
+    // Alloc(Length * SizeOf(TPoint))
+    NodeInfo := FActualInfo.FoundPath.Length * SizeOf(TPoint);
+    with FActualInfo.FoundPath.Buffer do if (NodeInfo > FAllocatedSize) then Realloc(NodeInfo);
     FillAttainablePath(BestStartPoint.Node, FinishNode);
   end else
   begin
     FActualInfo.FoundPath.FullPath := False;
-    with FActualInfo.FoundPath.Buffer do Alloc(2 * SizeOf(TPoint));
+    // Alloc(2 * SizeOf(TPoint))
+    NodeInfo := 2 * SizeOf(TPoint);
+    with FActualInfo.FoundPath.Buffer do if (NodeInfo > FAllocatedSize) then Realloc(NodeInfo);
 
     S := FActualInfo.FoundPath.Buffer.Memory;
     S.X := BestStartPoint.X;
@@ -5002,6 +4972,23 @@ begin
 
   // fill found path result
 fill_result:
+  if (not FCaching) then
+  begin
+    //Self.FreeAllocatedNodes();
+
+(*    with FNodes.HeuristedPool do
+    begin
+      if (First.Next <> @Last) then
+        ReleasePoolNodes(First, Last);
+    end;
+
+    with FNodes.UnattainablePool do
+    begin
+      if (First.Next <> @Last) then
+        ReleasePoolNodes(First, Last);
+    end; *)
+    // ???
+  end;
   ResultPath := @Result;
   ResultPath.Index := FActualInfo.FoundPath.Index;
   ResultPath.Points := FActualInfo.FoundPath.Buffer.Memory;
@@ -5017,7 +5004,7 @@ begin
     FCallAddress := ReturnAddress;
   {$endif}
 
-  Result := DoFindPath(Params, FullPath);
+  Result := DoFindPath(NativeUInt(@Params) + NativeUInt(FullPath) shl HIGH_NATIVE_BIT);
 end;
 
 function TTileMap.FindPath(const Start, Finish: TPoint;
@@ -5037,7 +5024,7 @@ begin
   Params.Excludes := Excludes;
   Params.ExcludesCount := ExcludesCount;
 
-  Result := FindPath(Params, FullPath);
+  Result := DoFindPath(NativeUInt(@Params) + NativeUInt(FullPath) shl HIGH_NATIVE_BIT);
 end;
 
 function TTileMap.FindPath(const Starts: PPoint; const StartsCount: NativeUInt;
@@ -5058,7 +5045,7 @@ begin
   Params.Excludes := Excludes;
   Params.ExcludesCount := ExcludesCount;
 
-  Result := FindPath(Params, FullPath);
+  Result := DoFindPath(NativeUInt(@Params) + NativeUInt(FullPath) shl HIGH_NATIVE_BIT);
 end;
 
 
@@ -5076,9 +5063,7 @@ initialization
   {$endif}
   {$if Defined(DEBUG) and not Defined(CPFLIB)}
 
-
-  TTileMapPtr(nil).ReleaseAttainableNodes;
-  TTileMapPtr(nil).DoFindPath(TTileMapParams(nil^), True);
+  TTileMapPtr(nil).DoFindPath(100500);
 
 
   {$ifend}
