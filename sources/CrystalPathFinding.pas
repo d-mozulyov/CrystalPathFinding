@@ -308,7 +308,7 @@ type
   TCPFNodeBuffers = array[0..31] of NativeUInt;
   PCPFNodeBuffers = ^TCPFNodeBuffers;
 
-  TCPFStart = record
+  TCPFStart = packed record
     X: Integer;
     Y: Integer;
     Node: PCPFNode;
@@ -317,7 +317,12 @@ type
     {$endif}
     case Boolean of
       True: (AttainableNode: PCPFNode; Distance: Double);
-      False: (Length: NativeUInt; DistanceAsInt64: Int64);
+      False:(
+        Length: NativeUInt;
+        case Boolean of
+          True: (DistanceAsInt64: Int64);
+         False: (DistanceLowDword: Cardinal; DistanceHighDword: Integer);
+      );
   end;
   PCPFStart = ^TCPFStart;
 
@@ -4600,8 +4605,7 @@ begin
   begin
     if (Cardinal(S.X) >= MapWidth) or (Cardinal(S.Y) >= MapHeight) then
     begin
-      with S^ do
-      RaiseCoordinates(X, Y, 'start');
+      RaiseCoordinates(S.X, S.Y, 'start');
       Exit;
     end;
 
@@ -4609,20 +4613,17 @@ begin
   end;
 
   // test finish point coordinates
-  // todo? finishX/finishY?
-  S := @Params.Finish;
-  if (Cardinal(S.X) >= MapWidth) or (Cardinal(S.Y) >= MapHeight) then
-  begin
-    with S^ do
-    RaiseCoordinates(X, Y, 'finish');
-    Exit;
-  end;
-
-  // pathless finish tile
   FinishX := Params.Finish.X;
   {$ifNdef CPUX86}
   FinishY := Params.Finish.Y;
   {$endif}
+  if (Cardinal(FinishX) >= MapWidth) or (Cardinal({$ifdef CPUX86}Params.Finish.Y{$else}FinishY{$endif}) >= MapHeight) then
+  begin
+    RaiseCoordinates(Params.Finish.X, Params.Finish.Y, 'finish');
+    Exit;
+  end;
+
+  // pathless finish tile
   Cell := @FInfo.CellArray[Integer(MapWidth) * {$ifdef CPUX86}Params.Finish.Y{$else}FinishY{$endif} + FinishX];
   CellInfo := Cell.NodePtr;
   if (CellInfo and NODEPTR_FLAG_ALLOCATED <> 0) then
@@ -4644,8 +4645,7 @@ begin
   begin
     if (Cardinal(S.X) >= MapWidth) or (Cardinal(S.Y) >= MapHeight) then
     begin
-      with S^ do
-      RaiseCoordinates(X, Y, 'excluded');
+      RaiseCoordinates(S.X, S.Y, 'excluded');
       Exit;
     end;
 
@@ -4787,39 +4787,15 @@ begin
   // allocate start points
   if (Params.StartsCount = 1) and (FActualInfo.Starts.Count = 1) then
   begin
-  (* // S := Params.Starts;
     StartPoint := FActualInfo.Starts.Buffer.Memory;
-    StartFlags := 0;//(StartPoint.X - S.X) or (StartPoint.Y - S.Y);
 
-   // StartPoint.X := S.X;
-   // StartPoint.Y := S.Y; *)
-   (* with Params.Starts^ do
-    begin
-      FinishX := X;
-      FinishY := Y;
-    end;
+    FinishX := Params.Starts.X;
+    StartFlags := (StartPoint.X - FinishX);
+    StartPoint.X := FinishX;
 
-    StartPoint := FActualInfo.Starts.Buffer.Memory;
-    (*StartFlags := (StartPoint.X - FinishX) or (StartPoint.Y - FinishY);
-    StartPoint.X := FinishX{S.X};
-    StartPoint.Y := FinishY{S.Y};*)
-
-   (* StartFlags := (StartPoint.X - FinishX);
-    StartPoint.X := FinishX{S.X};
-    StartFlags := StartFlags or (StartPoint.Y - FinishY);
-    StartPoint.Y := FinishY; *)
-
-    StartPoint := FActualInfo.Starts.Buffer.Memory;
-    with Params.Starts^ do
-    begin
-      StartFlags := (StartPoint.X - X) or (StartPoint.Y - Y);
-
-      StartPoint.X := X;
-      StartPoint.Y := Y;
-    end;
-
-   // StartFlags := 0;
-
+    FinishX{Y} := Params.Starts.Y;
+    StartFlags := StartFlags or NativeUInt(StartPoint.Y - FinishX{Y});
+    StartPoint.Y := FinishX{Y};
   end else
   begin
     StartFlags := NativeUInt(not ActualizeStarts(Params.Starts, Params.StartsCount, True{Flags???}));
@@ -4934,8 +4910,14 @@ begin
   Inc(StartPoint);
   for i := Params.StartsCount downto 2 do
   begin
-    // todo: fast comparison
-    if (StartPoint.DistanceAsInt64 < BestStartPoint.DistanceAsInt64) then
+    {$ifdef LARGEINT}
+      if (StartPoint.DistanceAsInt64 < BestStartPoint.DistanceAsInt64) then
+    {$else}
+      FinishX := StartPoint.DistanceHighDword - BestStartPoint.DistanceHighDword;
+      if (FinishX <= 0) then
+      if (FinishX < 0) or
+        (StartPoint.DistanceLowDword < BestStartPoint.DistanceLowDword) then
+    {$endif}
       BestStartPoint := StartPoint;
 
     Inc(StartPoint);
