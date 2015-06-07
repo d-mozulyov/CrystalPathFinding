@@ -4560,10 +4560,11 @@ const
   FLAG_SECTORS = (1 shl 4);
   FLAG_EXCLUDED = (1 shl 5);
   FLAG_WEIGHTS = (1 shl 6);
+  FLAG_HEURISTICS = (1 shl 7);
 
   CHANGED_FINISH_INTERVAL = 8;
 label
-  path_found, path_not_found, fill_result;
+  weights_flags, path_found, path_not_found, fill_result;
 var
   i: NativeUInt;
   MapWidth, MapHeight: Cardinal;
@@ -4572,6 +4573,7 @@ var
   FinishX, FinishY: Integer;
   S: PPoint;
   Flags, StartFlags: NativeUInt;
+  HLine, HDiagonal: NativeInt;
   ResultPath: ^TTileMapPath;
 
   FullPath: Boolean;
@@ -4580,7 +4582,7 @@ var
   FoundPaths: NativeUInt;
   StartPoint, BestStartPoint: PCPFStart;
   FailureNode: TCPFNode;
-  Node: PCPFNode;
+  Node, N: PCPFNode;
   FinishNode: PCPFNode;
 
   {$ifdef CPUX86}
@@ -4756,32 +4758,66 @@ begin
     begin
       if (FActualInfo.Weights.Count <> 0) then
       begin
-        if (not ActualizeWeights(nil, True{Flags???})) then
-          Flags := Flags or FLAG_WEIGHTS;
+        HLine := FInfo.HeuristicsLine;
+        HDiagonal := FInfo.HeuristicsDiagonal;
+        if (not ActualizeWeights(nil, True{Flags???})) then goto weights_flags;
       end;
     end else
     if (FActualInfo.Weights.Current <> Params.Weights.FInfo) or
       (FActualInfo.Weights.UpdateId <> Params.Weights.FInfo.PrepareId) then
     begin
+      HLine := FInfo.HeuristicsLine;
+      HDiagonal := FInfo.HeuristicsDiagonal;
+
       if (not ActualizeWeights(Params.Weights.FInfo, True{Flags???})) then
+      begin
+      weights_flags:
         Flags := Flags or FLAG_WEIGHTS;
+
+        if (HLine <> FInfo.HeuristicsLine) or (HDiagonal <> FInfo.HeuristicsDiagonal) then
+          Flags := Flags or FLAG_HEURISTICS;
+      end;
+    end;
+  end;
+
+
+(*
+  FLAG_CACHING = (1 shl 0);
+  FLAG_FINISH = (1 shl 1);
+  FLAG_CLEAN = (1 shl 2);
+  FLAG_TILES = (1 shl 3);
+  FLAG_SECTORS = (1 shl 4);
+  FLAG_EXCLUDED = (1 shl 5);
+  FLAG_WEIGHTS = (1 shl 6);
+  FLAG_HEURISTICS = (1 shl 7);
+*)
+
+
+  // cleanup initialized nodes
+  begin
+    // attainable points
+    if (Flags <> 0) then
+    begin
+      // flag has attanable? todo
+      if (FActualInfo.FinishPoint.X < 0) then
+        ReleaseAttainableNodes;
     end;
 
+    // heuristed pool
+    if (Flags and (FLAG_CACHING or FLAG_FINISH or FLAG_TILES or FLAG_HEURISTICS) <> 0) then
+    begin
+      with FNodes.HeuristedPool do
+      if (First.Next <> @Last) then
+        ReleasePoolNodes(First, Last);
+    end;
 
-
-    // attainable points
-    //???? if (not ActualCachedData) then
-    //????  ReleaseAttainableNodes;
-
-    // actualize finish point
-   (* FActualInfo.FinishPoint.X := FinishX;
-    FInfo.FinishPoint.X := FinishX;
-    FActualInfo.FinishPoint.Y := FinishY;
-    FInfo.FinishPoint.Y := FinishY;*)
-
-    // heuristics points
-    //????if (not ActualFinish) then
-    //????  ReleaseHeuristedNodes;
+    // unattainable pool
+    if (Flags and (FLAG_CACHING or FLAG_FINISH or FLAG_SECTORS or FLAG_EXCLUDED) <> 0) then
+    begin
+      with FNodes.UnattainablePool do
+      if (First.Next <> @Last) then
+        ReleasePoolNodes(First, Last);
+    end;
   end;
 
   // allocate start points
@@ -4819,20 +4855,29 @@ begin
   FActualInfo.FoundPath.Distance := 0;
   if (FinishSector = SECTOR_PATHLESS) then goto fill_result;
 
-  // initialize excluded points
+  // reinitialize excluded points
   if (Flags and (FLAG_EXCLUDED or FLAG_CLEAN) <> 0) then
   begin
-    // Excluded.NodeList
-    // todo
+    // remove from list
+    Node := FActualInfo.Excludes.NodeList;
+    while (Node <> nil) do
+    begin
+      Node.ParentMask := $ff{unlock};
+      Node := Node.Next;
+    end;
 
+    // add points (Node = nil)
     S := Params.Excludes;
     for i := Params.ExcludesCount downto 1 do
     begin
-      Node := AllocateHeuristedNode(S.X, S.Y);
-      Node.ParentMask := 0{locked flag};
+      N := AllocateHeuristedNode(S.X, S.Y);
+      N.ParentMask := 0{locked flag};
+      N.Next := Node;
+      Node := N;
 
       Inc(S);
     end;
+    FActualInfo.Excludes.NodeList := Node;
   end;
 
   // finish point node
@@ -4932,14 +4977,14 @@ begin
     FActualInfo.FoundPath.FullPath := True;
     // Alloc(Length * SizeOf(TPoint))
     NodeInfo := FActualInfo.FoundPath.Length * SizeOf(TPoint);
-    with FActualInfo.FoundPath.Buffer do if (NodeInfo > FAllocatedSize) then Realloc(NodeInfo);
+    if (NodeInfo > FActualInfo.FoundPath.Buffer.FAllocatedSize) then FActualInfo.FoundPath.Buffer.Realloc(NodeInfo);
     FillAttainablePath(BestStartPoint.Node, FinishNode);
   end else
   begin
     FActualInfo.FoundPath.FullPath := False;
     // Alloc(2 * SizeOf(TPoint))
     NodeInfo := 2 * SizeOf(TPoint);
-    with FActualInfo.FoundPath.Buffer do if (NodeInfo > FAllocatedSize) then Realloc(NodeInfo);
+    if (NodeInfo > FActualInfo.FoundPath.Buffer.FAllocatedSize) then FActualInfo.FoundPath.Buffer.Realloc(NodeInfo);
 
     S := FActualInfo.FoundPath.Buffer.Memory;
     S.X := BestStartPoint.X;
