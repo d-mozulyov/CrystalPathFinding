@@ -376,7 +376,7 @@ type
       HotPool: record
         First: TCPFNode;
         Last: TCPFNode;
-        LastLockedNode: PCPFNode;
+        Unattainable: Boolean;
       end;
       ExcludedPool: record
         First: TCPFNode;
@@ -438,7 +438,7 @@ type
     procedure ActualizeSectors;
     procedure FreeStorageTopBuffer;
     procedure FreeAllocatedNodes(const ClearCells: Boolean);
-    procedure ReleaseAttainableTreeNodes;
+    procedure ForgetAttainableTreeNodes;
     procedure ReleasePoolNodes(var PoolFirst, PoolLast: TCPFNode);
     procedure FlushHotPoolNodes;
     procedure UnlockExcludedNodes;
@@ -2105,7 +2105,6 @@ begin
   FNodes.HotPool.Last.SortValue := SORTVALUE_LIMIT;
   Cardinal(FNodes.HotPool.Last.Coordinates) := High(Cardinal);
   FNodes.HotPool.Last.NodeInfo := FLAG_KNOWN_PATH {+ not FLAG_ATTAINABLE};
-  FNodes.HotPool.LastLockedNode := nil;
 
   // allocate and fill cells
   // node storage initialization
@@ -3281,7 +3280,6 @@ begin
   // hot pool
   FNodes.HotPool.First.Next := @FNodes.HotPool.Last;
   FNodes.HotPool.Last.Prev := @FNodes.HotPool.First;
-  FNodes.HotPool.LastLockedNode := nil;
 
   // excluded pool
   FNodes.ExcludedPool.First.Next := @FNodes.ExcludedPool.Last;
@@ -3479,7 +3477,7 @@ begin
   until (CellMask = 0);
 end;
 
-procedure TTileMap.ReleaseAttainableTreeNodes;
+procedure TTileMap.ForgetAttainableTreeNodes;
 var
   Cell: PCPFCell;
   NodeInfo: NativeUInt;
@@ -3558,13 +3556,11 @@ end;
 procedure TTileMap.FlushHotPoolNodes;
 var
   LastPoolNode: PCPFNode;
-  Node, UnlockedNode, Buffer: PCPFNode;
+  Node, Buffer: PCPFNode;
 begin
   // start point nodes
   Buffer{Node} := FNodes.HotPool.First.Next;
-  UnlockedNode{last locked node} := FNodes.HotPool.LastLockedNode;
   if (Buffer{Node} = @FNodes.HotPool.Last) then Exit;
-  FNodes.HotPool.LastLockedNode := nil;
 
   // mark list end (nil)
   FNodes.HotPool.Last.Prev.Next := nil;
@@ -3574,7 +3570,7 @@ begin
   FNodes.HotPool.Last.Prev := @FNodes.HotPool.First;
 
   // process each node
-  if (UnlockedNode <> nil) then
+  if (not FNodes.HotPool.Unattainable) then
   begin
     // first heuristed pool node
     Buffer{Node}.Prev := @FNodes.HeuristedPool.First;
@@ -3583,7 +3579,6 @@ begin
 
     // retrieve parent mask (unlock)
     // clear sort value
-    UnlockedNode := UnlockedNode{last locked node}.Next;
     repeat
       Node := Buffer;
       Buffer := Buffer.Next;
@@ -3591,17 +3586,7 @@ begin
       Node.ParentMask := $ff;
       Node.Path := SORTVALUE_LIMIT - (Node.SortValue - Node.Path);
       Node.SortValue := SORTVALUE_LIMIT;
-    until (Buffer = UnlockedNode);
-
-    // clear sort value
-    while (Buffer <> nil) do
-    begin
-      Node := Buffer;
-      Buffer := Buffer.Next;
-
-      Node.Path := SORTVALUE_LIMIT - (Node.SortValue - Node.Path);
-      Node.SortValue := SORTVALUE_LIMIT;
-    end;
+    until (Buffer = nil);
   end else
   begin
     // first unattainable pool node
@@ -3785,9 +3770,10 @@ begin
       ParentNode := Pointer(Cell.NodePtr and NODEPTR_CLEAN_MASK);
     {$endif}
 
-    // child and flags
-    ParentNodeInfo := (NativeUInt(ParentNode.NodeInfo) and CHILDS_BITS_CLEAR_MASK) +
-      (FLAG_KNOWN_PATH + FLAG_ATTAINABLE) + ((NodeInfo{$ifNdef CPUX86} and 7{$endif}) shl 3);
+    // child and flags (unlock if needed)
+    ParentNodeInfo := ((NativeUInt(ParentNode.NodeInfo) and CHILDS_BITS_CLEAR_MASK) or
+      ($00ff0000 + FLAG_KNOWN_PATH + FLAG_ATTAINABLE)) + 
+      ((NodeInfo{$ifNdef CPUX86} and 7{$endif}) shl 3);
     ParentNode.NodeInfo := ParentNodeInfo;
 
     // remove from list
@@ -4411,7 +4397,9 @@ begin
         // child node info (with new parent bits)
         ChildNodeInfo := ChildNode.NodeInfo;
         ParentBits := ParentBits + (ChildNodeInfo and PARENT_BITS_CLEAR_MASK);
-        if (ParentBits and ((ChildNodeInfo and $ff00) shl 8) = 0) then goto nextchild_continue;
+
+        // child locked test
+        if (ParentBits and ((ChildNodeInfo and $ff0000) shr 8) = 0) then goto nextchild_continue;
 
         // child path
         Cell{TileWeights} := Store.Info.TileWeights[ParentBits and 1];
@@ -4589,11 +4577,10 @@ const
   FLAG_FINISH = (1 shl 1);
   FLAG_CLEAN = (1 shl 2);
   FLAG_TILES = (1 shl 3);
-  FLAG_SECTORS = (1 shl 4);
-  FLAG_EXCLUDES = (1 shl 5);
-  FLAG_WEIGHTS = (1 shl 6);
-  FLAG_HEURISTICS = (1 shl 7);
-  FLAG_STARTS = (1 shl 8);
+  FLAG_EXCLUDES = (1 shl 4);
+  FLAG_WEIGHTS = (1 shl 5);
+  FLAG_HEURISTICS = (1 shl 6);
+  FLAG_STARTS = (1 shl 7);
 
   CHANGED_FINISH_INTERVAL = 8;
 label
@@ -4726,8 +4713,7 @@ begin
   Flags := NativeUInt(FCaching) xor 1;{FLAG_CACHING}
   begin
     // finish point
-    if (0 <> (Integer(FInfo.FinishPoint.X) - FinishX) or
-         (Integer(FInfo.FinishPoint.Y) - FinishY)) then
+    if (0 <> Cardinal(FInfo.FinishPoint) - Cardinal(FinishX shl 16 + FinishY)) then
     begin
       Flags := Flags or FLAG_FINISH;
 
@@ -4754,18 +4740,12 @@ begin
     begin
       Flags := Flags or FLAG_TILES;
       FActualInfo.TilesChanged := False;
-
-      if (FActualInfo.SectorsChanged) then
-      begin
-        Flags := Flags or FLAG_SECTORS;
-        FActualInfo.SectorsChanged := False;
-      end;
     end;
 
     // actualize sectors
     if (SectorTest) then
     begin
-      if (FActualInfo.Sectors = nil) or (Flags and FLAG_SECTORS <> 0) then
+      if (FActualInfo.Sectors = nil) or (FActualInfo.SectorsChanged) then
         ActualizeSectors;
 
       FinishSector := PByte(NativeInt(FActualInfo.Sectors) +
@@ -4839,21 +4819,38 @@ begin
     else
     goto nodes_initialized;
   end;
+  Flags := Flags and not Integer(FLAG_STARTS);
+  if (Flags = 0{start points changed only} {ToDo: excludes???}) then goto nodes_initialized;
+
+(*
+  FLAG_CACHING = (1 shl 0);
+  FLAG_FINISH = (1 shl 1);
+  FLAG_CLEAN = (1 shl 2);
+  FLAG_TILES = (1 shl 3);
+  FLAG_EXCLUDES = (1 shl 4);
+  FLAG_WEIGHTS = (1 shl 5);
+  FLAG_HEURISTICS = (1 shl 6);
+  FLAG_STARTS = (1 shl 7);
+*)  
 
   // cleanup initialized node pools (contains NODEPTR_FLAG_HEURISTED)
   if (Flags and FLAG_CLEAN = 0) then
   begin
+    //Flags := Flags or FLAG_STARTS;
+
+    
+  
     // attainable points (+ hot)
     if (Flags <> 0) then
     begin
       // hot pool has attainable nodes case
       // move nodes to the heuristed pool and reinitialize fields
       if (FNodes.HotPool.First.Next <> @FNodes.HotPool.Last) and
-        (FNodes.HotPool.LastLockedNode <> nil) then
+        (not FNodes.HotPool.Unattainable) then
         FlushHotPoolNodes;
 
       if (FNodes.AttainableTree) then
-        ReleaseAttainableTreeNodes;
+        ForgetAttainableTreeNodes;
     end;
 
     // heuristed pool (+ excluded + hot)
@@ -4866,93 +4863,59 @@ begin
         ReleasePoolNodes(FNodes.ExcludedPool.First, FNodes.ExcludedPool.Last);
 
       if (FNodes.HotPool.First.Next <> @FNodes.HotPool.Last) and
-        (FNodes.HotPool.LastLockedNode <> nil) then
-      begin
+        (not FNodes.HotPool.Unattainable) then
         ReleasePoolNodes(FNodes.HotPool.First, FNodes.HotPool.Last);
-        FNodes.HotPool.LastLockedNode := nil;
-      end;
     end;
 
     // unattainable pool (+ hot)
-    if (Flags and (FLAG_CACHING or FLAG_FINISH or FLAG_SECTORS or FLAG_EXCLUDES) <> 0) then
+    if (Flags and (FLAG_CACHING or FLAG_FINISH or FLAG_TILES or FLAG_EXCLUDES) <> 0) then
     begin
       if (FNodes.UnattainablePool.First.Next <> @FNodes.UnattainablePool.Last) then
         ReleasePoolNodes(FNodes.UnattainablePool.First, FNodes.UnattainablePool.Last);
 
-      if (FNodes.HotPool.First.Next <> @FNodes.HotPool.Last) then
-      begin
-        Node := FNodes.HotPool.LastLockedNode;
-        if (Node = nil) then
-          ReleasePoolNodes(FNodes.HotPool.First, FNodes.HotPool.Last);
-      end;
+      if (FNodes.HotPool.First.Next <> @FNodes.HotPool.Last) and
+        (FNodes.HotPool.Unattainable) then
+        ReleasePoolNodes(FNodes.HotPool.First, FNodes.HotPool.Last);
     end;
   end;
-
-  nodes_initialized{???}:
 
   // new finish point
   FInfo.FinishPoint.X := Params.Finish.X;
   FInfo.FinishPoint.Y := Params.Finish.Y;
 
-  // basic path initialization
+  // (re)initialize excluded points
+  Flags := Params.ExcludesCount;
+  S := Params.Excludes;
+  if (Flags <> 0) then
+  repeat
+    N := AllocateHeuristedNode(S.X, S.Y);
+    N.ParentMask := 0{locked flag};
+
+    //unattainable pool????
+
+    // remove from heuristed/excluded/unattainable pool
+    Node := N.Prev;
+    Node.Next := N.Next;
+    Node.Next.Prev := Node;
+
+    // add to excluded pool
+    Node := FNodes.ExcludedPool.First.Next;
+    Node.Prev := N;
+    N.Next := Node;
+    N.Prev := @FNodes.ExcludedPool.First;
+    FNodes.ExcludedPool.First.Next := N;
+
+    Dec(Flags);
+    Inc(S);
+  until (Flags = 0);
+
+nodes_initialized:   
+  // basic path initialization  
   FActualInfo.FoundPath.Index := 0;
   FActualInfo.FoundPath.Length := 0;
   FActualInfo.FoundPath.Distance := 0;
   if (FinishSector = SECTOR_PATHLESS) then goto fill_result;
-
-  // hot nodes
-//  if (FNodes.HotPool.First.Next <> @FNodes.HotPool.Last) then
-//    FlushHotPoolNodes;
-
-  // reinitialize excluded points
-  if (Flags and (FLAG_EXCLUDES or FLAG_CLEAN or FLAG_CACHING or FLAG_FINISH or FLAG_HEURISTICS) <> 0) then
-  begin
-    // move excluded to heuristed pool
-    (*Node := FNodes.ExcludesPool.First.Next;
-    if (Node <> @FNodes.ExcludesPool.Last) then
-    begin
-      N := FNodes.ExcludesPool.Last.Prev;
-
-      N.Next := FNodes.HeuristedPool.First.Next;
-      N.Next.Prev := N;
-      FNodes.HeuristedPool.First.Next := Node;
-      Node.Prev := @FNodes.HeuristedPool.First;
-
-      while (Node <> N) do
-      begin
-        Node.ParentMask := $ff{unlock};
-        Node := Node.Next;
-      end;
-
-      FNodes.ExcludesPool.First.Next := @FNodes.ExcludesPool.Last;
-      FNodes.ExcludesPool.Last.Prev := @FNodes.ExcludesPool.First;
-    end; *)
-
-    // lock excluded points
-    S := Params.Excludes;
-    for i := Params.ExcludesCount downto 1 do
-    begin
-      N := AllocateHeuristedNode(S.X, S.Y);
-      N.ParentMask := 0{locked flag};
-
-      //unattainable pool????
-
-      // remove from heuristed/excluded/unattainable pool
-      Node := N.Prev;
-      Node.Next := N.Next;
-      Node.Next.Prev := Node;
-
-      // add to excluded pool
-      Node := FNodes.ExcludedPool.First.Next;
-      Node.Prev := N;
-      N.Next := Node;
-      N.Prev := @FNodes.ExcludedPool.First;
-      FNodes.ExcludedPool.First.Next := N;
-
-      Inc(S);
-    end;
-  end;
-
+  
   // finish point node
   Node := AllocateHeuristedNode(Params.Finish.X, Params.Finish.Y);
   Node.NodeInfo := Node.NodeInfo or {mark anyway}(FLAG_KNOWN_PATH + FLAG_ATTAINABLE);
@@ -5009,8 +4972,9 @@ begin
     StartPoint.KnownPathNode := Self.DoFindPathLoop(Node);
     if (StartPoint.KnownPathNode.NodeInfo and FLAG_ATTAINABLE <> 0) then
     begin
-      path_found:
-
+      FNodes.HotPool.Unattainable := False;
+    
+    path_found:
       if (AttainableAlgorithm) then
       begin
         CacheAttainablePath(StartPoint^, FinishNode);
@@ -5022,8 +4986,9 @@ begin
       end;
     end else
     begin
-      path_not_found:
-
+      FNodes.HotPool.Unattainable := True;
+    
+    path_not_found:
       StartPoint.DistanceAsInt64 := $7fefffffffffffff{MaxDouble};
       Dec(FoundPaths);
     end;
@@ -5156,6 +5121,7 @@ initialization
   {$endif}
   {$if Defined(DEBUG) and not Defined(CPFLIB)}
 
+ 
   TTileMapPtr(nil).DoFindPath(100500);
 
 
