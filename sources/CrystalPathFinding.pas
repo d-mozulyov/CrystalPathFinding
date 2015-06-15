@@ -4576,11 +4576,16 @@ const
   FLAG_CACHING = (1 shl 0);
   FLAG_FINISH = (1 shl 1);
   FLAG_CLEAN = (1 shl 2);
-  FLAG_TILES = (1 shl 3);
-  FLAG_EXCLUDES = (1 shl 4);
-  FLAG_WEIGHTS = (1 shl 5);
-  FLAG_HEURISTICS = (1 shl 6);
-  FLAG_STARTS = (1 shl 7);
+  FLAG_TILEWEIGHTS = (1 shl 3);
+  FLAG_HEURISTICS = (1 shl 4);
+  FLAG_EXCLUDES = (1 shl 5);
+  FLAG_STARTS = (1 shl 6);
+
+  FLAGS_HEURISTED_POOL = FLAG_CACHING or FLAG_FINISH or FLAG_HEURISTICS;
+  FLAGS_UNATTAINABLE_POOL = FLAG_CACHING or FLAG_FINISH or FLAG_TILEWEIGHTS or FLAG_EXCLUDES;
+  // FLAGS_HOT_POOL = FLAGS_HEURISTED_POOL / FLAGS_UNATTAINABLE_POOL;
+  FLAGS_EXCLUDED_POOL = FLAG_EXCLUDES or FLAGS_HEURISTED_POOL or FLAGS_UNATTAINABLE_POOL;
+  FLAGS_ATTAINABLE_NODES = FLAG_CACHING or FLAG_FINISH or FLAG_TILEWEIGHTS or FLAG_EXCLUDES;
 
   CHANGED_FINISH_INTERVAL = 8;
 label
@@ -4593,34 +4598,41 @@ var
   FinishX, FinishY: Integer;
   S: PPoint;
   Flags: NativeUInt;
-  HLine, HDiagonal: NativeInt;
+
+  Params: TTileMapParams;
+  Store: record
+    FullPath: Boolean;
+    FinishSector: Byte;
+    AttainableAlgorithm: Boolean;
+    HLine, HDiagonal: NativeInt;
+  end;
   ResultPath: ^TTileMapPath;
 
-  FullPath: Boolean;
-  FinishSector: Byte;
-  AttainableAlgorithm: Boolean;
   FoundPaths: NativeUInt;
   StartPoint, BestStartPoint: PCPFStart;
   Node, N: PCPFNode;
   FinishNode: PCPFNode;
 
-  {$ifdef CPUX86}
-    Params: TTileMapParams;
-  {$else}
-    Params: ^TTileMapParams;
-  {$endif}
   {$ifdef LARGEINT}
     NodeBuffers: PCPFNodeBuffers;
+  {$endif}
+  {$ifNdef CPUX86}
+    _Self: Pointer;
   {$endif}
 begin
   // stack copy parameters to one register save
   Flags := ParamsPtr;
-  FullPath := Boolean(Flags shr HIGH_NATIVE_BIT);
-  Params := PTileMapParams(Flags and ((NativeUInt(1) shl HIGH_NATIVE_BIT) - 1)){$ifdef CPUX86}^{$endif};
+  Store.FullPath := Boolean(Flags shr HIGH_NATIVE_BIT);
+  Params := PTileMapParams(Flags and ((NativeUInt(1) shl HIGH_NATIVE_BIT) - 1))^;
 
+{$ifNdef CPUX86}
+  _Self := Pointer({$ifdef CPFLIB}@Self{$else}Self{$endif});
+  {$ifNdef CPUX86}with TTileMapPtr(_Self){$ifdef CPFLIB}^{$endif} do{$endif}
+begin
+{$endif}
   // test start points coordinates
-  MapWidth := Self.Width;
-  MapHeight := Self.Height;
+  MapWidth := Width;
+  MapHeight := Height;
   S := Params.Starts;
   for i := 1 to Params.StartsCount do
   begin
@@ -4650,7 +4662,7 @@ begin
   if (CellInfo and NODEPTR_FLAG_ALLOCATED <> 0) then
   begin
     {$ifdef LARGEINT}
-    NodeBuffers := Pointer(@FInfo.NodeAllocator.Buffers);
+    NodeBuffers := Pointer(@TTileMapPtr(_Self).FInfo.NodeAllocator.Buffers);
     {$endif}
     CellInfo := PCPFNode(
               {$ifdef LARGEINT}NodeBuffers[CellInfo shr LARGE_NODEPTR_OFFSET] +{$endif}
@@ -4699,7 +4711,7 @@ begin
       FActualInfo.PathlessFinishPoint.X := FinishX;
       FActualInfo.PathlessFinishPoint.Y := FinishY;
       ResultPath := @Result;
-      ResultPath.Index := (NativeUInt(S) - NativeUInt(Params.Starts)) div SizeOf(TPoint);
+      ResultPath.Index := (NativeUInt(S) - NativeUInt(Params.Starts)) shr 3{div SizeOf(TPoint)};
       ResultPath.Points := Pointer(@FActualInfo.PathlessFinishPoint);
       ResultPath.Count := 1;
       ResultPath.Distance := 0;
@@ -4738,7 +4750,7 @@ begin
     // tiles + sectors
     if (FActualInfo.TilesChanged) then
     begin
-      Flags := Flags or FLAG_TILES;
+      Flags := Flags or FLAG_TILEWEIGHTS;
       FActualInfo.TilesChanged := False;
     end;
 
@@ -4748,14 +4760,14 @@ begin
       if (FActualInfo.Sectors = nil) or (FActualInfo.SectorsChanged) then
         ActualizeSectors;
 
-      FinishSector := PByte(NativeInt(FActualInfo.Sectors) +
-        NativeInt(Self.Width) * Params.Finish.Y + Params.Finish.X)^;
+      Store.FinishSector := PByte(NativeInt(FActualInfo.Sectors) +
+        NativeInt(Width) * Params.Finish.Y + Params.Finish.X)^;
     end else
     begin
       if (FActualInfo.Sectors <> nil) then
         CPFFreeMem(Pointer(FActualInfo.Sectors));
 
-      FinishSector := SECTOR_EMPTY;
+      Store.FinishSector := SECTOR_EMPTY;
     end;
 
     // excluded points
@@ -4770,23 +4782,23 @@ begin
     begin
       if (FActualInfo.Weights.Count <> 0) then
       begin
-        HLine := FInfo.HeuristicsLine;
-        HDiagonal := FInfo.HeuristicsDiagonal;
-        if (not ActualizeWeights(nil, 0 = Flags and (FLAG_CACHING or FLAG_FINISH or FLAG_TILES))) then goto weights_flags;
+        Store.HLine := FInfo.HeuristicsLine;
+        Store.HDiagonal := FInfo.HeuristicsDiagonal;
+        if (not ActualizeWeights(nil, 0 = Flags and (FLAG_CACHING or FLAG_FINISH{ or FLAG_CLEAN}))) then goto weights_flags;
       end;
     end else
     if (FActualInfo.Weights.Current <> Params.Weights.FInfo) or
       (FActualInfo.Weights.UpdateId <> Params.Weights.FInfo.PrepareId) then
     begin
-      HLine := FInfo.HeuristicsLine;
-      HDiagonal := FInfo.HeuristicsDiagonal;
+      Store.HLine := FInfo.HeuristicsLine;
+      Store.HDiagonal := FInfo.HeuristicsDiagonal;
 
-      if (not ActualizeWeights(Params.Weights.FInfo, 0 = Flags and (FLAG_CACHING or FLAG_FINISH or FLAG_TILES))) then
+      if (not ActualizeWeights(Params.Weights.FInfo, 0 = Flags and (FLAG_CACHING or FLAG_FINISH{ or FLAG_CLEAN}))) then
       begin
       weights_flags:
-        Flags := Flags or FLAG_WEIGHTS;
+        Flags := Flags or FLAG_TILEWEIGHTS;
 
-        if (HLine <> FInfo.HeuristicsLine) or (HDiagonal <> FInfo.HeuristicsDiagonal) then
+        if (Store.HLine <> FInfo.HeuristicsLine) or (Store.HDiagonal <> FInfo.HeuristicsDiagonal) then
           Flags := Flags or FLAG_HEURISTICS;
       end;
     end;
@@ -4815,52 +4827,37 @@ begin
   // nothing is changed case
   if (Flags = 0) then
   begin
-    if (Byte(FActualInfo.FoundPath.FullPath) >= Byte(FullPath)) then goto fill_result
+    if (Byte(FActualInfo.FoundPath.FullPath) >= Byte(Store.FullPath)) then goto fill_result
     else
     goto nodes_initialized;
   end;
-  Flags := Flags and not Integer(FLAG_STARTS);
-  if (Flags = 0{start points changed only} {ToDo: excludes???}) then goto nodes_initialized;
-
-(*
-  FLAG_CACHING = (1 shl 0);
-  FLAG_FINISH = (1 shl 1);
-  FLAG_CLEAN = (1 shl 2);
-  FLAG_TILES = (1 shl 3);
-  FLAG_EXCLUDES = (1 shl 4);
-  FLAG_WEIGHTS = (1 shl 5);
-  FLAG_HEURISTICS = (1 shl 6);
-  FLAG_STARTS = (1 shl 7);
-*)  
+  if (Flags = FLAG_STARTS{start points changed only}) then goto nodes_initialized;
 
   // cleanup initialized node pools (contains NODEPTR_FLAG_HEURISTED)
   if (Flags and FLAG_CLEAN = 0) then
   begin
-    //Flags := Flags or FLAG_STARTS;
+    // attainable points
+    if (Flags and FLAGS_ATTAINABLE_NODES <> 0) and (FNodes.AttainableTree) then
+      ForgetAttainableTreeNodes;
 
-    
-  
-    // attainable points (+ hot)
-    if (Flags <> 0) then
+    // excluded points
+    if (Flags and FLAGS_EXCLUDED_POOL <> 0) and
+      (FNodes.ExcludedPool.First.Next <> @FNodes.ExcludedPool.Last) then
     begin
-      // hot pool has attainable nodes case
-      // move nodes to the heuristed pool and reinitialize fields
-      if (FNodes.HotPool.First.Next <> @FNodes.HotPool.Last) and
-        (not FNodes.HotPool.Unattainable) then
-        FlushHotPoolNodes;
-
-      if (FNodes.AttainableTree) then
-        ForgetAttainableTreeNodes;
+      if (Flags and (FLAGS_HEURISTED_POOL and FLAGS_UNATTAINABLE_POOL) <> 0) then
+      begin
+        ReleasePoolNodes(FNodes.ExcludedPool.First, FNodes.ExcludedPool.Last);
+      end else
+      begin
+        UnlockExcludedNodes;
+      end;
     end;
 
     // heuristed pool (+ excluded + hot)
-    if (Flags and (FLAG_CACHING or FLAG_FINISH or FLAG_HEURISTICS) <> 0) then
+    if (Flags and FLAGS_HEURISTED_POOL <> 0) then
     begin
       if (FNodes.HeuristedPool.First.Next <> @FNodes.HeuristedPool.Last) then
         ReleasePoolNodes(FNodes.HeuristedPool.First, FNodes.HeuristedPool.Last);
-
-      if (FNodes.ExcludedPool.First.Next <> @FNodes.ExcludedPool.Last) then
-        ReleasePoolNodes(FNodes.ExcludedPool.First, FNodes.ExcludedPool.Last);
 
       if (FNodes.HotPool.First.Next <> @FNodes.HotPool.Last) and
         (not FNodes.HotPool.Unattainable) then
@@ -4868,7 +4865,7 @@ begin
     end;
 
     // unattainable pool (+ hot)
-    if (Flags and (FLAG_CACHING or FLAG_FINISH or FLAG_TILES or FLAG_EXCLUDES) <> 0) then
+    if (Flags and FLAGS_UNATTAINABLE_POOL <> 0) then
     begin
       if (FNodes.UnattainablePool.First.Next <> @FNodes.UnattainablePool.Last) then
         ReleasePoolNodes(FNodes.UnattainablePool.First, FNodes.UnattainablePool.Last);
@@ -4884,38 +4881,44 @@ begin
   FInfo.FinishPoint.Y := Params.Finish.Y;
 
   // (re)initialize excluded points
+  if (Flags and (FLAG_CLEAN or FLAGS_EXCLUDED_POOL) = 0) then goto nodes_initialized;
   Flags := Params.ExcludesCount;
   S := Params.Excludes;
   if (Flags <> 0) then
-  repeat
-    N := AllocateHeuristedNode(S.X, S.Y);
-    N.ParentMask := 0{locked flag};
+  begin
+    // hot pool nodes
+    if (FNodes.HotPool.First.Next <> @FNodes.HotPool.Last) then
+      ReleasePoolNodes(FNodes.HotPool.First, FNodes.HotPool.Last);
 
-    //unattainable pool????
+    // each excluded point loop
+    repeat
+      N := AllocateHeuristedNode(S.X, S.Y);
+      N.ParentMask := 0{locked flag};
 
-    // remove from heuristed/excluded/unattainable pool
-    Node := N.Prev;
-    Node.Next := N.Next;
-    Node.Next.Prev := Node;
+      // remove from heuristed/unattainable/excluded pool
+      Node := N.Prev;
+      Node.Next := N.Next;
+      Node.Next.Prev := Node;
 
-    // add to excluded pool
-    Node := FNodes.ExcludedPool.First.Next;
-    Node.Prev := N;
-    N.Next := Node;
-    N.Prev := @FNodes.ExcludedPool.First;
-    FNodes.ExcludedPool.First.Next := N;
+      // add to excluded pool
+      Node := FNodes.ExcludedPool.First.Next;
+      Node.Prev := N;
+      N.Next := Node;
+      N.Prev := @FNodes.ExcludedPool.First;
+      FNodes.ExcludedPool.First.Next := N;
 
-    Dec(Flags);
-    Inc(S);
-  until (Flags = 0);
+      Dec(Flags);
+      Inc(S);
+    until (Flags = 0);
+  end;
 
-nodes_initialized:   
+nodes_initialized:
   // basic path initialization  
   FActualInfo.FoundPath.Index := 0;
   FActualInfo.FoundPath.Length := 0;
   FActualInfo.FoundPath.Distance := 0;
-  if (FinishSector = SECTOR_PATHLESS) then goto fill_result;
-  
+  if (Store.FinishSector = SECTOR_PATHLESS) then goto fill_result;
+
   // finish point node
   Node := AllocateHeuristedNode(Params.Finish.X, Params.Finish.Y);
   Node.NodeInfo := Node.NodeInfo or {mark anyway}(FLAG_KNOWN_PATH + FLAG_ATTAINABLE);
@@ -4924,14 +4927,14 @@ nodes_initialized:
   // each start point find algorithm
   FoundPaths := Params.StartsCount;
   StartPoint := FActualInfo.Starts.Buffer.Memory;
-  AttainableAlgorithm := (FoundPaths > 1) or (Self.FCaching);
+  Store.AttainableAlgorithm := (FoundPaths > 1) or (FCaching);
   for i := Params.StartsCount downto 1 do
   begin
     // sector test
-    if (FinishSector <> SECTOR_EMPTY{Self.SectorTest}) then
+    if (Store.FinishSector <> SECTOR_EMPTY{Self.SectorTest}) then
     begin
-      if (FinishSector <> PByte(NativeInt(FActualInfo.Sectors) +
-        NativeInt(Self.Width) * StartPoint.Y + StartPoint.X)^) then
+      if (Store.FinishSector <> PByte(NativeInt(FActualInfo.Sectors) +
+        NativeInt(Width) * StartPoint.Y + StartPoint.X)^) then
         goto path_not_found;
     end;
 
@@ -4969,13 +4972,13 @@ nodes_initialized:
     Node.Next := @FNodes.HotPool.Last;
 
     // call find path loop
-    StartPoint.KnownPathNode := Self.DoFindPathLoop(Node);
+    StartPoint.KnownPathNode := DoFindPathLoop(Node);
     if (StartPoint.KnownPathNode.NodeInfo and FLAG_ATTAINABLE <> 0) then
     begin
       FNodes.HotPool.Unattainable := False;
     
     path_found:
-      if (AttainableAlgorithm) then
+      if (Store.AttainableAlgorithm) then
       begin
         CacheAttainablePath(StartPoint^, FinishNode);
       end else
@@ -5017,10 +5020,10 @@ nodes_initialized:
   end;
 
   // fill best start point parameters and path (attainable algorithm)
-  FActualInfo.FoundPath.Index := (NativeUInt(BestStartPoint) - NativeUInt(FActualInfo.Starts.Buffer.Memory)) div SizeOf(TCPFStart);
+  FActualInfo.FoundPath.Index := (NativeUInt(BestStartPoint) - NativeUInt(FActualInfo.Starts.Buffer.Memory)) shr 5;// div SizeOf(TCPFStart);
   FActualInfo.FoundPath.Distance := BestStartPoint.Distance;
   FActualInfo.FoundPath.Length := BestStartPoint.Length;
-  if (FullPath) then
+  if (Store.FullPath) then
   begin
     FActualInfo.FoundPath.FullPath := True;
     // Alloc(Length * SizeOf(TPoint))
@@ -5054,6 +5057,9 @@ fill_result:
   ResultPath.Distance := FActualInfo.FoundPath.Distance;
   if (ResultPath.Count = 0) then
     ResultPath.Points := nil;
+{$ifNdef CPUX86}
+end;
+{$endif}
 end;
 
 function TTileMap.FindPath(const Params: TTileMapParams; const FullPath: Boolean): TTileMapPath;
