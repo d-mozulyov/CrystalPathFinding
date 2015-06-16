@@ -3613,8 +3613,42 @@ begin
 end;
 
 procedure TTileMap.UnlockExcludedNodes;
+var
+  Buffer, Node, Right: PCPFNode;
+  NodeInfo: Cardinal;
 begin
-  // todo
+  // first excluded node
+  Buffer{Node} := FNodes.ExcludedPool.First.Next;
+  if (Buffer{Node} = @FNodes.ExcludedPool.Last) then Exit;
+
+  // mark list end (nil)
+  FNodes.ExcludedPool.Last.Prev.Next := nil;
+
+  // clear excluded pool
+  FNodes.ExcludedPool.First.Next := @FNodes.ExcludedPool.Last;
+  FNodes.ExcludedPool.Last.Prev := @FNodes.ExcludedPool.First;
+
+  // move to heuristed/unattanable pools loop
+  repeat
+    Node := Buffer;
+    Buffer := Buffer.Next;
+
+    NodeInfo := Node.NodeInfo;
+    Node.NodeInfo := NodeInfo or $00ff0000{parent mask};
+    if ((NodeInfo shr 3) and 3 = 1{KnownPath, not Attainable}) then
+    begin
+      Right := FNodes.HeuristedPool.First.Next;
+      Node.Prev := @FNodes.HeuristedPool.First;
+      Node.Next := Right;
+      FNodes.HeuristedPool.First.Next := Node;
+    end else
+    begin
+      Right := FNodes.UnattainablePool.First.Next;
+      Node.Prev := @FNodes.UnattainablePool.First;
+      Node.Next := Right;
+      FNodes.UnattainablePool.First.Next := Node;
+    end;
+  until (Buffer = nil);
 end;
 
 procedure TTileMap.CacheAttainablePath(var StartPoint: TCPFStart; const FinishNode: PCPFNode);
@@ -5125,12 +5159,5 @@ initialization
     {$WARNINGS OFF} // deprecated warning bug fix (like Delphi 2010 compiler)
     System.GetMemoryManager(MemoryManager);
   {$endif}
-  {$if Defined(DEBUG) and not Defined(CPFLIB)}
-
- 
-  TTileMapPtr(nil).DoFindPath(100500);
-
-
-  {$ifend}
 
 end.
