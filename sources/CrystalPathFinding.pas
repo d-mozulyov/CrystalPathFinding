@@ -3637,16 +3637,16 @@ begin
     Node.NodeInfo := NodeInfo or $00ff0000{parent mask};
     if ((NodeInfo shr 3) and 3 = 1{KnownPath, not Attainable}) then
     begin
-      Right := FNodes.HeuristedPool.First.Next;
-      Node.Prev := @FNodes.HeuristedPool.First;
-      Node.Next := Right;
-      FNodes.HeuristedPool.First.Next := Node;
-    end else
-    begin
       Right := FNodes.UnattainablePool.First.Next;
       Node.Prev := @FNodes.UnattainablePool.First;
       Node.Next := Right;
       FNodes.UnattainablePool.First.Next := Node;
+    end else
+    begin
+      Right := FNodes.HeuristedPool.First.Next;
+      Node.Prev := @FNodes.HeuristedPool.First;
+      Node.Next := Right;
+      FNodes.HeuristedPool.First.Next := Node;
     end;
   until (Buffer = nil);
 end;
