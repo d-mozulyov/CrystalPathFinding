@@ -1,11 +1,9 @@
-object Form1: TForm1
+object MainForm: TMainForm
   Left = 159
   Top = 134
   BorderIcons = [biSystemMenu, biMinimize]
   BorderStyle = bsSingle
-  Caption = 
-    #1058#1077#1089#1090' '#1088#1072#1089#1095#1105#1090#1072' '#1082#1088#1072#1090#1095#1072#1081#1096#1077#1075#1086' '#1087#1091#1090#1080'. '#1041#1080#1073#1083#1080#1086#1090#1077#1082#1072' "Crystal Path Finding"' +
-    ' (cpf)'
+  Caption = 'CrystalPathFinding (cpf) library test'
   ClientHeight = 647
   ClientWidth = 1064
   Color = clBtnFace
@@ -22,22 +20,22 @@ object Form1: TForm1
   OnKeyDown = FormKeyDown
   PixelsPerInch = 96
   TextHeight = 13
-  object PaintBox1: TPaintBox
+  object pbMap: TPaintBox
     Left = 8
     Top = 40
     Width = 900
     Height = 600
-    OnMouseDown = PaintBox1MouseDown
-    OnMouseMove = PaintBox1MouseMove
-    OnMouseUp = PaintBox1MouseUp
-    OnPaint = PaintBox1Paint
+    OnMouseDown = pbMapMouseDown
+    OnMouseMove = pbMapMouseMove
+    OnMouseUp = pbMapMouseUp
+    OnPaint = pbMapPaint
   end
   object lbDistance: TLabel
     Left = 8
     Top = 16
-    Width = 151
+    Width = 123
     Height = 21
-    Caption = #1056#1072#1089#1089#1090#1086#1103#1085#1080#1077': 100.01'
+    Caption = 'Distance: 100.01'
     Font.Charset = RUSSIAN_CHARSET
     Font.Color = clRed
     Font.Height = -19
@@ -45,7 +43,7 @@ object Form1: TForm1
     Font.Style = []
     ParentFont = False
   end
-  object GroupBox5: TGroupBox
+  object gbOptions: TGroupBox
     Left = 916
     Top = 532
     Width = 140
@@ -53,7 +51,7 @@ object Form1: TForm1
     TabOrder = 6
     object cbSectorTest: TCheckBox
       Left = 8
-      Top = 4
+      Top = 20
       Width = 97
       Height = 17
       Caption = ' SectorTest'
@@ -64,13 +62,11 @@ object Form1: TForm1
     end
     object cbCaching: TCheckBox
       Left = 8
-      Top = 20
+      Top = 4
       Width = 97
       Height = 17
-      Hint = #1059#1084#1085#1099#1081' '#1088#1072#1089#1095#1105#1090' '#1074#1077#1089#1086#1074
       Caption = ' Caching'
       Checked = True
-      Enabled = False
       ParentShowHint = False
       ShowHint = True
       State = cbChecked
@@ -78,12 +74,12 @@ object Form1: TForm1
       OnClick = OnMapOptionChanged
     end
   end
-  object GroupBox1: TGroupBox
+  object gbTileWeigths: TGroupBox
     Left = 916
     Top = 108
     Width = 140
     Height = 333
-    Caption = '      '#1058#1072#1081#1083#1099'  '
+    Caption = '      Tile weights  '
     ParentShowHint = False
     ShowHint = False
     TabOrder = 0
@@ -167,7 +163,7 @@ object Form1: TForm1
       Top = -2
       Width = 62
       Height = 17
-      Hint = #1048#1089#1087#1086#1083#1100#1079#1086#1074#1072#1090#1100' '#1074#1077#1089#1072' '#1090#1072#1081#1083#1086#1074
+      Hint = 'Custom tile weights'
       Checked = True
       ParentShowHint = False
       ShowHint = True
@@ -209,19 +205,19 @@ object Form1: TForm1
       OnChange = OnTileWeightChange
     end
   end
-  object GroupBox3: TGroupBox
+  object gbBarrierMode: TGroupBox
     Left = 916
     Top = 34
     Width = 140
     Height = 73
-    Caption = '  '#1055#1088#1072#1074#1072#1103' '#1082#1085#1086#1087#1082#1072' '#1084#1099#1096#1080'  '
+    Caption = ' Barrier mode (right button) '
     TabOrder = 1
-    object pbClear: TPaintBox
+    object pbBarrier: TPaintBox
       Left = 19
       Top = 21
       Width = 45
       Height = 45
-      Hint = #1055#1088#1077#1087#1103#1090#1089#1090#1074#1080#1077
+      Hint = 'Barriers'
       ParentShowHint = False
       ShowHint = True
       OnClick = OnTileClick
@@ -240,19 +236,19 @@ object Form1: TForm1
       OnPaint = OnTilePaint
     end
   end
-  object GroupBox4: TGroupBox
+  object gbSpeedTest: TGroupBox
     Left = 916
     Top = 574
     Width = 140
     Height = 67
-    Caption = '  '#1058#1077#1089#1090' '#1089#1082#1086#1088#1086#1089#1090#1080'  '
+    Caption = ' Speed test '
     TabOrder = 2
     object seIterationsCount: TSpinEdit
       Left = 11
       Top = 18
       Width = 120
       Height = 22
-      Hint = #1050#1086#1083#1080#1095#1077#1089#1090#1074#1086' '#1088#1072#1089#1095#1105#1090#1086#1074
+      Hint = 'Count of times'
       MaxValue = 1000000
       MinValue = 1
       ParentShowHint = False
@@ -260,14 +256,14 @@ object Form1: TForm1
       TabOrder = 0
       Value = 1000
     end
-    object btnTestSpeed: TButton
+    object btnSpeedTest: TButton
       Left = 10
       Top = 42
       Width = 122
       Height = 22
-      Caption = #1047#1072#1087#1091#1089#1082
+      Caption = 'Run'
       TabOrder = 1
-      OnClick = btnTestSpeedClick
+      OnClick = btnSpeedTestClick
     end
   end
   object btnRandom: TButton
@@ -293,7 +289,7 @@ object Form1: TForm1
     Top = 442
     Width = 140
     Height = 88
-    Caption = '  '#1056#1077#1078#1080#1084' '#1082#1072#1088#1090#1099'  '
+    Caption = ' Map mode'
     ItemIndex = 0
     Items.Strings = (
       'mmSimple'

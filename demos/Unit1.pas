@@ -46,7 +46,7 @@ unit Unit1;
 
 interface
 
-{$define USECPFDLL}
+{.$define USECPFDLL}
 
 uses
   Windows, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
@@ -56,9 +56,9 @@ uses
 {$R xp_manifest.res}
 
 type
-  TForm1 = class(TForm)
-    PaintBox1: TPaintBox;
-    GroupBox1: TGroupBox;
+  TMainForm = class(TForm)
+    pbMap: TPaintBox;
+    gbTileWeigths: TGroupBox;
     pbTile1: TPaintBox;
     pbTile2: TPaintBox;
     pbTile3: TPaintBox;
@@ -72,17 +72,17 @@ type
     lbTile3: TLabel;
     sbTile4: TScrollBar;
     lbTile4: TLabel;
-    GroupBox3: TGroupBox;
-    pbClear: TPaintBox;
+    gbBarrierMode: TGroupBox;
+    pbBarrier: TPaintBox;
     pbExclude: TPaintBox;
-    GroupBox4: TGroupBox;
+    gbSpeedTest: TGroupBox;
     seIterationsCount: TSpinEdit;
-    btnTestSpeed: TButton;
+    btnSpeedTest: TButton;
     btnRandom: TButton;
     btnClear: TButton;
     lbDistance: TLabel;
     rgMapKind: TRadioGroup;
-    GroupBox5: TGroupBox;
+    gbOptions: TGroupBox;
     cbSectorTest: TCheckBox;
     cbCaching: TCheckBox;
     procedure FormCreate(Sender: TObject);
@@ -91,52 +91,52 @@ type
     procedure OnTileClick(Sender: TObject);
     procedure OnTilePaint(Sender: TObject);
     procedure OnTileWeightChange(Sender: TObject);
-    procedure PaintBox1Paint(Sender: TObject);
+    procedure pbMapPaint(Sender: TObject);
     procedure OnMapOptionChanged(Sender: TObject);
-    procedure PaintBox1MouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
-    procedure btnTestSpeedClick(Sender: TObject);
+    procedure pbMapMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure btnSpeedTestClick(Sender: TObject);
     procedure cbUseWeightsClick(Sender: TObject);
-    procedure PaintBox1MouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
-    procedure PaintBox1MouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
+    procedure pbMapMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure pbMapMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
     procedure btnClearClick(Sender: TObject);
     procedure btnRandomClick(Sender: TObject);
     procedure cbSectorTestClick(Sender: TObject);
     procedure rgMapKindClick(Sender: TObject);
   private
-    // внутренние данные
-    UseWeights: boolean;
-    SectorTest: boolean;
-    Caching: boolean;
+    // internal data
+    UseWeights: Boolean;
+    SectorTest: Boolean;
+    Caching: Boolean;
     ExcludedPoints: array of TPoint;
     FStartPoint: TPoint;
     FFinishPoint: TPoint;
     CursorPoint: TPoint;
     MousePressed: TMouseButton;
-    FTileMode: byte;
-    FClearMode: byte;
+    FTileMode: Byte;
+    FBarrierMode: Byte;
     FMapKind: TTileMapKind;
 
     procedure RepaintBoxes(const PaintBoxes: array of TPaintBox);
-    function  ExcludePointPos(const Value: TPoint): integer;
+    function  ExcludePointPos(const Value: TPoint): Integer;
     procedure AddExcludedPoint(const Value: TPoint);
     procedure DeleteExcludedPoint(const Value: TPoint);
-    function  MapToScreen(X, Y: integer; center: boolean=true): TPoint;
-    function  ScreenToMap(X, Y: integer): TPoint;
+    function  MapToScreen(X, Y: Integer; Center: Boolean = True): TPoint;
+    function  ScreenToMap(X, Y: Integer): TPoint;
     procedure SetStartPoint(const Value: TPoint);
     procedure SetFinishPoint(const Value: TPoint);
-    procedure SetClearMode(const Value: byte);
-    procedure SetTileMode(const Value: byte);
+    procedure SetBarrierMode(const Value: Byte);
+    procedure SetTileMode(const Value: Byte);
     procedure SetMapKind(const Value: TTileMapKind);
   private
-    // основные методы
-    procedure SaveMap();
-    procedure RecreateMap();
-    procedure FillMapBitmap(const Path: TTileMapPath; const jpg_file_name: string = '');
-    procedure ExecutePathFinding();
+    // basic methods and properties
+    procedure SaveMap;
+    procedure RecreateMap;
+    procedure FillMapBitmap(const Path: TTileMapPath; const JpgFileName: string = '');
+    procedure ExecutePathFinding;
 
-    property TileMode: byte read FTileMode write SetTileMode;
-    property ClearMode: byte read FClearMode write SetClearMode;
-    property MapKind: TTileMapKind read FMapKind write SetMapKind; 
+    property TileMode: Byte read FTileMode write SetTileMode;
+    property BarrierMode: Byte read FBarrierMode write SetBarrierMode;
+    property MapKind: TTileMapKind read FMapKind write SetMapKind;
     property StartPoint: TPoint read FStartPoint write SetStartPoint;
     property FinishPoint: TPoint read FFinishPoint write SetFinishPoint;
   end;
@@ -149,30 +149,56 @@ const
   MAP_WIDTH = 30;
   MAP_HEIGHT = 20;
 
-
 var
-  Form1: TForm1;
-  TILE_MAP: array[0..MAP_HEIGHT-1, 0..MAP_WIDTH-1] of byte;
+  MainForm: TMainForm;
+  TILE_MAP: array[0..MAP_HEIGHT - 1, 0..MAP_WIDTH - 1] of Byte;
 
   ProjectPath: string;
   MapBitmap: TBitmap;
-  TileBitmaps: array[0..TILES_COUNT*3-1] of TBitmap;
+  TileBitmaps: array[0..TILES_COUNT * 3 - 1] of TBitmap;
   WhiteCell, GreyCell: TBitmap;
-  {MaskHex45,} MaskHex60: TBitmap;
+  MaskHexagonal: TBitmap;
 
-
-  // рабочие объекты библиотеки cpf
+  // main CPF library objects: map and tile weights
   HWeights: TCPFHandle;
   HMap: TCPFHandle;
+  
 implementation
 
 {$R *.dfm}
 
-
-
-procedure TForm1.FormCreate(Sender: TObject);
+// some file compatibility routine
+procedure IncrementTiles;
 var
-  i, Len: integer;
+  i: Integer;
+  P: PByte;
+begin
+  P := @TILE_MAP[0, 0];
+  for i := 1 to MAP_HEIGHT * MAP_WIDTH do
+  begin
+    Inc(P^);
+    Inc(P);
+  end;
+end;
+
+// some file compatibility routine
+procedure DecrementTiles;
+var
+  i: Integer;
+  P: PByte;
+begin
+  P := @TILE_MAP[0, 0];
+  for i := 1 to MAP_HEIGHT * MAP_WIDTH do
+  begin
+    Dec(P^);
+    Inc(P);
+  end;
+end;
+
+
+procedure TMainForm.FormCreate(Sender: TObject);
+var
+  i, Len: Integer;
   F: TFileStream;
   SmallCell: TBitmap;
 
@@ -182,64 +208,69 @@ var
     Result.LoadFromFile(FileName);
   end;
 
-  function ReadInt: integer;
-  begin F.Read(Result, sizeof(Result)); end;
+  function ReadInt: Integer;
+  begin
+    F.ReadBuffer(Result, SizeOf(Result));
+  end;
 
-  function ReadBool: boolean;
-  begin F.Read(Result, sizeof(Result)); end;
+  function ReadBool: Boolean;
+  begin
+    F.ReadBuffer(Result, SizeOf(Result));
+  end;
 
 begin
-  randomize;
+  Randomize;
   Application.Title := 'Crystal Path Finding';
-  ProjectPath := IncludeTrailingPathDelimiter(ExtractFilePath(paramstr(0)));
+  ProjectPath := IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0)));
 
-  for i := 0 to TILES_COUNT-1 do
+  for i := 0 to TILES_COUNT - 1 do
   begin
     SmallCell := TBitmap.Create;
-    TileBitmaps[i*3] := LoadBitmap(ProjectPath + IntToStr(i) + '_.bmp');
-    TileBitmaps[i*3+1] := SmallCell;
-    TileBitmaps[i*3+2] := LoadBitmap(ProjectPath + IntToStr(i) + '.bmp');
+    TileBitmaps[i * 3] := LoadBitmap(ProjectPath + IntToStr(i) + '_.bmp');
+    TileBitmaps[i * 3 + 1] := SmallCell;
+    TileBitmaps[i * 3 + 2] := LoadBitmap(ProjectPath + IntToStr(i) + '.bmp');
 
     SmallCell.PixelFormat := pf24bit;
     SmallCell.Width := TILE_SIZE;
     SmallCell.Height := TILE_SIZE;
     SetStretchBltMode(SmallCell.Canvas.Handle, HALFTONE);
-    SmallCell.Canvas.CopyRect(Rect(0, 0, TILE_SIZE, TILE_SIZE), TileBitmaps[i*3+2].Canvas, Rect(0, 0, FULL_TILE_SIZE, FULL_TILE_SIZE));
+    SmallCell.Canvas.CopyRect(Rect(0, 0, TILE_SIZE, TILE_SIZE),
+      TileBitmaps[i * 3 + 2].Canvas, Rect(0, 0, FULL_TILE_SIZE, FULL_TILE_SIZE));
   end;
   WhiteCell := LoadBitmap('white.bmp');
   GreyCell := LoadBitmap('grey.bmp');
-  //MaskHex45 := LoadBitmap('hex45.bmp');
-  MaskHex60 := LoadBitmap('hex60.bmp');
+  MaskHexagonal := LoadBitmap('hex60.bmp');
 
-
-  // инициализация рабочих данных
+  // data initialization
   HWeights := cpfCreateWeights;
-  UseWeights := true;
-  SectorTest := true;
-  Caching := false;
-  sbTile1.Position := round(1.0 *20);
-  sbTile2.Position := round(1.5 *20);
-  sbTile3.Position := round(2.5 *20);
-  sbTile4.Position := round(6.0 *20);
+  UseWeights := True;
+  SectorTest := True;
+  Caching := False;
+  sbTile1.Position := Round(1.0 * 20);
+  sbTile2.Position := Round(1.5 * 20);
+  sbTile3.Position := Round(2.5 * 20);
+  sbTile4.Position := Round(6.0 * 20);
   StartPoint := Point(5, 9);
   FinishPoint := Point(24, 9);
-  MousePressed := mbMiddle; // типа и не левая и не правая
+  MousePressed := mbMiddle; // neutral value initialization
 
-  // загрузка из файла
-  if (FileExists(ProjectPath+'SAVE.dat')) then
+  // loading last map state from local "SAVE.dat" file
+  if (FileExists(ProjectPath + 'SAVE.dat')) then
   begin
-    F := TFileStream.Create(ProjectPath+'SAVE.dat', fmShareDenyNone);
-    F.Read(TILE_MAP, sizeof(TILE_MAP));
-    F.Read(FStartPoint, sizeof(FStartPoint));  
-    F.Read(FFinishPoint, sizeof(FFinishPoint));
-    F.Read(FTileMode, sizeof(FTileMode));
-    F.Read(FClearMode, sizeof(FClearMode));
-    F.Read(FMapKind, sizeof(FMapKind));
+    F := TFileStream.Create(ProjectPath + 'SAVE.dat', fmShareDenyNone);
+    F.Read(TILE_MAP, SizeOf(TILE_MAP));
+    IncrementTiles;{compatibility routine};
+    F.Read(FStartPoint, SizeOf(FStartPoint));
+    F.Read(FFinishPoint, SizeOf(FFinishPoint));
+    F.Read(FTileMode, SizeOf(FTileMode));
+    F.Read(FBarrierMode, SizeOf(FBarrierMode));
+    F.Read(FMapKind, SizeOf(FMapKind));
+    if (Byte(FMapKind) > Byte(High(TTileMapKind))) then FMapKind := High(TTileMapKind);
 
     cbUseWeights.Checked := ReadBool;
     cbCaching.Checked := ReadBool;
     cbSectorTest.Checked := ReadBool;
-    rgMapKind.ItemIndex := byte(FMapKind);
+    rgMapKind.ItemIndex := Byte(FMapKind);
 
     sbTile1.Position := ReadInt;
     sbTile2.Position := ReadInt;
@@ -249,60 +280,73 @@ begin
 
     Len := ReadInt;
     SetLength(ExcludedPoints, Len);
-    if (Len <> 0) then F.Read(pointer(ExcludedPoints)^, Len*sizeof(TPoint));
+    if (Len <> 0) then F.Read(pointer(ExcludedPoints)^, Len * SizeOf(TPoint));
     F.Free;
   end; 
 
-  // создать буфер отрисовки (начиная с этого шага каждое изменение будет перерисовывать буфер)
+  // raster map buffer
   MapBitmap := TBitmap.Create;
   MapBitmap.PixelFormat := pf24bit;
-  MapBitmap.Width := MAP_WIDTH*TILE_SIZE;
-  MapBitmap.Height := MAP_HEIGHT*TILE_SIZE;
+  MapBitmap.Width := MAP_WIDTH * TILE_SIZE;
+  MapBitmap.Height := MAP_HEIGHT * TILE_SIZE;
 
-  // создать карту с текущими параметрами (и перерисовать)
-  RecreateMap();
+  // create map, find path, repaint
+  RecreateMap;
 end;
 
-procedure TForm1.FormDestroy(Sender: TObject);
+procedure TMainForm.FormDestroy(Sender: TObject);
 var
-  i: integer;
+  i: Integer;
 begin
-  // сохранение
+  // save current map state
   SaveMap();
 
-  // удаление созданных объектов
+  // remove allocated instances
   cpfDestroyWeights(HWeights);
   cpfDestroyMap(HMap);
 
-  for i := 0 to TILES_COUNT*3-1 do
+  for i := 0 to TILES_COUNT * 3 - 1 do
   TileBitmaps[i].Free;
 
   MapBitmap.Free;
 
   WhiteCell.Free;
   GreyCell.Free;
-  //MaskHex45.Free;
-  MaskHex60.Free;
+  MaskHexagonal.Free;
 end;
 
-procedure TForm1.SaveMap();
+procedure TMainForm.SaveMap;
 var
   F: TFileStream;
-  Len: integer;
+  Len: Integer;
+  MapKind: Byte;
 
-  procedure WriteInt(Value: integer);
-  begin F.Write(Value, sizeof(Value)); end;
+  procedure WriteInt(Value: Integer);
+  begin
+    F.WriteBuffer(Value, SizeOf(Value));
+  end;
 
-  procedure WriteBool(Value: boolean);
-  begin F.Write(Value, sizeof(Value)); end;  
+  procedure WriteBool(Value: Boolean);
+  begin
+    F.WriteBuffer(Value, SizeOf(Value));
+  end;  
 begin
-  F := TFileStream.Create(ProjectPath+'SAVE.dat', fmCreate);
-  F.Write(TILE_MAP, sizeof(TILE_MAP));
-  F.Write(FStartPoint, sizeof(FStartPoint));
-  F.Write(FFinishPoint, sizeof(FFinishPoint));
-  F.Write(FTileMode, sizeof(FTileMode));
-  F.Write(FClearMode, sizeof(FClearMode));
-  F.Write(FMapKind, sizeof(MapKind));
+  F := TFileStream.Create(ProjectPath + 'SAVE.dat', fmCreate);
+  // compatibility routine
+  DecrementTiles;
+  try
+    F.Write(TILE_MAP, SizeOf(TILE_MAP));
+  finally
+    IncrementTiles;
+  end;
+  F.Write(FStartPoint, SizeOf(FStartPoint));
+  F.Write(FFinishPoint, SizeOf(FFinishPoint));
+  F.Write(FTileMode, SizeOf(FTileMode));
+  F.Write(FBarrierMode, SizeOf(FBarrierMode));
+  // compatibility routine
+  MapKind := Byte(FMapKind);
+  if (FMapKind = mkHexagonal) then Inc(MapKind);
+  F.Write(MapKind, SizeOf(MapKind));
 
   WriteBool(cbUseWeights.Checked);
   WriteBool(cbCaching.Checked);
@@ -316,13 +360,11 @@ begin
 
   Len := Length(ExcludedPoints);
   WriteInt(Len);
-  if (Len <> 0) then F.Write(pointer(ExcludedPoints)^, Len*sizeof(TPoint));
+  if (Len <> 0) then F.Write(Pointer(ExcludedPoints)^, Len * SizeOf(TPoint));
   F.Free;
 end;  
 
-
-
-procedure TForm1.btnClearClick(Sender: TObject);
+procedure TMainForm.btnClearClick(Sender: TObject);
 var
   BufMapBitmap: TBitmap;
 begin
@@ -330,75 +372,75 @@ begin
   MapBitmap := nil;
 
   begin
-    ZeroMemory(@TILE_MAP, sizeof(TILE_MAP));
-    sbTile1.Position := round(1.0 *20);
-    sbTile2.Position := round(1.5 *20);
-    sbTile3.Position := round(2.5 *20);
-    sbTile4.Position := round(6.0 *20);
+    FillChar(TILE_MAP, SizeOf(TILE_MAP), 1);
+    sbTile1.Position := Round(1.0 * 20);
+    sbTile2.Position := Round(1.5 * 20);
+    sbTile3.Position := Round(2.5 * 20);
+    sbTile4.Position := Round(6.0 * 20);
     StartPoint := Point(5, 9);
     FinishPoint := Point(24, 9);
     ExcludedPoints := nil;
-    cbUseWeights.Checked := true;
-    cbCaching.Checked := false;
+    cbUseWeights.Checked := True;
+    cbCaching.Checked := False;
     MapKind := mkSimple;
-    cbSectorTest.Checked := true;
+    cbSectorTest.Checked := True;
     seIterationsCount.Value := 1000;
   end;
 
   MapBitmap := BufMapBitmap;
   TileMode := 1;
-  ClearMode := 0;
-  RecreateMap();
+  BarrierMode := 0;
+  RecreateMap;
 end;
 
-procedure TForm1.btnRandomClick(Sender: TObject);
+procedure TMainForm.btnRandomClick(Sender: TObject);
 var
-  i, j: integer;
+  i, j: Integer;
   BufMapBitmap: TBitmap;
 
-  function random_bool: boolean;
-  begin Result := (random(2) <> 0); end;
-
-  function random_point: TPoint;
+  function RandomBool: Boolean;
   begin
-    Result.X := random(MAP_WIDTH);
-    Result.Y := random(MAP_HEIGHT);
+    Result := (Random(2) <> 0);
+  end;
+
+  function RandomPoint: TPoint;
+  begin
+    Result.X := Random(MAP_WIDTH);
+    Result.Y := Random(MAP_HEIGHT);
   end;
 begin
   BufMapBitmap := MapBitmap;
   MapBitmap := nil;
 
   begin
-    //ZeroMemory(@TILE_MAP, sizeof(TILE_MAP));
-    for i := 0 to MAP_WIDTH-1 do
-    for j := 0 to MAP_HEIGHT-1 do
+    for i := 0 to MAP_WIDTH - 1 do
+    for j := 0 to MAP_HEIGHT - 1 do
     begin
-      TILE_MAP[j, i] := random(TILES_COUNT+1);
+      TILE_MAP[j, i] := Random(TILES_COUNT + 1);
     end;
-    sbTile1.Position := random(200);
-    sbTile2.Position := random(200);
-    sbTile3.Position := random(200);
-    sbTile4.Position := random(200);
-    StartPoint := random_point;
-    FinishPoint := random_point;
+    sbTile1.Position := Random(200);
+    sbTile2.Position := Random(200);
+    sbTile3.Position := Random(200);
+    sbTile4.Position := Random(200);
+    StartPoint := RandomPoint;
+    FinishPoint := RandomPoint;
     ExcludedPoints := nil;
-    for i := 0 to random(20) do AddExcludedPoint(random_point);
-    cbUseWeights.Checked := random_bool;
-    //cbCaching.Checked := random_bool;
-    MapKind := TTileMapKind(random(byte(high(TTileMapKind))+1));
-    cbSectorTest.Checked := random_bool;
-    seIterationsCount.Value := random(100000)+1;
+    for i := 0 to Random(20) do AddExcludedPoint(RandomPoint);
+    cbUseWeights.Checked := RandomBool;
+    MapKind := TTileMapKind(Random(Byte(High(TTileMapKind)) + 1));
+    cbSectorTest.Checked := RandomBool;
+    seIterationsCount.Value := Random(100000) + 1;
   end;
 
   MapBitmap := BufMapBitmap;
   TileMode := 1;
-  ClearMode := 0;
-  RecreateMap();
+  BarrierMode := 0;
+  RecreateMap;
 end;
 
-procedure TForm1.RepaintBoxes(const PaintBoxes: array of TPaintBox);
+procedure TMainForm.RepaintBoxes(const PaintBoxes: array of TPaintBox);
 var
-  i: integer;
+  i: Integer;
   PaintBox: TPaintBox;
 begin
   for i := 0 to High(PaintBoxes) do
@@ -408,76 +450,76 @@ begin
   end;
 end;
 
-procedure TForm1.FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+procedure TMainForm.FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
 begin
-  if (Key = VK_ESCAPE) then Close();
+  if (Key = VK_ESCAPE) then Close;
 end;
 
-procedure TForm1.PaintBox1Paint(Sender: TObject);
+procedure TMainForm.pbMapPaint(Sender: TObject);
 begin
   TPaintBox(Sender).Canvas.Draw(0, 0, MapBitmap);
 end;
 
-procedure TForm1.RecreateMap();
+procedure TMainForm.RecreateMap();
 begin
   if (HMap <> 0) then cpfDestroyMap(HMap);
 
-  // создать карту
+  // create map
   HMap := cpfCreateMap(MAP_WIDTH, MAP_HEIGHT, MapKind);
 
-  // заполнить
+  // fill tiles
   cpfMapUpdate(HMap, @TILE_MAP[0, 0], 0, 0, MAP_WIDTH, MAP_HEIGHT);
 
-  // пересчитать пути (перерисовать)
-  ExecutePathFinding();
+  // calculate path and repaint map
+  ExecutePathFinding;
 end;
 
-procedure TForm1.cbUseWeightsClick(Sender: TObject);
+procedure TMainForm.cbUseWeightsClick(Sender: TObject);
 begin
   UseWeights := cbUseWeights.Checked;
-  ExecutePathFinding();
+  ExecutePathFinding;
 end;
 
-procedure TForm1.cbSectorTestClick(Sender: TObject);
+procedure TMainForm.cbSectorTestClick(Sender: TObject);
 begin
   SectorTest := cbSectorTest.Checked;
-  ExecutePathFinding();
+  ExecutePathFinding;
 end;
 
-procedure TForm1.OnMapOptionChanged(Sender: TObject);
+procedure TMainForm.OnMapOptionChanged(Sender: TObject);
 begin
   Caching := cbCaching.Checked;
-  ExecutePathFinding();
+  ExecutePathFinding;
 end;
 
-procedure TForm1.OnTileClick(Sender: TObject);
+procedure TMainForm.OnTileClick(Sender: TObject);
 var
-  TileNum: integer;
+  TileNum: Integer;
 begin
   TileNum := TPaintBox(Sender).Tag;
 
-  if (TileNum < 0) then
+  if (TileNum <= 0) then
   begin
-    // правая кнопка мыши
-    ClearMode := -TileNum;
+    // change clear mode
+    BarrierMode := -TileNum;
   end else
   begin
-    // конкретный тайл
+    // change current tile 
     TileMode := TileNum;
   end;
 end;
 
-procedure TForm1.rgMapKindClick(Sender: TObject);
+procedure TMainForm.rgMapKindClick(Sender: TObject);
 begin
   MapKind := TTileMapKind(rgMapKind.ItemIndex);
 end;
 
-procedure TForm1.OnTilePaint(Sender: TObject);
+procedure TMainForm.OnTilePaint(Sender: TObject);
 var
   PaintBox: TPaintBox;
-  TileNum: integer;
+  TileNum: Integer;
   Color: TColor;
-  Active: boolean;
+  Active: Boolean;
   PaintBoxRect: TRect;
 begin
   PaintBox := TPaintBox(Sender);
@@ -488,18 +530,18 @@ begin
   if (TileNum > 0) then
   begin
     if (cpfWeightGet(HWeights, TileNum) < 0.1) then Color := clWhite;
-    Active := (TileMode=TileNum);
+    Active := (TileMode = TileNum);
   end else
   begin
     if (TileNum = 0) then Color := clBlack
     else Color := clGray;
 
-    Active := (ClearMode = (-TileNum));
+    Active := (BarrierMode = (-TileNum));
   end;
 
   if (Color = TColor($FFFFFFFF)) then
   begin
-    PaintBox.Canvas.Draw(0, 0, TileBitmaps[TileNum*3]);
+    PaintBox.Canvas.Draw(0, 0, TileBitmaps[(TileNum - 1) * 3]);
   end else
   begin
     PaintBox.Canvas.Brush.Style := bsSolid;
@@ -511,10 +553,10 @@ begin
   begin
     with PaintBoxRect do
     begin
-      inc(Left, 2);
-      inc(Top, 2);
-      dec(Right, 1);
-      dec(Bottom, 1);
+      Inc(Left, 2);
+      Inc(Top, 2);
+      Dec(Right, 1);
+      Dec(Bottom, 1);
     end;         
     PaintBox.Canvas.Pen.Width := 4;
     PaintBox.Canvas.Pen.Color := clBlue;
@@ -523,10 +565,10 @@ begin
   end;
 end;
 
-procedure TForm1.OnTileWeightChange(Sender: TObject);
+procedure TMainForm.OnTileWeightChange(Sender: TObject);
 var
-  TileNum: byte;
-  Weight: single;
+  TileNum: Byte;
+  Weight: Single;
 begin
   TileNum := TScrollBar(Sender).Tag;
   Weight := TScrollBar(Sender).Position / 20;
@@ -537,108 +579,110 @@ begin
   if (UseWeights) then ExecutePathFinding();
 end;
 
-procedure TForm1.PaintBox1MouseDown(Sender: TObject; Button: TMouseButton;
+procedure TMainForm.pbMapMouseDown(Sender: TObject; Button: TMouseButton;
                                     Shift: TShiftState; X, Y: Integer);
 begin
-  if (Button = mbMiddle)or (MousePressed = Button) then exit;
+  if (Button = mbMiddle)or (MousePressed = Button) then Exit;
 
-  // снять фокус с контролов
+  // unfocus controls
   Windows.SetFocus(0);
 
-  // инициализировать нажатую кнопку
+  // store button
   MousePressed := Button;
 
-  // сделать действие по кнопке
+  // process mouse action
   CursorPoint := ScreenToMap(X, Y);
-  PaintBox1MouseMove(nil{показатель, что первый раз}, Shift, X, Y);
+  pbMapMouseMove(nil{the first time}, Shift, X, Y);
 end;
 
-procedure TForm1.PaintBox1MouseUp(Sender: TObject; Button: TMouseButton;
+procedure TMainForm.pbMapMouseUp(Sender: TObject; Button: TMouseButton;
                                   Shift: TShiftState; X, Y: Integer);
 begin
   if (MousePressed = Button) then
   begin
     MousePressed := mbMiddle;
-    ExecutePathFinding();
+    ExecutePathFinding;
   end;  
 end;
 
-procedure TForm1.PaintBox1MouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
+procedure TMainForm.pbMapMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
 var
   P, LastCursorPoint: TPoint;
 begin
-  if (MousePressed = mbMiddle) then exit;
+  if (MousePressed = mbMiddle) then Exit;
   P := ScreenToMap(X, Y);
-  if (P.X < 0) or (P.X >= MAP_WIDTH) or (P.Y < 0) or (P.Y >= MAP_HEIGHT) then exit;
-  if (Sender <> nil) and (CursorPoint.X = P.X) and (CursorPoint.Y = P.Y) then exit;
+  if (P.X < 0) or (P.X >= MAP_WIDTH) or (P.Y < 0) or (P.Y >= MAP_HEIGHT) then Exit;
+  if (Sender <> nil) and (CursorPoint.X = P.X) and (CursorPoint.Y = P.Y) then Exit;
   LastCursorPoint := CursorPoint;
   CursorPoint := P;
 
-  // точки
-  if (MousePressed = mbLeft) and (LastCursorPoint.X = StartPoint.X) and (LastCursorPoint.Y = StartPoint.Y) then
+  // points
+  if (MousePressed = mbLeft) and (LastCursorPoint.X = StartPoint.X) and
+    (LastCursorPoint.Y = StartPoint.Y) then
   begin
     FStartPoint := P;
-    ExecutePathFinding();
-    exit;
+    ExecutePathFinding;
+    Exit;
   end;
-  if (MousePressed = mbLeft) and (LastCursorPoint.X = FinishPoint.X) and (LastCursorPoint.Y = FinishPoint.Y) then
+  if (MousePressed = mbLeft) and (LastCursorPoint.X = FinishPoint.X) and
+    (LastCursorPoint.Y = FinishPoint.Y) then
   begin
     FFinishPoint := P;
-    ExecutePathFinding();
-    exit;
+    ExecutePathFinding;
+    Exit;
   end;
 
   if (MousePressed = mbLeft) then
   begin
-    // тайл
+    // tile
     if (TILE_MAP[P.Y, P.X] <> TileMode) then
     begin
       TILE_MAP[P.Y, P.X] := TileMode;
       cpfMapSetTile(HMap, P.X, P.Y, TileMode);
-      ExecutePathFinding();
+      ExecutePathFinding;
     end;
   end else
   begin
-    // препятствие
-    if (ClearMode = 0) then
+    // barrier or excluded point
+    if (BarrierMode = 0) then
     begin
       if (TILE_MAP[P.Y, P.X] <> TILE_BARRIER) then
       begin
         TILE_MAP[P.Y, P.X] := TILE_BARRIER;
         cpfMapSetTile(HMap, P.X, P.Y, TILE_BARRIER);
-        ExecutePathFinding();
+        ExecutePathFinding;
       end;
     end else
     begin
       if (ExcludePointPos(P) >= 0) then DeleteExcludedPoint(P)
       else AddExcludedPoint(P);
 
-      ExecutePathFinding();
+      ExecutePathFinding;
     end;
   end;
 end;
 
-function TForm1.ExcludePointPos(const Value: TPoint): integer;
+function TMainForm.ExcludePointPos(const Value: TPoint): integer;
 begin
-  for Result := 0 to Length(ExcludedPoints)-1 do
+  for Result := 0 to Length(ExcludedPoints) - 1 do
   with ExcludedPoints[Result] do
-  if (X = Value.X) and (Y = Value.Y) then exit;
+  if (X = Value.X) and (Y = Value.Y) then Exit;
 
   Result := -1;
 end;
 
-procedure TForm1.AddExcludedPoint(const Value: TPoint);
+procedure TMainForm.AddExcludedPoint(const Value: TPoint);
 var
   Len: integer;
 begin
   if (ExcludePointPos(Value) >= 0) then exit;
 
   Len := Length(ExcludedPoints);
-  SetLength(ExcludedPoints, Len+1);
+  SetLength(ExcludedPoints, Len + 1);
   ExcludedPoints[Len] := Value;
 end;
 
-procedure TForm1.DeleteExcludedPoint(const Value: TPoint);
+procedure TMainForm.DeleteExcludedPoint(const Value: TPoint);
 var
   P, Len: integer;
 begin
@@ -650,145 +694,117 @@ begin
   SetLength(ExcludedPoints, Len);
 end;
 
-function  TForm1.MapToScreen(X, Y: integer; center: boolean=true): TPoint;
+function TMainForm.MapToScreen(X, Y: Integer; Center: Boolean = True): TPoint;
 begin
   Result.X := X * TILE_SIZE;
   Result.Y := Y * TILE_SIZE;
 
-  case (MapKind) of
-(*mmHexagonal45: begin
-                 if (X and 1 = 1) then inc(Result.Y, TILE_SIZE div 2);
-
-                 if (center) then
-                 begin
-                   inc(Result.X, (TILE_SIZE*4 div 3) div 2 - 1);
-                   inc(Result.Y, TILE_SIZE div 2 + 1);
-                 end;
-               end;*)
-mkHexagonal{60}: begin
-                 if (Y and 1 = 1) then inc(Result.X, TILE_SIZE div 2);
-
-                 if (center) then
-                 begin
-                   inc(Result.X, TILE_SIZE div 2 + 1);
-                   inc(Result.Y, (TILE_SIZE*4 div 3) div 2 - 1);
-                 end;
-               end;
-else
-  if (center) then
+  if (MapKind = mkHexagonal{60}) then
   begin
-   inc(Result.X, TILE_SIZE div 2);
-   inc(Result.Y, TILE_SIZE div 2);
+    if (Y and 1 = 1) then
+      Inc(Result.X, TILE_SIZE div 2);
+
+    if (Center) then
+    begin
+      Inc(Result.X, TILE_SIZE div 2 + 1);
+      Inc(Result.Y, (TILE_SIZE * 4 div 3) div 2 - 1);
+    end;
+  end else
+  if (Center) then
+  begin
+    Inc(Result.X, TILE_SIZE div 2);
+    Inc(Result.Y, TILE_SIZE div 2);
   end;    
 end;
 
-end;
-
-function  TForm1.ScreenToMap(X, Y: integer): TPoint;
+function TMainForm.ScreenToMap(X, Y: Integer): TPoint;
 begin
   Result.X := X div TILE_SIZE;
   Result.Y := Y div TILE_SIZE;
 
-(*  if (MapKind = mmHexagonal45) then
-  begin
-    if (Result.X and 1 = 1) then
-    begin
-      Result.Y := (Y-TILE_SIZE div 2) div TILE_SIZE;
-
-      if (Result.Y = MAP_HEIGHT-1) then Result.Y := -1;
-      if (Y < TILE_SIZE div 2) then Result.Y := -1;
-    end;
-
-    if (X mod TILE_SIZE < (TILE_SIZE div 3)) then
-    begin
-      Result.X := low(integer);
-      Result.Y := low(integer);
-    end;
-  end;*)
   if (MapKind = mkHexagonal{60}) then
   begin
     if (Result.Y and 1 = 1) then
     begin
       Result.X := (X-TILE_SIZE div 2) div TILE_SIZE;
 
-      if (Result.X = MAP_WIDTH-1) then Result.X := -1;
+      if (Result.X = MAP_WIDTH - 1) then Result.X := -1;
       if (X < TILE_SIZE div 2) then Result.X := -1;
     end;
 
     if (Y mod TILE_SIZE < (TILE_SIZE div 3)) then
     begin
-      Result.X := low(integer);
-      Result.Y := low(integer);
+      Result.X := Low(Integer);
+      Result.Y := Low(Integer);
     end;
   end;
-
 end;
 
-procedure TForm1.SetStartPoint(const Value: TPoint);
+procedure TMainForm.SetStartPoint(const Value: TPoint);
 begin
   if (FStartPoint.X <> Value.X) or (FStartPoint.Y <> Value.Y) then
   begin
     FStartPoint := Value;
-    ExecutePathFinding();
+    ExecutePathFinding;
   end;
 end;
 
-procedure TForm1.SetFinishPoint(const Value: TPoint);
+procedure TMainForm.SetFinishPoint(const Value: TPoint);
 begin
   if (FFinishPoint.X <> Value.X) or (FFinishPoint.Y <> Value.Y) then
   begin
     FFinishPoint := Value;
-    ExecutePathFinding();
+    ExecutePathFinding;
   end;
 end;
 
-procedure TForm1.SetTileMode(const Value: byte);
+procedure TMainForm.SetTileMode(const Value: Byte);
 begin
-  if (FTileMode = Value) then exit;
+  if (FTileMode = Value) then Exit;
   FTileMode := Value;
   if (MapBitmap <> nil) then RepaintBoxes([pbTile1, pbTile2, pbTile3, pbTile4]);
 end;
 
-procedure TForm1.SetClearMode(const Value: byte);
+procedure TMainForm.SetBarrierMode(const Value: Byte);
 begin
-  if (FClearMode = Value) then exit;
-  FClearMode := Value;
-  if (MapBitmap <> nil) then RepaintBoxes([pbClear, pbExclude]);
+  if (FBarrierMode = Value) then Exit;
+  FBarrierMode := Value;
+  if (MapBitmap <> nil) then RepaintBoxes([pbBarrier, pbExclude]);
 end;
 
-procedure TForm1.SetMapKind(const Value: TTileMapKind);
+procedure TMainForm.SetMapKind(const Value: TTileMapKind);
 var
   P: TPoint;
 begin
-  if (FMapKind = Value) then exit;
+  if (FMapKind = Value) then Exit;
   FMapKind := Value;
-  rgMapKind.ItemIndex := byte(Value);
+  rgMapKind.ItemIndex := Byte(Value);
 
-  // корректировка точек
-  P := ScreenToMap(FStartPoint.X*TILE_SIZE + TILE_SIZE div 2, FStartPoint.Y*TILE_SIZE + TILE_SIZE div 2);
-  if (P.X = -1) then dec(FStartPoint.X);
-  if (P.Y = -1) then dec(FStartPoint.Y);
-  P := ScreenToMap(FFinishPoint.X*TILE_SIZE + TILE_SIZE div 2, FFinishPoint.Y*TILE_SIZE + TILE_SIZE div 2);
-  if (P.X = -1) then dec(FFinishPoint.X);
-  if (P.Y = -1) then dec(FFinishPoint.Y);   
+  // points correction
+  P := ScreenToMap(FStartPoint.X * TILE_SIZE + TILE_SIZE div 2, FStartPoint.Y * TILE_SIZE + TILE_SIZE div 2);
+  if (P.X = -1) then Dec(FStartPoint.X);
+  if (P.Y = -1) then Dec(FStartPoint.Y);
+  P := ScreenToMap(FFinishPoint.X * TILE_SIZE + TILE_SIZE div 2, FFinishPoint.Y * TILE_SIZE + TILE_SIZE div 2);
+  if (P.X = -1) then Dec(FFinishPoint.X);
+  if (P.Y = -1) then Dec(FFinishPoint.Y);
 
-  // пересоздание карты, запуск расчёта
-  if (MapBitmap <> nil) then RecreateMap();
+  // find new path and repaint map
+  if (MapBitmap <> nil) then RecreateMap;
 end;
 
-
-// самая главная функция - расчитать путь
-// по умолчанию отражает результат
-procedure TForm1.ExecutePathFinding();
+// main method!
+// execute finding path algorithm
+// and repaint map
+procedure TMainForm.ExecutePathFinding;
 var
   Weights: TCPFHandle;
   Path: TTileMapPath;
   Params: TTileMapParams;
 begin
-  if (MapBitmap = nil) then exit;
+  if (MapBitmap = nil) then Exit;
 
-  // расчитать
-  Weights := HWeights;
+  // find path
+ (* Weights := HWeights;
   if (not UseWeights) then Weights := 0;
   try
     Params.Starts := @StartPoint;
@@ -804,31 +820,28 @@ begin
     Path.Count := 0;
     FillMapBitmap(Path, ProjectPath+'map_exception.jpg');
     raise;
-  end;  
+  end; *)
+  FillChar(Path, SizeOf(Path), 0);
 
-  // label расстояние
+  // distance label
   lbDistance.Visible := (Path.Count <> 0);
-  if (Path.Count <> 0) then lbDistance.Caption := Format('Расстояние: %0.2f', [Path.Distance]);
+  if (Path.Count <> 0) then lbDistance.Caption := Format('Distance: %0.2f', [Path.Distance]);
 
-  // прорисовать битмап
+  // repaint map
   FillMapBitmap(Path);
-
-  //PaintBox1.Repaint();
-  RepaintBoxes([PaintBox1]);
+  RepaintBoxes([pbMap]);
 end;
 
-
-procedure TForm1.FillMapBitmap(const Path: TTileMapPath; const jpg_file_name: string = '');
+procedure TMainForm.FillMapBitmap(const Path: TTileMapPath; const JpgFileName: string = '');
 var
-  TileNum: byte;
-  Hexagonal: boolean;
+  TileNum: Byte;
+  Hexagonal: Boolean;
   BitmapMask: TBitmap;
-  i, j: integer;
+  i, j: Integer;
   P: TPoint;
   Canvas: TCanvas;
   JI: TJpegImage;
-  used_tiles: array[1..TILES_COUNT] of boolean;
-
+  UsedTiles: array[1..TILES_COUNT] of Boolean;
 
   procedure DrawBitmap(Bitmap: TBitmap);
   begin
@@ -843,15 +856,14 @@ var
     end;
   end;
 
-  procedure DrawTile(X, Y: integer; TileNum: byte {TILE_BARRIER(0) - excluded});
+  procedure DrawTile(X, Y: integer; TileNum: Byte {TILE_BARRIER = 0});
   begin
-    P := MapToScreen(X, Y, false);
-    if (P.X >= MAP_WIDTH*TILE_SIZE - TILE_SIZE div 2) or
-       (P.Y >= MAP_HEIGHT*TILE_SIZE - TILE_SIZE div 2) then exit;
+    P := MapToScreen(X, Y, False);
+    if (P.X >= MAP_WIDTH * TILE_SIZE - TILE_SIZE div 2) or
+       (P.Y >= MAP_HEIGHT * TILE_SIZE - TILE_SIZE div 2) then Exit;
 
-
-    // без тайла
-    if (TileNum = TILE_BARRIER) or (not used_tiles[TileNum]) then
+    // no tile
+    if (TileNum = TILE_BARRIER) or (not UsedTiles[TileNum]) then
     begin
       if (Hexagonal) then
       begin
@@ -865,148 +877,131 @@ var
         Canvas.FillRect(Bounds(P.X, P.Y, TILE_SIZE, TILE_SIZE));
       end;
 
-      exit;
+      Exit;
     end;
 
-    // с тайлом
-    DrawBitmap(TileBitmaps[(TileNum - 1) * 3 + 1 + ord(Hexagonal)]);
+    // tile
+    DrawBitmap(TileBitmaps[(TileNum - 1) * 3 + 1 + Ord(Hexagonal)]);
   end;
 
-  procedure LineTo(const offsX, offsY: integer);
+  procedure LineTo(const offsX, offsY: Integer);
   begin
-    inc(P.X, offsX);
-    inc(P.Y, offsY);
+    Inc(P.X, offsX);
+    Inc(P.Y, offsY);
     Canvas.LineTo(P.X, P.Y);    
   end;
 
 begin
-  // анализ доступности тайлов
-  // какие-то тайлы могут восприниматься как препятствия
+  // analize pathless tiles
   for TileNum := 1 to TILES_COUNT do
-  used_tiles[TileNum] := (not UseWeights) or (cpfWeightGet(HWeights, TileNum) >= 0.1);
+  UsedTiles[TileNum] := (not UseWeights) or (cpfWeightGet(HWeights, TileNum) >= 0.1);
 
-
-  // подготовка данных для гексагонального режима
+  // hexagonal mask
   BitmapMask := nil;
-  Hexagonal := (MapKind = mkHexagonal);//(MapKind in [mmHexagonal45, mmHexagonal60]);
-  if (Hexagonal) then
-  begin
-    { if (MapKind = mmHexagonal45) then BitmapMask := MaskHex45
-    else} BitmapMask := MaskHex60;
+  Hexagonal := (MapKind = mkHexagonal);
+  if (Hexagonal) then BitmapMask := MaskHexagonal;
 
-  end;
-
-  // очистить
+  // clear bitmap
   Canvas := MapBitmap.Canvas;
   Canvas.Brush.Style := bsSolid;
   Canvas.Brush.Color := clBlack;
   Canvas.FillRect(Rect(0, 0, MapBitmap.Width, MapBitmap.Height));
 
-  // прорисовать тайлы
-  for i := 0 to MAP_WIDTH-1 do
-  for j := 0 to MAP_HEIGHT-1 do
+  // render tiles
+  for i := 0 to MAP_WIDTH - 1 do
+  for j := 0 to MAP_HEIGHT - 1 do
   begin
     TileNum := TILE_MAP[j, i];
-    if (TileNum >= 1) and (TileNum <= TILES_COUNT) then DrawTile(i, j, TileNum);
+    if (TileNum >= 1) and (TileNum <= TILES_COUNT) then
+      DrawTile(i, j, TileNum);
   end;
 
-  // ExcludedPoints
-  for i := 0 to Length(ExcludedPoints)-1 do
+  // excluded points
+  for i := 0 to Length(ExcludedPoints) - 1 do
   with ExcludedPoints[i] do
   DrawTile(X, Y, TILE_BARRIER);
 
-
-  // линии
+  // lines
   Canvas.Pen.Width := 1;
   if (not Hexagonal) then
   begin
     Canvas.Pen.Color := clGray;
 
-    for i := 1 to MAP_WIDTH-1 do
+    for i := 1 to MAP_WIDTH - 1 do
     begin
-      Canvas.MoveTo(i*TILE_SIZE, 0);
-      Canvas.LineTo(i*TILE_SIZE, MAP_HEIGHT*TILE_SIZE);
+      Canvas.MoveTo(i * TILE_SIZE, 0);
+      Canvas.LineTo(i * TILE_SIZE, MAP_HEIGHT * TILE_SIZE);
     end;
-    for j := 1 to MAP_HEIGHT-1 do
+    for j := 1 to MAP_HEIGHT - 1 do
     begin
-      Canvas.MoveTo(0, j*TILE_SIZE);
-      Canvas.LineTo(MAP_WIDTH*TILE_SIZE, j*TILE_SIZE);
+      Canvas.MoveTo(0, j * TILE_SIZE);
+      Canvas.LineTo(MAP_WIDTH * TILE_SIZE, j * TILE_SIZE);
     end;
   end else
-  for i := 0 to MAP_WIDTH-1 do
-  for j := 0 to MAP_HEIGHT-1 do
+  for i := 0 to MAP_WIDTH - 1 do
+  for j := 0 to MAP_HEIGHT - 1 do
   begin
-    // прорисовка каждого тайла в хексогональных полях
-    Canvas.Pen.Color := TColor($B0B0B0);    
+    // each hexagonal tile render
+    Canvas.Pen.Color := TColor($B0B0B0);
     P := MapToScreen(i, j, false);
 
-    // стартовая точка
-    {if (MapKind = mmHexagonal45) then inc(P.X, TILE_SIZE div 3)
-    else} inc(P.X, TILE_SIZE div 2);
+    // basic coordinates
+    Inc(P.X, TILE_SIZE div 2);
     Canvas.MoveTo(P.X, P.Y);
 
-    // прорисовка 6 линий
-    {if (MapKind = mmHexagonal45) then
-    begin
-      LineTo((TILE_SIZE div 3)*2, 0);
-      LineTo(TILE_SIZE div 3, TILE_SIZE div 2);
-      LineTo(-TILE_SIZE div 3, TILE_SIZE div 2);
-      LineTo(-(TILE_SIZE div 3)*2, 0);
-      LineTo(-TILE_SIZE div 3, -TILE_SIZE div 2);
-      LineTo(TILE_SIZE div 3, -TILE_SIZE div 2);
-    end else}
-    begin
-      LineTo(TILE_SIZE div 2, TILE_SIZE div 3);
-      LineTo(0, (TILE_SIZE div 3)*2);
-      LineTo(-TILE_SIZE div 2, TILE_SIZE div 3);
-      LineTo(-TILE_SIZE div 2, -TILE_SIZE div 3);
-      LineTo(0, -(TILE_SIZE div 3)*2);
-      LineTo(TILE_SIZE div 2, -TILE_SIZE div 3);            
-    end;
-  end; 
+    // 6 lines around
+    LineTo(TILE_SIZE div 2, TILE_SIZE div 3);
+    LineTo(0, (TILE_SIZE div 3) * 2);
+    LineTo(-TILE_SIZE div 2, TILE_SIZE div 3);
+    LineTo(-TILE_SIZE div 2, -TILE_SIZE div 3);
+    LineTo(0, -(TILE_SIZE div 3) * 2);
+    LineTo(TILE_SIZE div 2, -TILE_SIZE div 3);
+  end;
 
-  // путь
+  // path
   if (Path.Count > 1) then
   begin
     Canvas.Pen.Width := 2;
     Canvas.Pen.Color := clRed;
-    with MapToScreen(Path.Points[0].X, Path.Points[0].Y) do Canvas.MoveTo(X, Y);
+    with MapToScreen(Path.Points[0].X, Path.Points[0].Y) do
+      Canvas.MoveTo(X, Y);
 
-    for i := 1 to Path.Count-1 do
+    for i := 1 to Path.Count - 1 do
     with MapToScreen(Path.Points[i].X, Path.Points[i].Y) do
       Canvas.LineTo(X, Y);
   end;
 
-  // StartPoint, FinishPoint
+  // start point, finish point
   Canvas.Brush.Style := bsSolid;
   Canvas.Pen.Width := 2;
   Canvas.Brush.Color := clBlue;
-  if (MousePressed = mbLeft) and (CursorPoint.X = StartPoint.X) and (CursorPoint.Y = StartPoint.Y) then Canvas.Brush.Color := clAqua;
+  if (MousePressed = mbLeft) and (CursorPoint.X = StartPoint.X) and
+    (CursorPoint.Y = StartPoint.Y) then Canvas.Brush.Color := clAqua;
   Canvas.Pen.Color := clRed;
   P := MapToScreen(StartPoint.X, StartPoint.Y);
-  Canvas.Ellipse(Bounds(P.X -9, P.Y -9, 20, 20));
+  Canvas.Ellipse(Bounds(P.X - 9, P.Y - 9, 20, 20));
   Canvas.Pen.Width := 2;
   Canvas.Brush.Color := clRed;
-  if (MousePressed = mbLeft) and (CursorPoint.X = FinishPoint.X) and (CursorPoint.Y = FinishPoint.Y) then Canvas.Brush.Color := clFuchsia;
+  if (MousePressed = mbLeft) and (CursorPoint.X = FinishPoint.X) and
+    (CursorPoint.Y = FinishPoint.Y) then Canvas.Brush.Color := clFuchsia;
   Canvas.Pen.Color := clBlue;
   P := MapToScreen(FinishPoint.X, FinishPoint.Y);
-  Canvas.Ellipse(Bounds(P.X -9, P.Y -9, 20, 20));
+  Canvas.Ellipse(Bounds(P.X - 9, P.Y - 9, 20, 20));
 
   // save
-  if (jpg_file_name <> '') then
+  if (JpgFileName <> '') then
   begin
     JI := TJpegImage.Create;
     JI.Assign(MapBitmap);
-      JI.SaveToFile(jpg_file_name);
+      JI.SaveToFile(JpgFileName);
     JI.Free;
-  end; 
+  end;
 end;
 
-
-procedure TForm1.btnTestSpeedClick(Sender: TObject);
+procedure TMainForm.btnSpeedTestClick(Sender: TObject);
 var
-  i, Count: integer;
-  Time: dword;
+  i, Count: Integer;
+  Time: Cardinal;
   Weights: TCPFHandle;
   Params: TTileMapParams;
 begin
@@ -1025,17 +1020,13 @@ begin
     Params.Excludes := PPoint(ExcludedPoints);
     Params.ExcludesCount := Length(ExcludedPoints);
 
-    for i := 0 to Count-1 do // ExecutePathFinding(Show = false);
-      cpfFindPath(HMap, @Params, SectorTest, Caching);
+    for i := 1 to Count do
+      cpfFindPath(HMap, @Params, SectorTest, Caching){ExecutePathFinding(Show = False)};
   end;
-  Time := GetTickCount-Time;
+  Time := GetTickCount - Time;
 
-  ShowMessageFmt('Кратчайший путь был расчитан %d раз за %d миллисекунд', [Count, Time]);
+  ShowMessageFmt('The shortest path was calculated %d times for %d milliseconds', [Count, Time]);
 end;
-
-
-
-
 
 
 end.

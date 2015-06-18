@@ -1,5 +1,6 @@
 program bitmap_test;
 
+
 // compiler directives
 {$ifdef FPC}
   {$mode Delphi}
@@ -50,157 +51,143 @@ uses
   Graphics,
   cpf in '..\library\cpf.pas';
 
-function MessageBox(const Caption: string; const Fmt: string; const Args: array of const; const Flags: integer): integer;
+function MessageBox(const Caption: string; const Fmt: string;
+  const Args: array of const; const Flags: Integer): Integer;
 begin
   Result := Windows.MessageBox(GetForegroundWindow,
-            pchar(Format(Fmt, Args)), pchar(Caption), Flags); 
+            PChar(Format(Fmt, Args)), PChar(Caption), Flags); 
 end;
 
 procedure ShowMessage(const Fmt: string; const Args: array of const);
 begin
-  MessageBox('Сообщение:', Fmt, Args, 0);
+  MessageBox('Information:', Fmt, Args, 0);
 end;
 
 procedure ShowError(const Fmt: string; const Args: array of const);
 begin
-  MessageBox('Ошибка:', Fmt, Args, MB_ICONERROR);
+  MessageBox('Error:', Fmt, Args, MB_ICONERROR);
 end;
 
 procedure ShowInformation(const Fmt: string; const Args: array of const);
 begin
-  MessageBox('Информация:', Fmt, Args, MB_ICONINFORMATION);
+  MessageBox('Information:', Fmt, Args, MB_ICONINFORMATION);
 end;
 
-function  YesNoQuestion(const Fmt: string; const Args: array of const; const DefYesButton: boolean): boolean;
+function  YesNoQuestion(const Fmt: string; const Args: array of const;
+  const DefYesButton: Boolean): Boolean;
 var
-  Flags: integer;
+  Flags: Integer;
 begin
   Flags := MB_ICONQUESTION or MB_YESNO;
   if (not DefYesButton) then Flags := Flags or MB_DEFBUTTON2;
 
-  Result := (IDYES = MessageBox('Вопрос:', Fmt, Args, Flags));
+  Result := (IDYES = MessageBox('Question:', Fmt, Args, Flags));
 end;
 
 
 const
   FileName = 'bitmap_test.bmp';
   DestFileName = 'bitmap_test_Result.bmp';
-  MAX_CELLS_COUNT = 100000000;
+  CELLCOUNT_LIMIT = 16 * 1000 * 1000;
 
 var
   Bitmap: TBitmap;
-  BitmapWidth: integer;
-  BitmapHeight: integer;
-  BitmapData: pointer;
-  BitmapPitch: integer;
-  CellsCount: integer;
+  BitmapWidth: Integer;
+  BitmapHeight: Integer;
+  BitmapData: Pointer;
+  BitmapPitch: Integer;
+  CellCount: Integer;
 
   Map: TCPFHandle;
-  Time: dword;
-  found: boolean;
+  Time: Cardinal;
+  Found: Boolean;
   Start, Finish: TPoint;
-  i: integer;
-  RedValue: byte;
+  i: Integer;
+  Pix: PByte;
+  RedValue: Byte;
   Params: TTileMapParams;
   Path: TTileMapPath;
 
 
-
-// в визуальном предсталении белые - не 0, чёрные - 0
-// для карты все белые нужно сделать 1
-procedure InitializeBitmapTiles();
-var
-  i: integer;
-  Dest: pbyte;
+function BitmapPixel(const X, Y: Integer): PByte;
 begin
-  Dest := BitmapData;
-
-  for i := 1 to BitmapHeight*BitmapPitch do
-  begin
-    if (Dest^ <> 0) then Dest^ := 1;
-    inc(Dest);
-  end;
+  Result := PByte(Integer(BitmapData) + BitmapPitch * (BitmapHeight - 1 - Y) + X);
 end;
 
-function BitmapPixel(const X, Y: integer): pbyte;
 begin
-  Result := pbyte(integer(BitmapData)+BitmapPitch*(BitmapHeight-1-Y)+X);
-end;
-
-
-begin
-
+  // file exists test
   if (not FileExists(FileName)) then
   begin
-    ShowError('Файл "%s" не найден !', [FileName]);
-    exit;
+    ShowError('File "%s" not found', [FileName]);
+    Exit;
   end;
 
 Bitmap := TBitmap.Create;
 Map := 0;
 try
+  // loading
   Bitmap.LoadFromFile(FileName);
   BitmapWidth := Bitmap.Width;
   BitmapHeight := Bitmap.Height;
-  CellsCount := BitmapWidth*BitmapHeight;
+  CellCount := BitmapWidth * BitmapHeight;
 
-  if (BitmapWidth = 0) or (BitmapHeight = 0) then
+  if (BitmapWidth <= 1) or (BitmapHeight <= 1) then
   begin
-    ShowError('Недопустимые размеры изображения: %dx%d', [BitmapWidth, BitmapHeight]);
-    exit;
+    ShowError('Incorrect map size: %dx%d', [BitmapWidth, BitmapHeight]);
+    Exit;
   end;
 
-  if (CellsCount > MAX_CELLS_COUNT) then
+  if (CellCount > CELLCOUNT_LIMIT) then
   begin
-    ShowError('Изображение слишком большое(%dx%d). Количество клеток(%d) превышает максимальное(%d)',
-             [BitmapWidth, BitmapHeight, CellsCount, MAX_CELLS_COUNT]);
-    exit;         
+    ShowError('Too large map size %dx%d, cell count limit is %d', [BitmapWidth, BitmapHeight, CELLCOUNT_LIMIT]);
+    Exit;         
   end;
-
-  if (not YesNoQuestion('Изображение(%dx%d) содержит %d клеток. Расчёты могут занять некоторое время.'#13+
-                        'Хотите продолжить ?', [BitmapWidth, BitmapHeight, CellsCount], false)) then exit;
 
   Bitmap.PixelFormat := pf8bit;
-  BitmapData := Bitmap.ScanLine[BitmapHeight-1];
-  BitmapPitch := (BitmapWidth+3) and -4;
+  BitmapData := Bitmap.ScanLine[BitmapHeight - 1];
+  BitmapPitch := (BitmapWidth + 3) and -4;
 
-
-  // загрузка карты
-  InitializeBitmapTiles();
+  // map tiles loading
+  Pix := BitmapData;
+  for i := 1 to BitmapHeight * BitmapPitch do
+  begin
+    if (Pix^ <> 0) then Pix^ := 1;
+    Inc(Pix);
+  end;
   Map := cpfCreateMap(BitmapWidth, BitmapHeight, mkSimple);
   cpfMapUpdate(Map, BitmapPixel(0, 0), 0, 0, BitmapWidth, BitmapHeight, -BitmapPitch);
   
-  // поиск точек Start/Finish
-  found := false;
+  // take Start/Finish points
+  Found := False;
   Start.Y := 0;
-  for i := 0 to BitmapWidth-1 do
-  if BitmapPixel(i, Start.Y)^ = 0 then
+  for i := 0 to BitmapWidth - 1 do
+  if (BitmapPixel(i, Start.Y)^ = 0) then
   begin
     Start.X := i;
-    found := true;
-    break;
+    Found := True;
+    Break;
   end;
-  if (not found) then
+  if (not Found) then
   begin
-    ShowError('Стартовая точка не найдена', []);
-    exit;
+    ShowError('Start point not found', []);
+    Exit;
   end;
-  found := false;
-  Finish.Y := BitmapHeight-1;
-  for i := BitmapWidth-1 downto 0 do
-  if BitmapPixel(i, Finish.Y)^ = 0 then
+  Found := false;
+  Finish.Y := BitmapHeight - 1;
+  for i := BitmapWidth - 1 downto 0 do
+  if (BitmapPixel(i, Finish.Y)^ = 0) then
   begin
     Finish.X := i;
-    found := true;
-    break;
+    Found := True;
+    Break;
   end;
-  if (not found) then
+  if (not Found) then
   begin
-    ShowError('Конечная точка не найдена', []);
+    ShowError('Finish point not found', []);
     exit;
   end;
 
-  // расчёт
+  // finding path
   Time := GetTickCount;
     Params.Starts := @Start;
     Params.StartsCount := 1;
@@ -208,25 +195,25 @@ try
     Params.Weights := 0;
     Params.Excludes := nil;
     Params.ExcludesCount := 0;
-    Path := cpfFindPath(Map, @Params, false, false);
-  Time := GetTickCount-Time;
+    Path := cpfFindPath(Map, @Params, False, False);
+  Time := GetTickCount - Time;
 
-  // результат
+  // result
   if (Path.Count = 0) then
   begin
     DeleteFile(DestFileName);
-    ShowError('Путь не найден !', []);
+    ShowError('Path not found!', []);
   end else
   begin
-    // красный
+    // red points
     Bitmap.Canvas.Pixels[Path.Points[0].X, Path.Points[0].Y] := clRed;
     RedValue := BitmapPixel(Path.Points[0].X, Path.Points[0].Y)^;
-    for i := 1 to Path.Count-1 do
+    for i := 1 to Path.Count - 1 do
       BitmapPixel(Path.Points[i].X, Path.Points[i].Y)^ := RedValue;
 
     Bitmap.SaveToFile(DestFileName);
-    ShowInformation('Путь расчитан за %d миллисекунд и результат сохранён в файл "%s"'#13+
-                    'Расстояние: %0.2f. (количество точек - %d)',
+    ShowInformation('Processing time is %d milliseconds, the path was saved to "%s" file'#13+
+                    'Distance: %0.2f (%d points)',
                     [Time, DestFileName, Path.Distance, Path.Count]);
   end;
 finally
