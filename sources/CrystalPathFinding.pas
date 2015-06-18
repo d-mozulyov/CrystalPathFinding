@@ -1182,7 +1182,7 @@ begin
   TCPFClassPtr(HMap).FCallAddress := Address;
   TTileMapPtr(HMap).SectorTest := SectorTest;
   TTileMapPtr(HMap).Caching := Caching;
-  Result := TTileMapPtr(HMap).DoFindPath(NativeUInt(Params) + NativeUInt(FullPath) shl HIGH_NATIVE_BIT);
+  Result := TTileMapPtr(HMap).DoFindPath(NativeUInt(Params) + NativeUInt(FullPath) shl {HIGH_NATIVE_BIT}{$ifdef LARGEINT}63{$else}31{$endif});
 end;
 {$endif .CPFAPI}
 
@@ -2640,8 +2640,9 @@ begin
   Cell := @{$ifdef CPUX86}TTileMapPtr(Store.Self).{$endif}FInfo.CellArray[ChangedArea.Top * SelfWidth + ChangedArea.Left];
   CellWidthSize := AWidth * SizeOf(TCPFCell);
   CellLineOffset := (SelfWidth - AWidth) * SizeOf(TCPFCell);
-  FinalCell := Pointer(NativeInt(Cell) + (AWidth + (AHeight * SelfWidth)) * SizeOf(TCPFCell));
-  TileLineOffset := (Pitch - AWidth);
+  FinalCell := Pointer(NativeInt(Cell) + (AHeight * SelfWidth) * SizeOf(TCPFCell));
+  if (Pitch = 0) then TileLineOffset := 0
+  else TileLineOffset := (Pitch - AWidth);
 
   FlagsChanged := 0;
   PTile := {$ifdef CPUX86}Store.{$endif}ATiles;
