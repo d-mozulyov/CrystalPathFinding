@@ -609,10 +609,13 @@ procedure TMainForm.pbMapMouseMove(Sender: TObject; Shift: TShiftState; X, Y: In
 var
   P, LastCursorPoint: TPoint;
 begin
-  if (MousePressed = mbMiddle) then Exit;
   P := ScreenToMap(X, Y);
   if (P.X < 0) or (P.X >= MAP_WIDTH) or (P.Y < 0) or (P.Y >= MAP_HEIGHT) then Exit;
   if (Sender <> nil) and (CursorPoint.X = P.X) and (CursorPoint.Y = P.Y) then Exit;
+  {$ifNdef USECPFDLL}
+  if (System.DebugHook > 0) then  Caption := TTileMapPtr(HMap).CellInformation(P.X, P.Y);
+  {$endif}  
+  if (MousePressed = mbMiddle) then Exit;
   LastCursorPoint := CursorPoint;
   CursorPoint := P;
 

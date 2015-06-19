@@ -159,6 +159,7 @@ type
 
   // internal class
   TCPFExceptionString = {$ifdef CPFLIB}PWideChar{$else}string{$endif};
+  {$ifdef CPFLOG}{$M+}{$endif}
   TCPFClass = {$ifdef CPFLIB}object{$else}class(TObject){$endif}
   protected
     FCallAddress: Pointer;
@@ -170,6 +171,7 @@ type
     procedure CPFReallocMem(var P: Pointer; const NewSize: NativeUInt);
   end;
   TCPFClassPtr = {$ifdef CPFLIB}^{$endif}TCPFClass;
+  {$ifdef CPFLOG}{$M-}{$endif}
 
   // internal resizable memory buffer
   PCPFBuffer = ^TCPFBuffer;
@@ -451,6 +453,11 @@ type
   {$else}
     {$ifdef AUTOREFCOUNT}protected{$else}public{$endif}
     destructor Destroy; override;
+  {$endif}
+  {$ifdef CPFLOG}
+  published
+    function CellInformation(const X, Y: Word): string;
+    function NodeInformation(const Node: PCPFNode): string;
   {$endif}
   public
     {$ifdef CPFLIB}procedure{$else}constructor{$endif}
@@ -1340,8 +1347,8 @@ type
     x: SmallInt;
   end;
 
-  TChildArray = array[0..7] of Word;
-  PChildArray = ^TChildArray;
+  TChildList = array[0..7] of Word;
+  PChildList = ^TChildList;
 
 const
   NODESTORAGE_INFO: array[0..31] of packed record
@@ -1458,7 +1465,7 @@ const
   DEFAULT_WEIGHT_VALUE = Cardinal($3F800000){1.0};
   ERROR_WEIGHT_VALUE = 'Invalid weight value. 0,0..0,1 - pathless, 0,1..50 - correct';
 
-  CHILD_ARRAYS: array[0..11{4 diagonal + 4 clockwise optional}] of TChildArray = (
+  CHILD_ARRAYS: array[0..11{4 diagonal + 4 clockwise optional}] of TChildList = (
    ($0100, $8070, $0210, $4060, $0420, $2050, $0830, $1040),
    ($0210, $0100, $0420, $8070, $0830, $4060, $1040, $2050),
    ($0210, $0420, $0100, $0830, $8070, $1040, $4060, $2050),
@@ -1534,7 +1541,7 @@ begin
   LookupLine(Format(FmtStr, Args));
 end;
 
-procedure AddChildArray(Base: Integer; Clockwise, Finalize: Boolean);
+procedure AddChildList(Base: Integer; Clockwise, Finalize: Boolean);
 const
   CHILD_VALUES: array[0..7] of Word = (
     ((1 shl 0) shl 8) or (0 shl 4),
@@ -1550,7 +1557,7 @@ const
 var
   S: string;
   i, Sign: integer;
-  ChildArray: TChildArray;
+  ChildList: TChildList;
   Child: PWord;
 
   procedure AddChild(const N: Integer);
@@ -1562,7 +1569,7 @@ begin
   Sign := 1;
   if (not Clockwise) then Sign := -1;
 
-  Child := @ChildArray[0];
+  Child := @ChildList[0];
   AddChild(Base);
   for i := 1 to 3 do
   begin
@@ -1572,20 +1579,20 @@ begin
   AddChild(Base + 4);
 
   S := Format(' ($%0.4x, $%0.4x, $%0.4x, $%0.4x, $%0.4x, $%0.4x, $%0.4x, $%0.4x)',
-    [ChildArray[0], ChildArray[1], ChildArray[2], ChildArray[3],
-     ChildArray[4], ChildArray[5], ChildArray[6], ChildArray[7]]);
+    [ChildList[0], ChildList[1], ChildList[2], ChildList[3],
+     ChildList[4], ChildList[5], ChildList[6], ChildList[7]]);
 
   if (not Finalize) then S := S + ',';
   LookupLine(S);
 end;
 
-procedure AddTwoChildArrays(Base: Integer; Finalize: Boolean);
+procedure AddTwoChildLists(Base: Integer; Finalize: Boolean);
 begin
-  AddChildArray(Base, False, False);
-  AddChildArray(Base, True, Finalize);
+  AddChildList(Base, False, False);
+  AddChildList(Base, True, Finalize);
 end;
 
-procedure AddChildArrayOffsets(WayX, WayY: Integer; Finalize: Boolean);
+procedure AddChildListOffsets(WayX, WayY: Integer; Finalize: Boolean);
 var
   Buffer: array[0..7] of Byte;
   Offset: PByte;
@@ -1653,7 +1660,7 @@ begin
         Inc(N);
     end;
 
-    Offset^ := N * SizeOf(TChildArray);
+    Offset^ := N * SizeOf(TChildList);
     Inc(Offset);
   end;
 
@@ -1785,16 +1792,16 @@ begin
 
     // CHILD_ARRAYS
     LookupLine;
-    LookupLine('CHILD_ARRAYS: array[0..11{4 diagonal + 4 clockwise optional}] of TChildArray = (');
+    LookupLine('CHILD_ARRAYS: array[0..11{4 diagonal + 4 clockwise optional}] of TChildList = (');
     begin
-      AddChildArray(0, False, False);
-      AddTwoChildArrays(1, False);
-      AddChildArray(2, True, False);
-      AddTwoChildArrays(3, False);
-      AddChildArray(4, True, False);
-      AddTwoChildArrays(5, False);
-      AddChildArray(6, False, False);
-      AddTwoChildArrays(7, True);
+      AddChildList(0, False, False);
+      AddTwoChildLists(1, False);
+      AddChildList(2, True, False);
+      AddTwoChildLists(3, False);
+      AddChildList(4, True, False);
+      AddTwoChildLists(5, False);
+      AddChildList(6, False, False);
+      AddTwoChildLists(7, True);
     end;
     LookupLine(');');
 
@@ -1806,7 +1813,7 @@ begin
       WayX := (Way + 1) mod 3;
       WayY := (Way + 1) div 3;
 
-      AddChildArrayOffsets(WayX, WayY, Way = 7);
+      AddChildListOffsets(WayX, WayY, Way = 7);
     end;
     LookupLine(');');
 
@@ -2179,6 +2186,163 @@ begin
 end;
 {$endif}
 
+{$ifdef CPFLOG}
+function TTileMap.CellInformation(const X, Y: Word): string;
+var
+  Cell: PCPFCell;
+  Node, N: PCPFNode;
+  CellKind, CellInfo: string;
+  WayBits: Integer;
+  ChildList: PChildList;
+
+  {$ifdef LARGEINT}
+    NodeBuffers: PCPFNodeBuffers;
+  {$endif}
+
+  function MaskToString(const Mask: Byte): string;
+  var
+    i: Integer;
+  begin
+    if (Mask = 0) then Result := 'none'
+    else
+    if (Mask = $FF) then Result := 'all'
+    else
+    begin
+      Result := '';
+      for i := 0 to 7 do
+      if (Mask and (1 shl i) <> 0) then
+        Result := Result + IntToStr(i);
+    end;
+  end;
+
+begin
+  if (X >= Self.Width) or (Y >= Self.Height) then
+  begin
+    Result := 'FAILURE COORDINATES';
+    Exit;
+  end;
+
+  Cell := @Self.FInfo.CellArray[Self.FInfo.MapWidth * Y + X];
+  if (Cell.NodePtr and NODEPTR_FLAG_ALLOCATED = 0) then
+  begin
+    CellKind := 'map cell';
+    CellInfo := Format('(tile: %d, mask: %s)', [Cell.Tile, MaskToString(Cell.Mask)]);
+    if (Cell.AllocatedFlags or Cell._ <> 0) then CellInfo := CellInfo + ' FAILURE flags';
+  end else
+  begin
+    {$ifdef LARGEINT}
+    NodeBuffers := Pointer(@FInfo.NodeAllocator.Buffers);
+    {$endif}
+    Node := PCPFNode(
+              {$ifdef LARGEINT}NodeBuffers[Cell.NodePtr shr LARGE_NODEPTR_OFFSET] +{$endif}
+              Cell.NodePtr and NODEPTR_CLEAN_MASK
+              );
+
+    if (Cell.NodePtr and NODEPTR_FLAG_HEURISTED = 0) then
+    begin
+      CellKind := 'allocated';
+      CellInfo := Format('(tile: %d, mask: %s)', [Node.Tile, MaskToString(Node.Mask)]);
+    end else
+    begin
+      if (Node.ParentMask = 0) then
+      begin
+        CellInfo := Format('locked (tile: %d, mask: %s', [Node.Tile, MaskToString(Node.Mask)]);
+      end else
+      begin
+        CellInfo := Format('(tile: %d, mask: %s, parentmask: %s',
+          [Node.Tile, MaskToString(Node.Mask), MaskToString(Node.ParentMask)]);
+      end;
+
+      if (Node.SortValue >= NATTANABLE_LENGTH_LIMIT) then
+      begin
+        CellKind := 'attainable cached';
+        CellInfo := CellInfo + Format(', length: %d, distance: %0.2f, child: %d',
+          [not Node.nAttainableLength, Node.AttainableDistance, (Node.NodeInfo shr 3) and 7]);
+      end else
+      begin
+        WayBits := -1;
+
+        if (Node.SortValue = SORTVALUE_LIMIT) then
+        begin
+          if (Node.Path <> SORTVALUE_LIMIT) or
+            (Node.NodeInfo and FLAG_KNOWN_PATH = 0) or
+            (Node.NodeInfo and FLAG_ATTAINABLE <> 0) then
+          begin
+            CellKind := 'FAILURE unattainable';
+          end else
+          begin
+            CellKind := 'unattainable';
+          end;
+        end else
+        if (Node.NodeInfo and FLAG_KNOWN_PATH <> 0) then
+        begin
+          if (Node.NodeInfo and FLAG_ATTAINABLE = 0) then
+          begin
+            CellKind := 'FAILURE attainable';
+          end else
+          begin
+            CellKind := 'attainable';
+            CellInfo := CellInfo + Format(', child: %d', [(Node.NodeInfo shr 3) and 7]);
+          end;
+        end else
+        begin
+          CellKind := 'heuristed';
+          WayBits := Node.NodeInfo and 63;
+        end;
+
+        // detect pool
+        N := Node.Prev;
+        while (N.Prev <> nil) do N := N.Prev;
+        if (N = @FNodes.HotPool.First) then
+        begin
+          CellKind := CellKind + ' [hot]';
+          CellInfo := CellInfo + Format(', parent: %d', [Node.ParentAndFlags and 7]);
+        end else
+        begin
+          if (N = @FNodes.ExcludedPool.First) then CellKind := CellKind + ' [excluded]'
+          else
+          if (N = @FNodes.HeuristedPool.First) then CellKind := CellKind + ' [heuristed]'
+          else
+          if (N = @FNodes.UnattainablePool.First) then CellKind := CellKind + ' [unattainable]'
+          else
+          CellKind := CellKind + ' [UNKNOWN!!!]';
+
+          if (WayBits <> -1) then
+            WayBits := WayBits and (not 7);
+        end;
+
+        // way (child list)
+        if (WayBits <> -1) then
+        begin
+          ChildList := Pointer(NativeUInt(@CHILD_ARRAYS) + CHILD_ARRAYS_OFFSETS[WayBits]);
+          CellInfo := CellInfo + Format(', way: %d%d%d',
+            [(ChildList[0] shr 4) and 7, (ChildList[1] shr 4) and 7, (ChildList[2] shr 4) and 7]);
+        end;
+      end;
+
+      CellInfo := CellInfo + ')';      
+    end;
+
+    if (Node.Coordinates.X <> X) or (Node.Coordinates.Y <> Y) then
+      CellInfo := CellInfo + Format(' FIALURE COORDINATES [%d,%d]', [Node.Coordinates.X, Node.Coordinates.Y]);
+  end;
+
+  Result := Format('[%d,%d] %s %s', [X, Y, CellKind, CellInfo]);
+end;
+
+function TTileMap.NodeInformation(const Node: PCPFNode): string;
+begin
+  if (Node = nil) then
+  begin
+    Result := 'nil';
+  end else
+  begin
+    Result := CellInformation(Node.Coordinates.X, Node.Coordinates.Y);
+  end;
+end;
+{$endif}
+
+
 procedure TTileMap.UpdateCellMasks(const ChangedArea: TRect);
 label
   clearbit, fillmask, nextcell;
@@ -2513,8 +2677,6 @@ procedure TTileMap.SetTile(const X, Y: Word; Value: Byte);
 var
   _X, _Y: Word;
   _Self: Pointer;
-  Cell: PCPFCell;
-  Node: PCPFNode;
   CellInfo, ValueInfo: NativeUInt;
   ChangedArea: TRect;
 
@@ -2538,29 +2700,31 @@ begin
   begin
     ChangedArea.Left := X;
     ChangedArea.Top := Y;
-    Cell := Pointer(CellInfo{Width} * Y + X);
-    Inc(NativeUInt(Cell), NativeUInt(Self.FInfo.CellArray));
-
-    CellInfo := Cell.NodePtr;
-    if (CellInfo and NODEPTR_FLAG_ALLOCATED <> 0) then
+    with Self.FInfo.CellArray[CellInfo{Width} * Y + X] do
     begin
-      {$ifdef LARGEINT}
-      NodeBuffers := Pointer(@FInfo.NodeAllocator.Buffers);
-      {$endif}
-      Node := PCPFNode(
-                {$ifdef LARGEINT}NodeBuffers[CellInfo shr LARGE_NODEPTR_OFFSET] +{$endif}
-                CellInfo and NODEPTR_CLEAN_MASK
-                 );
-      CellInfo := Node.NodeInfo shr 24;
-      ValueInfo := Value;
-      if (CellInfo = ValueInfo) then Exit;
-      Node.Tile := ValueInfo;
-    end else
-    begin
-      CellInfo := CellInfo shr 24;
-      ValueInfo := Value;
-      if (CellInfo = ValueInfo) then Exit;
-      Cell.Tile := ValueInfo;
+      CellInfo := {Cell.}NodePtr;
+      if (CellInfo and NODEPTR_FLAG_ALLOCATED <> 0) then
+      begin
+        {$ifdef LARGEINT}
+        NodeBuffers := Pointer(@FInfo.NodeAllocator.Buffers);
+        {$endif}
+        with PCPFNode(
+                  {$ifdef LARGEINT}NodeBuffers[CellInfo shr LARGE_NODEPTR_OFFSET] +{$endif}
+                  CellInfo and NODEPTR_CLEAN_MASK
+                   )^ do
+        begin
+          CellInfo := {Node.}NodeInfo shr 24;
+          ValueInfo := Value;
+          if (CellInfo = ValueInfo) then Exit;
+          {Node.}Tile := ValueInfo;
+        end;
+      end else
+      begin
+        CellInfo := CellInfo shr 24;
+        ValueInfo := Value;
+        if (CellInfo = ValueInfo) then Exit;
+        {Cell.}Tile := ValueInfo;
+      end;
     end;
 
     Dec(CellInfo);
