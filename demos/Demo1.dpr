@@ -1,8 +1,8 @@
-program Project1;
+program Demo1;
 
 uses
   Forms,
-  Unit1 in 'Unit1.pas' {MainForm};
+  DemoUnit1 in 'DemoUnit1.pas' {MainForm};
 
 {$R *.res}
 

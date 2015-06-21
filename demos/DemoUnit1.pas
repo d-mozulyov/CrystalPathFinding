@@ -1,4 +1,4 @@
-unit Unit1;
+unit DemoUnit1;
 
 
 // compiler directives
