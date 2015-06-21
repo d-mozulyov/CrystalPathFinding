@@ -33,11 +33,11 @@ unit CrystalPathFinding;
 
 {.$define CPFAPI}
 {.$define CPFLIB}
-{.$define CPFLOG}
+{.$define CPFDBG}
 
 {$ifdef CPFLIB}
   {$define CPFAPI}  
-  {$undef CPFLOG}
+  {$undef CPFDBG}
 {$endif}
 
 // compiler directives
@@ -83,7 +83,7 @@ unit CrystalPathFinding;
 {$endif}
 
 {$ifdef CPF_GENERATE_LOOKUPS}
-  {$undef CPFLOG}
+  {$undef CPFDBG}
   {$undef CPFAPI}
   {$undef CPFLIB}
 {$endif}
@@ -95,7 +95,7 @@ interface
            , KOL, err
          {$else}
            , SysUtils
-           {$if Defined(CPFLOG) or Defined(CPF_GENERATE_LOOKUPS)}, Classes{$ifend}
+           {$if Defined(CPFDBG) or Defined(CPF_GENERATE_LOOKUPS)}, Classes{$ifend}
          {$endif}
        {$endif};
 
@@ -159,7 +159,7 @@ type
 
   // internal class
   TCPFExceptionString = {$ifdef CPFLIB}PWideChar{$else}string{$endif};
-  {$ifdef CPFLOG}{$M+}{$endif}
+  {$ifdef CPFDBG}{$M+}{$endif}
   TCPFClass = {$ifdef CPFLIB}object{$else}class(TObject){$endif}
   protected
     FCallAddress: Pointer;
@@ -171,7 +171,7 @@ type
     procedure CPFReallocMem(var P: Pointer; const NewSize: NativeUInt);
   end;
   TCPFClassPtr = {$ifdef CPFLIB}^{$endif}TCPFClass;
-  {$ifdef CPFLOG}{$M-}{$endif}
+  {$ifdef CPFDBG}{$M-}{$endif}
 
   // internal resizable memory buffer
   PCPFBuffer = ^TCPFBuffer;
@@ -454,7 +454,7 @@ type
     {$ifdef AUTOREFCOUNT}protected{$else}public{$endif}
     destructor Destroy; override;
   {$endif}
-  {$ifdef CPFLOG}
+  {$ifdef CPFDBG}
   published
     function CellInformation(const X, Y: Word): string;
     function NodeInformation(const Node: PCPFNode): string;
@@ -2186,7 +2186,7 @@ begin
 end;
 {$endif}
 
-{$ifdef CPFLOG}
+{$ifdef CPFDBG}
 function TTileMap.CellInformation(const X, Y: Word): string;
 var
   Cell: PCPFCell;
