@@ -615,9 +615,9 @@ begin
   {$ifNdef USECPFDLL}
   if (System.DebugHook > 0) then  Caption := TTileMapPtr(HMap).CellInformation(P.X, P.Y);
   {$endif}  
-  if (MousePressed = mbMiddle) then Exit;
   LastCursorPoint := CursorPoint;
   CursorPoint := P;
+  if (MousePressed = mbMiddle) then Exit;
 
   // points
   if (MousePressed = mbLeft) and (LastCursorPoint.X = StartPoint.X) and
