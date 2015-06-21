@@ -1,4 +1,4 @@
-program bitmap_test;
+program BitmapTest;
 
 
 // compiler directives
@@ -86,8 +86,8 @@ end;
 
 
 const
-  FileName = 'bitmap_test.bmp';
-  DestFileName = 'bitmap_test_Result.bmp';
+  FileName = 'BitmapTest.bmp';
+  DestFileName = 'BitmapTest_Result.bmp';
   CELLCOUNT_LIMIT = 16 * 1000 * 1000;
 
 var
