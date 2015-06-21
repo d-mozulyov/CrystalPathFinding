@@ -111,7 +111,8 @@ var
 
 function BitmapPixel(const X, Y: Integer): PByte;
 begin
-  Result := PByte(Integer(BitmapData) + BitmapPitch * (BitmapHeight - 1 - Y) + X);
+  Result := BitmapData;
+  Inc(Result, BitmapPitch * (BitmapHeight - 1 - Y) + X);
 end;
 
 begin

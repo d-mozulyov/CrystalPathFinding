@@ -48,9 +48,13 @@ interface
 
 {.$define USECPFDLL}
 
+{$ifdef CPFDBG}
+  {$undef USECPFDLL}
+{$endif}
+
 uses
   Windows, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
-  Dialogs, Math, ExtCtrls, StdCtrls, Spin, JPEG,
+  Types, Dialogs, Math, ExtCtrls, StdCtrls, Spin, JPEG,
   {$ifdef USECPFDLL}cpf{$else}CrystalPathFinding{$endif};
 
 {$R xp_manifest.res}
@@ -612,8 +616,10 @@ begin
   P := ScreenToMap(X, Y);
   if (P.X < 0) or (P.X >= MAP_WIDTH) or (P.Y < 0) or (P.Y >= MAP_HEIGHT) then Exit;
   if (Sender <> nil) and (CursorPoint.X = P.X) and (CursorPoint.Y = P.Y) then Exit;
-  {$ifNdef USECPFDLL}
-  if (System.DebugHook > 0) then  Caption := TTileMapPtr(HMap).CellInformation(P.X, P.Y);
+  {$ifdef CPFDBG}
+    {$WARN SYMBOL_PLATFORM OFF}
+    if (System.DebugHook > 0) then
+      Caption := TTileMapPtr(HMap).CellInformation(P.X, P.Y);
   {$endif}  
   LastCursorPoint := CursorPoint;
   CursorPoint := P;
@@ -678,7 +684,7 @@ procedure TMainForm.AddExcludedPoint(const Value: TPoint);
 var
   Len: integer;
 begin
-  if (ExcludePointPos(Value) >= 0) then exit;
+  if (ExcludePointPos(Value) >= 0) then Exit;
 
   Len := Length(ExcludedPoints);
   SetLength(ExcludedPoints, Len + 1);
@@ -690,9 +696,9 @@ var
   P, Len: integer;
 begin
   P := ExcludePointPos(Value);
-  if (P < 0) then exit;
+  if (P < 0) then Exit;
 
-  Len := Length(ExcludedPoints)-1;
+  Len := Length(ExcludedPoints) - 1;
   if (P <> Len) then ExcludedPoints[P] := ExcludedPoints[Len];
   SetLength(ExcludedPoints, Len);
 end;
@@ -1008,7 +1014,7 @@ var
   Weights: TCPFHandle;
   Params: TTileMapParams;
 begin
-  if (MapBitmap = nil) then exit;
+  if (MapBitmap = nil) then Exit;
 
   Weights := HWeights;
   if (not UseWeights) then Weights := 0;
