@@ -2404,22 +2404,13 @@ begin
              (CellInfo <= $ffffff)
            {$else}
              (CellInfo and Integer($ff000000){Tile} = 0{TILE_BARIER})
-           {$endif} then
-        begin
-          Cell.Mask := 0;
-          goto nextcell;
-        end;
+           {$endif} then goto nextcell;
       end else
       begin
-        with PCPFNode(
+        if (PCPFNode(
             {$ifdef LARGEINT}NodeBuffers[CellInfo shr LARGE_NODEPTR_OFFSET] +{$endif}
             CellInfo and NODEPTR_CLEAN_MASK
-             )^ do
-        if (Tile = 0) then
-        begin
-          Mask := 0;
-          goto nextcell;
-        end;
+             ).Tile = 0) then goto nextcell;
       end;
 
       // default mask
@@ -2472,7 +2463,7 @@ begin
         X := Flags and -8;
         Inc(Flags);
         Inc(Flags, X);
-      until (Mask < Flags);
+      until (Mask shr 1 < X){Mask < X shl 1};
 
       // mask to byte
       Mask := Mask shr 8;
@@ -2523,34 +2514,86 @@ begin
   until (False);
 end;
 
-
-{$ifNdef CPFLIB}
-procedure TTileMapClear(const Self: TTileMap); forward;
-procedure TTileMap.Clear;
+procedure TTileMapClearAroundMasks(const Self: TTileMap; Cell: PCPFCell);
+const
+  NOT_TOP_MASK = (CrystalPathFinding.NOT_TOP_MASK shl 8) or $ff;
+  NOT_RIGHT_MASK = (CrystalPathFinding.NOT_RIGHT_MASK shl 8) or $ff;
+  NOT_BOTTOM_MASK = (CrystalPathFinding.NOT_BOTTOM_MASK shl 8) or $ff;
+  NOT_LEFT_MASK = (CrystalPathFinding.NOT_LEFT_MASK shl 8) or $ff;
+var
+  i: NativeInt;
+  MaximumI, Size: NativeInt;
+  NotRightMask: Integer;
 begin
-  FCallAddress := ReturnAddress;
-  TTileMapClear(Self);
+  NotRightMask := NOT_RIGHT_MASK;
+  if (Self.Kind = mkHexagonal) then NotRightMask := NotRightMask and not ((_1 or _5) shl 8);
+
+  MaximumI := Self.Width - 1;
+  Cell.NodePtr := Cell.NodePtr and (NOT_LEFT_MASK and NOT_TOP_MASK);
+  Inc(Cell);
+  for i := 1 to MaximumI do
+  begin
+    Cell.NodePtr := Cell.NodePtr and NOT_TOP_MASK;
+    Inc(Cell);
+  end;
+  Dec(Cell);
+  Cell.NodePtr := Cell.NodePtr and (NotRightMask and NOT_TOP_MASK);
+  Inc(Cell);
+
+  // each line
+  for i := 1 to NativeInt(Self.FHeight) - 2 do
+  begin
+    Cell.NodePtr := Cell.NodePtr and NOT_LEFT_MASK;
+    Inc(Cell, MaximumI);
+    Cell.NodePtr := Cell.NodePtr and NotRightMask;
+    Inc(Cell);
+  end;
+
+  // bottom
+  Cell.NodePtr := Cell.NodePtr and (NOT_LEFT_MASK and NOT_BOTTOM_MASK);
+  Inc(Cell);
+  for i := 1 to MaximumI do
+  begin
+    Cell.NodePtr := Cell.NodePtr and NOT_BOTTOM_MASK;
+    Inc(Cell);
+  end;
+  Dec(Cell);  
+  Cell.NodePtr := Cell.NodePtr and (NotRightMask and NOT_BOTTOM_MASK);
+
+  // hexagonal odd right
+  if (Self.Kind = mkHexagonal) and (MaximumI <> 0) then
+  begin
+    Dec(Cell, (NativeInt(Self.FHeight) - 2) * (MaximumI + 1));
+    Size := (MaximumI + 1) * 2 * SizeOf(TCPFCell);
+
+    for i := 0 to NativeInt(Self.Height shr 1) - 1 do
+    begin
+      Cell.NodePtr := Cell.NodePtr and NOT_RIGHT_MASK;
+      Inc(NativeInt(Cell), Size);
+    end;
+  end; 
 end;
-procedure TTileMapClear(const Self: TTileMap);
-{$else}
+
 procedure TTileMap.Clear;
-{$endif}
 const
   HEXAGONAL_CELL_EVEN = $01000000 or (_0 or _1 or _3 or _5 or _6 or _7) shl 8;
   HEXAGONAL_CELL_ODD = $01000000 or (_1 or _2 or _3 or _4 or _5 or _7) shl 8;
 var
   i: NativeInt;
   Cell: PCPFCell;
-  MaximumI, Size: NativeInt;
-  NotRightMask: Integer{Byte};
+  Size: NativeInt;
 begin
+  {$ifNdef CPFLIB}
+    FCallAddress := ReturnAddress;
+  {$endif}
+
   // release nodes
   Self.FreeAllocatedNodes(False);
   Cardinal(Self.FInfo.FinishPoint) := High(Cardinal);
   Self.FActualInfo.TilesChanged := True;
   Self.FActualInfo.SectorsChanged := True;
 
-  // cells
+  // cells and default masks
   if (Self.Kind = mkHexagonal) then
   begin
     Cell := @Self.FInfo.CellArray[0];
@@ -2573,54 +2616,7 @@ begin
   end;
 
   // around cells
-  MaximumI:= Self.Width - 1;
-  NotRightMask := NOT_RIGHT_MASK;
-  if (Self.Kind = mkHexagonal) then NotRightMask := NotRightMask and not (_1 or _5);
-  Cell := @Self.FInfo.CellArray[0];
-  begin
-    // top
-    Cell.Mask := Cell.Mask and (NOT_LEFT_MASK and NOT_TOP_MASK);
-    Inc(Cell);
-    for i := 1 to MaximumI do
-    begin
-      Cell.Mask := Cell.Mask and NOT_TOP_MASK;
-      Inc(Cell);
-    end;
-    Cell.Mask := Cell.Mask and Integer(NotRightMask and NOT_TOP_MASK);
-    Inc(Cell);
-
-    // each line
-    for i := 1 to NativeInt(Self.FHeight) - 2 do
-    begin
-      Cell.Mask := Cell.Mask and NOT_LEFT_MASK;
-      Inc(Cell, MaximumI);
-      Cell.Mask := Cell.Mask and NotRightMask;
-      Inc(Cell);
-    end;
-
-    // bottom
-    Cell.Mask := Cell.Mask and (NOT_LEFT_MASK and NOT_BOTTOM_MASK);
-    Inc(Cell);
-    for i := 1 to MaximumI do
-    begin
-      Cell.Mask := Cell.Mask and NOT_BOTTOM_MASK;
-      Inc(Cell);
-    end;
-    Cell.Mask := Cell.Mask and Integer(NotRightMask and NOT_BOTTOM_MASK);
-  end;
-
-  // hexagonal odd right
-  if (Self.Kind = mkHexagonal) and (MaximumI <> 0) then
-  begin
-    Size := (MaximumI + 1) * SizeOf(TCPFCell);
-    Cell := @Self.FInfo.CellArray[MaximumI*2 + 1];
-
-    for i := 0 to NativeInt(Self.Height shr 1) - 1 do
-    begin
-      Cell.Mask := Cell.Mask and NOT_BOTTOM_MASK;
-      Inc(NativeInt(Cell), Size);
-    end;
-  end;
+  TTileMapClearAroundMasks(Self, @Self.FInfo.CellArray[0]);
 
   // sectors
   if (Self.SectorTest) then
@@ -2733,8 +2729,8 @@ begin
     CellInfo := CellInfo or ValueInfo;
     if (NativeInt(CellInfo) = -1) then
     begin
-      ChangedArea.Right := ChangedArea.Left;
-      ChangedArea.Bottom := ChangedArea.Top;
+      ChangedArea.Right := ChangedArea.Left + 1;
+      ChangedArea.Bottom := ChangedArea.Top + 1;
       FActualInfo.SectorsChanged := True;
       UpdateCellMasks(ChangedArea);
     end;
