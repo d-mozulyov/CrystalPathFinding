@@ -34,10 +34,12 @@ unit CrystalPathFinding;
 {.$define CPFAPI}
 {.$define CPFLIB}
 {.$define CPFDBG}
+{.$define CPFLOG}
 
 {$ifdef CPFLIB}
-  {$define CPFAPI}  
+  {$define CPFAPI}
   {$undef CPFDBG}
+  {$undef CPFLOG}
 {$endif}
 
 // compiler directives
@@ -83,9 +85,14 @@ unit CrystalPathFinding;
 {$endif}
 
 {$ifdef CPF_GENERATE_LOOKUPS}
+  {$undef CPFLOG}
   {$undef CPFDBG}
   {$undef CPFAPI}
   {$undef CPFLIB}
+{$endif}
+
+{$ifdef CPFLOG}
+  {$define CPFDBG}
 {$endif}
 
 interface
@@ -407,7 +414,7 @@ type
 
         Cardinals: array[0..255] of Cardinal;
         CardinalsDiagonal: array[0..255] of Cardinal;
-      case Boolean of
+        case Boolean of
         False: (
                  Singles: array[0..255] of Single;
                  SinglesDiagonal: array[0..255] of Single;
@@ -432,7 +439,6 @@ type
          False: (DistanceAsInt64: Int64);
       end;
     end;
-
     function AllocateHeuristedNode(X, Y: NativeInt): PCPFNode;
     function ActualizeWeights(Weights: PCPFWeightsInfo; Compare: Boolean): Boolean;
     function ActualizeStarts(Points: PPoint; Count: NativeUInt; Compare: Boolean): Boolean;
@@ -2328,6 +2334,15 @@ begin
   end;
 
   Result := Format('[%d,%d] %s %s', [X, Y, CellKind, CellInfo]);
+
+  if (Self.SectorTest) then
+  begin
+    if (FActualInfo.SectorsChanged) then
+      ActualizeSectors;
+
+    Result := Result + Format(', sector: %d',
+      [PByte(NativeInt(FActualInfo.Sectors) + NativeInt(Self.Width) * Y + X)^]);
+  end;
 end;
 
 function TTileMap.NodeInformation(const Node: PCPFNode): string;
@@ -3235,9 +3250,25 @@ begin
   Result := False;
 end;
 
+(*type
+  PFloodSectorRec = ^TFloodSectorRec;
+  TFloodSectorRec = record
+    Prev: PFloodSectorRec;
+    Cell: PCPFCell;
+    Sector: PByte;
+    {$ifdef CPFLOG}
+    X, Y: Word;
+    {$endif}
+  end;
+*)
+
+
+var
+  FloodTileMapSectorsLength: Integer = 0;
+
 procedure FloodTileMapSectors(const Cell: PCPFCell; const Sector: PByte;
-  const Offsets: TCPFOffsets
-  {$ifdef LARGEINT}; NodeBuffers: PCPFNodeBuffers{$endif});
+  const Offsets: TCPFOffsets {$ifdef CPFLOG}; X: NativeInt; Y: NativeInt{$endif}
+  {$ifdef LARGEINT}; NodeBuffers: PCPFNodeBuffers{$endif}); overload;
 label
   clearbit;
 var
@@ -3247,7 +3278,14 @@ var
   Offset: NativeInt;
   ChildSector: PByte;
 begin
+  Inc(FloodTileMapSectorsLength);
   SectorValue := Sector^;
+
+  if (X = 0) and (Y = 18) then
+  begin
+    // BUG case!!!
+    SectorValue := Sector^;
+  end;
 
   // mask
   Mask := Cell.NodePtr;
@@ -3319,7 +3357,9 @@ begin
       FloodTileMapSectors(
         {ChildCell} PCPFCell(NativeInt(Cell) + Offset * SizeOf(TCPFCell)),
         {ChildSector} PByte(NativeInt(Sector) + Offset),
-        Offsets{$ifdef LARGEINT}, NodeBuffers{$endif});
+        Offsets
+        {$ifdef CPFLOG}, X + POINT_OFFSETS[Flags and 7].x, Y + POINT_OFFSETS[Flags and 7].y{$endif}
+        {$ifdef LARGEINT}, NodeBuffers{$endif});
     end;
 
     Mask := (Mask xor Flags) and -8;
@@ -3384,7 +3424,10 @@ begin
         Inc(CurrentSector);
         Inc(CurrentSector, SectorOverflow);
         Sector^ := CurrentSector;
-          FloodTileMapSectors(Cell, Sector, SectorOffsets{$ifdef LARGEINT}, NodeBuffers{$endif});
+        FloodTileMapSectorsLength := 0;
+          FloodTileMapSectors(Cell, Sector, SectorOffsets
+          {$ifdef CPFLOG}, (i - 1) mod Self.Width, (i - 1) div Self.Width{$endif}
+          {$ifdef LARGEINT}, NodeBuffers{$endif});
         CurrentSector := Sector^;
       end;
     end;

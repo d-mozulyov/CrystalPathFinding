@@ -812,6 +812,10 @@ var
 begin
   if (MapBitmap = nil) then Exit;
 
+  // todo
+  TTileMap(HMap).SectorTest := SectorTest;
+  TTileMap(HMap).Caching := Caching;
+
   // find path
  (* Weights := HWeights;
   if (not UseWeights) then Weights := 0;
