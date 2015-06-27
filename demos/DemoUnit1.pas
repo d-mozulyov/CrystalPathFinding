@@ -203,6 +203,7 @@ end;
 procedure TMainForm.FormCreate(Sender: TObject);
 var
   i, Len: Integer;
+  FileName: string;
   F: TFileStream;
   SmallCell: TBitmap;
 
@@ -250,6 +251,7 @@ begin
   UseWeights := True;
   SectorTest := True;
   Caching := False;
+  FillChar(TILE_MAP, SizeOf(TILE_MAP), 1);
   sbTile1.Position := Round(1.0 * 20);
   sbTile2.Position := Round(1.5 * 20);
   sbTile3.Position := Round(2.5 * 20);
@@ -259,34 +261,38 @@ begin
   MousePressed := mbMiddle; // neutral value initialization
 
   // loading last map state from local "SAVE.dat" file
-  if (FileExists(ProjectPath + 'SAVE.dat')) then
+  FileName := ProjectPath + 'SAVE.dat';
+  if (FileExists(FileName)) then
   begin
-    F := TFileStream.Create(ProjectPath + 'SAVE.dat', fmShareDenyNone);
-    F.Read(TILE_MAP, SizeOf(TILE_MAP));
-    IncrementTiles;{compatibility routine};
-    F.Read(FStartPoint, SizeOf(FStartPoint));
-    F.Read(FFinishPoint, SizeOf(FFinishPoint));
-    F.Read(FTileMode, SizeOf(FTileMode));
-    F.Read(FBarrierMode, SizeOf(FBarrierMode));
-    F.Read(FMapKind, SizeOf(FMapKind));
-    if (Byte(FMapKind) > Byte(High(TTileMapKind))) then FMapKind := High(TTileMapKind);
+    F := TFileStream.Create(FileName, fmShareDenyNone);
+    try
+      F.Read(TILE_MAP, SizeOf(TILE_MAP));
+      IncrementTiles;{compatibility routine};
+      F.Read(FStartPoint, SizeOf(FStartPoint));
+      F.Read(FFinishPoint, SizeOf(FFinishPoint));
+      F.Read(FTileMode, SizeOf(FTileMode));
+      F.Read(FBarrierMode, SizeOf(FBarrierMode));
+      F.Read(FMapKind, SizeOf(FMapKind));
+      if (Byte(FMapKind) > Byte(High(TTileMapKind))) then FMapKind := High(TTileMapKind);
 
-    cbUseWeights.Checked := ReadBool;
-    cbCaching.Checked := ReadBool;
-    cbSectorTest.Checked := ReadBool;
-    rgMapKind.ItemIndex := Byte(FMapKind);
+      cbUseWeights.Checked := ReadBool;
+      cbCaching.Checked := ReadBool;
+      cbSectorTest.Checked := ReadBool;
+      rgMapKind.ItemIndex := Byte(FMapKind);
 
-    sbTile1.Position := ReadInt;
-    sbTile2.Position := ReadInt;
-    sbTile3.Position := ReadInt;
-    sbTile4.Position := ReadInt;
-    seIterationsCount.Value := ReadInt;
+      sbTile1.Position := ReadInt;
+      sbTile2.Position := ReadInt;
+      sbTile3.Position := ReadInt;
+      sbTile4.Position := ReadInt;
+      seIterationsCount.Value := ReadInt;
 
-    Len := ReadInt;
-    SetLength(ExcludedPoints, Len);
-    if (Len <> 0) then F.Read(pointer(ExcludedPoints)^, Len * SizeOf(TPoint));
-    F.Free;
-  end; 
+      Len := ReadInt;
+      SetLength(ExcludedPoints, Len);
+      if (Len <> 0) then F.Read(pointer(ExcludedPoints)^, Len * SizeOf(TPoint));
+    finally
+      F.Free;
+    end;
+  end;
 
   // raster map buffer
   MapBitmap := TBitmap.Create;

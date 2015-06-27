@@ -96,7 +96,7 @@ PackageDLLOutputDir=
 PackageDCPOutputDir=
 SearchPath=$(DELPHI)\Lib\Debug;..\library;..\sources
 Packages=vcl;rtl;dbrtl;vcldb;vclx;bdertl;qrpt;visualclx;VclSmp;vclshlctrls;nmfast;vclie;indy;dclaxserver;RaizeComponentsVcl;RaizeComponentsVclDb;adortl;vcldbx;ibxpress;dsnap;cds;bdecds;teeui;teedb;tee;dss;teeqr;visualdbclx;dsnapcrba;dsnapcon;inetdb;inet;dbexpress;dbxcds;xmlrtl;inetdbbde;inetdbxpress;webdsnap;websnap
-Conditionals=CPFAPI;CPFDBG;CPFLOG
+Conditionals=CPFAPI;CPFDBG
 DebugSourceDirs=
 UsePackages=0
 [Parameters]
@@ -134,15 +134,16 @@ OriginalFilename=
 ProductName=
 ProductVersion=1.0.0.0
 [HistoryLists\hlConditionals]
-Count=8
-Item0=CPFAPI;CPFDBG;CPFLOG
-Item1=CPFAPI CPFDBG
-Item2=CPFAPI CPFLOG
-Item3=CPFAPI
-Item4=DLL_PROJECT
-Item5=DLL
-Item6=LUA_INITIALIZE
-Item7=LUA_INITIALIZE_
+Count=9
+Item0=CPFAPI;CPFDBG
+Item1=CPFAPI;CPFDBG;CPFLOG
+Item2=CPFAPI CPFDBG
+Item3=CPFAPI CPFLOG
+Item4=CPFAPI
+Item5=DLL_PROJECT
+Item6=DLL
+Item7=LUA_INITIALIZE
+Item8=LUA_INITIALIZE_
 [HistoryLists\hlUnitAliases]
 Count=1
 Item0=WinTypes=Windows;WinProcs=Windows;DbiTypes=BDE;DbiProcs=BDE;DbiErrs=BDE;

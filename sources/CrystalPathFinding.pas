@@ -2200,6 +2200,7 @@ var
   CellKind, CellInfo: string;
   WayBits: Integer;
   ChildList: PChildList;
+  Sector: Byte;
 
   {$ifdef LARGEINT}
     NodeBuffers: PCPFNodeBuffers;
@@ -2340,8 +2341,14 @@ begin
     if (FActualInfo.SectorsChanged) then
       ActualizeSectors;
 
-    Result := Result + Format(', sector: %d',
-      [PByte(NativeInt(FActualInfo.Sectors) + NativeInt(Self.Width) * Y + X)^]);
+    Sector := PByte(NativeInt(FActualInfo.Sectors) + NativeInt(Self.Width) * Y + X)^;
+    if (Sector <> SECTOR_PATHLESS) then
+    begin
+      Result := Result + Format(', sector: %d', [Sector]);
+    end else
+    begin
+      Result := Result + ', sector: none';
+    end;
   end;
 end;
 
@@ -3262,12 +3269,14 @@ end;
   end;
 *)
 
-
+{$ifdef CPFLOG}
 var
-  FloodTileMapSectorsLength: Integer = 0;
+  FloodTileMapSectorsDepth: Integer;
+  MaxFloodTileMapSectorsDepth: Integer;
+{$endif}
 
 procedure FloodTileMapSectors(const Cell: PCPFCell; const Sector: PByte;
-  const Offsets: TCPFOffsets {$ifdef CPFLOG}; X: NativeInt; Y: NativeInt{$endif}
+  const Offsets: TCPFOffsets {$ifdef CPFLOG}; const Self: TTileMap; X: NativeInt; Y: NativeInt{$endif}
   {$ifdef LARGEINT}; NodeBuffers: PCPFNodeBuffers{$endif}); overload;
 label
   clearbit;
@@ -3278,15 +3287,13 @@ var
   Offset: NativeInt;
   ChildSector: PByte;
 begin
-  Inc(FloodTileMapSectorsLength);
+  {$ifdef CPFLOG}
+    Inc(FloodTileMapSectorsDepth);
+    if (MaxFloodTileMapSectorsDepth < FloodTileMapSectorsDepth) then
+      MaxFloodTileMapSectorsDepth := FloodTileMapSectorsDepth;
+  {$endif}
+
   SectorValue := Sector^;
-
-  if (X = 0) and (Y = 18) then
-  begin
-    // BUG case!!!
-    SectorValue := Sector^;
-  end;
-
   // mask
   Mask := Cell.NodePtr;
   if (Mask and NODEPTR_FLAG_ALLOCATED <> 0) then
@@ -3358,15 +3365,20 @@ begin
         {ChildCell} PCPFCell(NativeInt(Cell) + Offset * SizeOf(TCPFCell)),
         {ChildSector} PByte(NativeInt(Sector) + Offset),
         Offsets
-        {$ifdef CPFLOG}, X + POINT_OFFSETS[Flags and 7].x, Y + POINT_OFFSETS[Flags and 7].y{$endif}
+        {$ifdef CPFLOG}, Self, X + POINT_OFFSETS[Flags and 7].x, Y + POINT_OFFSETS[Flags and 7].y{$endif}
         {$ifdef LARGEINT}, NodeBuffers{$endif});
+
+      Mask := (Mask xor Flags) and -8;        
     end;
 
-    Mask := (Mask xor Flags) and -8;
     Offset := Flags and -8;
     Inc(Flags);
     Inc(Flags, Offset);
   end;
+
+  {$ifdef CPFLOG}
+    Dec(FloodTileMapSectorsDepth);
+  {$endif}
 end;
 
 procedure TTileMap.ActualizeSectors;
@@ -3394,7 +3406,7 @@ begin
   SectorOffsets := FSectorOffsets;
   Cell := @FInfo.CellArray[0];
   Sector := FActualInfo.Sectors;
-  CurrentSector := 0;
+  CurrentSector := 1{next is 2};
   for i := 1 to FCellCount do
   begin
     if (Sector^ = SECTOR_EMPTY{0}) then
@@ -3424,9 +3436,11 @@ begin
         Inc(CurrentSector);
         Inc(CurrentSector, SectorOverflow);
         Sector^ := CurrentSector;
-        FloodTileMapSectorsLength := 0;
+        {$ifdef CPFLOG}
+          FloodTileMapSectorsDepth := 0;
+        {$endif}
           FloodTileMapSectors(Cell, Sector, SectorOffsets
-          {$ifdef CPFLOG}, (i - 1) mod Self.Width, (i - 1) div Self.Width{$endif}
+          {$ifdef CPFLOG}, Self, (i - 1) mod Self.Width, (i - 1) div Self.Width{$endif}
           {$ifdef LARGEINT}, NodeBuffers{$endif});
         CurrentSector := Sector^;
       end;
@@ -3672,9 +3686,10 @@ begin
     begin
       ReleaseAroundAttainableNodes(Store.Self, PCPFCell(NativeInt(Cell) + Offsets[Flags and 7])
         {$ifdef LARGEINT}, NodeBuffers{$endif});
+
+      CellMask := (CellMask xor Flags) and -8;  
     end;
 
-    CellMask := (CellMask xor Flags) and -8;
     NodeInfo := Flags and -8;
     Inc(Flags);
     Inc(Flags, NodeInfo);
