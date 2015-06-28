@@ -3257,138 +3257,298 @@ begin
   Result := False;
 end;
 
-(*type
+type
   PFloodSectorRec = ^TFloodSectorRec;
   TFloodSectorRec = record
-    Prev: PFloodSectorRec;
+    Next: PFloodSectorRec;
+    FirstSector: PByte;
+    FirstCell: PCPFCell;
+  case Boolean of
+    True: (LastCell: PCPFCell);
+    False:(SectorValues: NativeUInt);
+  end;
+
+  TFloodSectorStorage = record
+    Offsets: TCPFOffsets;
+    QueueLast: PFloodSectorRec;
+    Pool: PFloodSectorRec;
+    PoolLast: PFloodSectorRec;
+    SectorValues: NativeUInt;
+  end;
+
+procedure FillFloodSectorRec(var Result: TFloodSectorRec;
+  Cell: PCPFCell; Sector: PByte{$ifdef LARGEINT}; NodeBuffers: PCPFNodeBuffers{$endif});
+label
+  _2, done;
+var
+  Mask: NativeUInt;
+  Count: NativeUInt;
+  SectorValues: NativeUInt;
+
+  Store: record
     Cell: PCPFCell;
     Sector: PByte;
-    {$ifdef CPFLOG}
-    X, Y: Word;
-    {$endif}
+    SectorValues: NativeUInt;
   end;
-*)
-
-{$ifdef CPFLOG}
-var
-  FloodTileMapSectorsDepth: Integer;
-  MaxFloodTileMapSectorsDepth: Integer;
-{$endif}
-
-procedure FloodTileMapSectors(const Cell: PCPFCell; const Sector: PByte;
-  const Offsets: TCPFOffsets {$ifdef CPFLOG}; const Self: TTileMap; X: NativeInt; Y: NativeInt{$endif}
-  {$ifdef LARGEINT}; NodeBuffers: PCPFNodeBuffers{$endif}); overload;
-label
-  clearbit;
-var
-  SectorValue: Byte;
-  Mask, Flags: NativeUInt;
-
-  Offset: NativeInt;
-  ChildSector: PByte;
 begin
-  {$ifdef CPFLOG}
-    Inc(FloodTileMapSectorsDepth);
-    if (MaxFloodTileMapSectorsDepth < FloodTileMapSectorsDepth) then
-      MaxFloodTileMapSectorsDepth := FloodTileMapSectorsDepth;
-  {$endif}
+  Store.Cell := Cell;
+  Store.Sector := Sector;
+  Store.SectorValues := Result.SectorValues;
 
-  SectorValue := Sector^;
-  // mask
-  Mask := Cell.NodePtr;
-  if (Mask and NODEPTR_FLAG_ALLOCATED <> 0) then
-  begin
-    Mask := PCPFNode
-      (
-        {$ifdef LARGEINT}NodeBuffers[Mask shr LARGE_NODEPTR_OFFSET] +{$endif}
-        Mask and NODEPTR_CLEAN_MASK
-      ).NodeInfo;
-  end;
-  Mask := Mask and $ff00;
-
-  // check loop
-  Flags := (1 shl 8){bit} + 0{child};
+  // move left
+  Inc(Cell);
+  Inc(Sector);
   repeat
-    if (Mask and Flags <> 0) then
+    Dec(Cell);
+    Dec(Sector);
+    Mask := Cell.NodePtr;
+    if (Mask and NODEPTR_FLAG_ALLOCATED = 0) then
     begin
-      Offset := Offsets[Flags and 7];
-      ChildSector := Sector;
-      Inc(NativeInt(ChildSector), Offset);
-      if (ChildSector^ = SECTOR_EMPTY) then
-      begin
-        Offset := {ChildCell.NodePtr}PCPFCell(NativeInt(Cell) + Offset * SizeOf(TCPFCell)).NodePtr;
-        if (Offset and NODEPTR_FLAG_ALLOCATED <> 0) then
-        begin
-          Offset := PCPFNode
-            (
-              {$ifdef LARGEINT}NodeBuffers[Offset shr LARGE_NODEPTR_OFFSET] +{$endif}
-              Offset and NODEPTR_CLEAN_MASK
-            ).NodeInfo;
-        end;
-
-        if {$ifdef LARGEINT}
-             (Offset > $ffffff)
-           {$else}
-             (Offset and Integer($ff000000){Tile} <> 0{TILE_BARIER})
-           {$endif} and
-           (Offset and $ff00{Mask} <> 0) then
-        begin
-          ChildSector^ := SectorValue;
-        end else
-        begin
-          ChildSector^ := SECTOR_PATHLESS;
-          goto clearbit;
-        end;
-      end else
-      begin
-        clearbit:
-        Mask := (Mask xor Flags) and -8;
-      end;
+      if (Mask and (_7 shl 8) = 0) then Break;
+    end else
+    begin
+      if (PCPFNode
+        (
+          {$ifdef LARGEINT}NodeBuffers[Mask shr LARGE_NODEPTR_OFFSET] +{$endif}
+          Mask and NODEPTR_CLEAN_MASK
+        ).NodeInfo and (_7 shl 8) = 0) then Break;
     end;
-
-    // bit << 1, child++
-    if (Flags = (1 shl (8+7)) + 7) then Break;
-    Offset := Flags and -8;
-    Inc(Flags);
-    Inc(Flags, Offset);
   until (False);
 
-  // recursion loop
-  Flags := (1 shl 8){bit} + 0{child};
-  while (Mask <> 0) do
-  begin
-    if (Mask and Flags <> 0) then
+  // store first
+  Result.FirstCell := Cell;
+  Result.FirstSector := Sector;
+
+  // move right
+  Cell := Store.Cell;
+  Sector := Store.Sector;
+  Dec(Cell);
+  Dec(Sector);
+  repeat
+    Inc(Cell);
+    Inc(Sector);
+    Mask := Cell.NodePtr;
+    if (Mask and NODEPTR_FLAG_ALLOCATED = 0) then
     begin
-      Offset := Offsets[Flags and 7];
-
-      FloodTileMapSectors(
-        {ChildCell} PCPFCell(NativeInt(Cell) + Offset * SizeOf(TCPFCell)),
-        {ChildSector} PByte(NativeInt(Sector) + Offset),
-        Offsets
-        {$ifdef CPFLOG}, Self, X + POINT_OFFSETS[Flags and 7].x, Y + POINT_OFFSETS[Flags and 7].y{$endif}
-        {$ifdef LARGEINT}, NodeBuffers{$endif});
-
-      Mask := (Mask xor Flags) and -8;        
+      if (Mask and (_3 shl 8) = 0) then Break;
+    end else
+    begin
+      if (PCPFNode
+        (
+          {$ifdef LARGEINT}NodeBuffers[Mask shr LARGE_NODEPTR_OFFSET] +{$endif}
+          Mask and NODEPTR_CLEAN_MASK
+        ).NodeInfo and (_3 shl 8) = 0) then Break;
     end;
+  until (False);
 
-    Offset := Flags and -8;
-    Inc(Flags);
-    Inc(Flags, Offset);
+  // store last
+  Result.LastCell := Cell;
+
+  // fill char Byte(SectorValues)
+  Count := NativeUInt(Sector) + 1;
+  Sector := Result.FirstSector;
+  Dec(Count, NativeUInt(Sector));
+  SectorValues := Store.SectorValues;
+
+  while (Count >= SizeOf(NativeUInt)) do
+  begin
+    PNativeUInt(Sector)^ := SectorValues;
+
+    Dec(Count, SizeOf(NativeUInt));
+    Inc(Sector, SizeOf(NativeUInt));
   end;
 
-  {$ifdef CPFLOG}
-    Dec(FloodTileMapSectorsDepth);
+  {$ifdef LARGEINT}
+  if (Count >= SizeOf(Cardinal)) then
+  begin
+    PCardinal(Sector)^ := SectorValues;
+
+    Dec(Count, SizeOf(Cardinal));
+    Inc(Sector, SizeOf(Cardinal));
+  end;
   {$endif}
+
+  if (Count <> 0) then
+  begin
+    if (Count and 1 <> 0) then
+    begin
+      Sector^ := SectorValues;
+      Inc(Sector);
+      if (Count and 2 = 0) then goto done;
+      goto _2;
+    end else
+    begin
+      _2:
+      PWord(Sector)^ := SectorValues;
+    end;
+  end;
+
+done:
+end;
+
+
+procedure FloodTileMapSectors(var _Storage: TFloodSectorStorage;
+  BaseSectorRec: PFloodSectorRec
+  {$ifdef LARGEINT}; NodeBuffers: PCPFNodeBuffers{$endif});
+type
+  TByteList = array[0..0] of Byte;
+  PByteList = ^TByteList;
+var
+  CurrentSectorRec: PFloodSectorRec;
+  SectorRec: PFloodSectorRec;
+
+  Cell: PCPFCell;
+  Sector: PByte;
+  Mask, Flags, ChildMask: NativeUInt;
+  Offset: NativeInt;
+
+  Storage: TFloodSectorStorage;
+  Store: record
+    {$ifdef CPUX86}
+    CurrentSectorRec: PFloodSectorRec;
+    {$endif}
+    LastCell: PCPFCell;
+    Cell: PCPFCell;
+  end;
+  Buffer: array[0..127] of TFloodSectorRec;
+begin
+  // stack parameters
+  {$ifdef CPUX86}
+  Store.CurrentSectorRec := BaseSectorRec;
+  {$endif}
+  Storage := _Storage;
+
+  // add buffer items to the pool
+  CurrentSectorRec := @Buffer[High(Buffer)];
+  SectorRec := @Buffer[High(Buffer) - 1];
+  repeat
+    CurrentSectorRec.Next := SectorRec;
+    Dec(CurrentSectorRec);
+    Dec(SectorRec);
+  until (CurrentSectorRec = @Buffer[0]);
+  Storage.PoolLast.Next := @Buffer[High(Buffer)];
+  Storage.PoolLast := CurrentSectorRec{Buffer[0]};
+  CurrentSectorRec.Next := nil;
+
+  // each sector rec loop
+  CurrentSectorRec := {$ifdef CPUX86}Store.CurrentSectorRec{$else}BaseSectorRec{$endif};
+  repeat
+    // each cell loop
+    Store.LastCell := CurrentSectorRec.LastCell;
+    Cell := CurrentSectorRec.FirstCell;
+    Sector := CurrentSectorRec.FirstSector;
+    Dec(Cell);
+    Dec(Sector);
+    repeat
+      Inc(Cell);
+      Inc(Sector);
+
+      // mask (without left and right)
+      Mask := Cell.NodePtr;
+      if (Mask and NODEPTR_FLAG_ALLOCATED <> 0) then
+      begin
+        Mask := PCPFNode
+          (
+            {$ifdef LARGEINT}NodeBuffers[Mask shr LARGE_NODEPTR_OFFSET] +{$endif}
+            Mask and NODEPTR_CLEAN_MASK
+          ).NodeInfo;
+      end;
+      Mask := Mask and ($ff00 and not((_3 or _7) shl 8));
+
+      // each child loop
+      Flags := (1 shl 8){bit} + 0{child};
+      if (Mask <> 0) then
+      repeat
+        // skip not childs
+        while (Mask and Flags = 0) do
+        begin
+          Offset := Flags and -8;
+          Inc(Flags);
+          Inc(Flags, Offset);
+        end;
+        Mask := (Mask xor Flags) and -8;
+        Offset := Flags and -8;
+        Inc(Flags);
+        Inc(Flags, Offset);
+
+        // check child
+        Offset := Storage.Offsets[Flags and 7];
+        if (PByteList(Sector)[Offset] = SECTOR_EMPTY) then
+        begin
+          ChildMask := PCPFCellArray(Cell)[Offset].NodePtr;
+          if (ChildMask and NODEPTR_FLAG_ALLOCATED <> 0) then
+          begin
+            ChildMask := PCPFNode
+              (
+                {$ifdef LARGEINT}NodeBuffers[Offset shr LARGE_NODEPTR_OFFSET] +{$endif}
+                Offset and NODEPTR_CLEAN_MASK
+              ).NodeInfo;
+          end;
+
+          if {$ifdef LARGEINT}
+               (ChildMask > $ffffff)
+             {$else}
+               (ChildMask and Integer($ff000000){Tile} <> 0{TILE_BARIER})
+             {$endif} and
+             (ChildMask and $ff00{Mask} <> 0) then
+          begin
+            // take new item and push to hot queue
+            Store.Cell := Cell;
+            begin
+              SectorRec := Storage.Pool;
+              Storage.Pool := SectorRec.Next;
+              Storage.QueueLast.Next := SectorRec;
+              Storage.QueueLast := SectorRec;
+              SectorRec.Next := nil{hot queue end};
+            end;
+            SectorRec.SectorValues := Storage.SectorValues;
+            FillFloodSectorRec(SectorRec^, @PCPFCellArray(Store.Cell)[Offset],
+              @PByteList(Sector)[Offset]{$ifdef LARGEINT}, NodeBuffers{$endif});
+            Cell := Store.Cell;
+          end else
+          begin
+            PByteList(Sector)[Offset] := SECTOR_PATHLESS;
+          end;
+        end;
+      until (Mask = 0);
+    until (Cell = Store.LastCell);
+
+    // add empty item to pool
+    // take next queue item
+    {$ifdef CPUX86}
+    CurrentSectorRec := Store.CurrentSectorRec;
+    {$endif}
+    SectorRec := CurrentSectorRec.Next;
+    if (SectorRec = nil) then Exit;
+    CurrentSectorRec.Next := Storage.Pool;
+    Storage.Pool := CurrentSectorRec;
+    if (NativeUInt(CurrentSectorRec.Next{last pool}) >= NativeUInt(@Buffer[8])) then
+    begin
+      // next interation
+      {$ifdef CPUX86}
+      Store.CurrentSectorRec := SectorRec;
+      {$endif}
+      CurrentSectorRec := SectorRec;
+    end else
+    begin
+      // allocate new pool items
+      FloodTileMapSectors(Storage, SectorRec{$ifdef LARGEINT}, NodeBuffers{$endif});
+      Exit;
+    end;
+  until (False);
 end;
 
 procedure TTileMap.ActualizeSectors;
+const
+  SECTORS_VALUES_INCREMENT = NativeUInt({$ifdef LARGEINT}$0101010101010101{$else}$01010101{$endif});
 var
   i: NativeUInt;
   Cell: PCPFCell;
   CellInfo: NativeUInt;
   Sector: PByte;
-  CurrentSector, SectorOverflow: NativeUInt;
-  SectorOffsets: TCPFOffsets;
+  Storage: TFloodSectorStorage;
+  FloodSectorRec: TFloodSectorRec;
+  PoolItem: TFloodSectorRec;
   {$ifdef LARGEINT}
     NodeBuffers: PCPFNodeBuffers;
   {$endif}
@@ -3399,14 +3559,14 @@ begin
   ZeroMemory(FActualInfo.Sectors, SizeOf(Byte) * FCellCount);
   FActualInfo.SectorsChanged := False;
 
+  Storage.Offsets := FSectorOffsets;
+  Storage.SectorValues := SECTORS_VALUES_INCREMENT{next is 2};
   {$ifdef LARGEINT}
   NodeBuffers := Pointer(@FInfo.NodeAllocator.Buffers);
   {$endif}
 
-  SectorOffsets := FSectorOffsets;
   Cell := @FInfo.CellArray[0];
   Sector := FActualInfo.Sectors;
-  CurrentSector := 1{next is 2};
   for i := 1 to FCellCount do
   begin
     if (Sector^ = SECTOR_EMPTY{0}) then
@@ -3431,18 +3591,26 @@ begin
         Sector^ := SECTOR_PATHLESS;
       end else
       begin
-        // *Sector = CurrentSector==0xff?2:CurrentSector+1;
-        SectorOverflow := ((CurrentSector + 1) shr 7) and 2;
-        Inc(CurrentSector);
-        Inc(CurrentSector, SectorOverflow);
-        Sector^ := CurrentSector;
-        {$ifdef CPFLOG}
-          FloodTileMapSectorsDepth := 0;
-        {$endif}
-          FloodTileMapSectors(Cell, Sector, SectorOffsets
-          {$ifdef CPFLOG}, Self, (i - 1) mod Self.Width, (i - 1) div Self.Width{$endif}
-          {$ifdef LARGEINT}, NodeBuffers{$endif});
-        CurrentSector := Sector^;
+        // CurrentSector = (CurrentSector==0xff)?2:CurrentSector+1;
+        if (NativeInt(Storage.SectorValues) = -1) then
+        begin
+          Storage.SectorValues := SECTORS_VALUES_INCREMENT * 2;
+        end else
+        begin
+          Inc(Storage.SectorValues, SECTORS_VALUES_INCREMENT);
+        end;
+
+        // initialize sector rec
+        FloodSectorRec.SectorValues := Storage.SectorValues;
+        FillFloodSectorRec(FloodSectorRec, Cell, Sector{$ifdef LARGEINT}, NodeBuffers{$endif});
+
+        // call flood recursion
+        Storage.QueueLast := @FloodSectorRec;
+        FloodSectorRec.Next := nil;
+        Storage.Pool := @PoolItem;
+        Storage.PoolLast := @PoolItem;
+        PoolItem.Next := nil;
+        FloodTileMapSectors(Storage, @FloodSectorRec{$ifdef LARGEINT}, NodeBuffers{$endif});
       end;
     end;
 
@@ -5366,6 +5534,19 @@ begin
 end;
 
 
+
+(*procedure Test;
+var
+  TileMap: TTileMap;
+begin
+  TileMap := TTileMap.Create(4000, 4000, mkSimple);
+  try
+    TileMap.ActualizeSectors;
+
+  finally
+    TileMap.Free;
+  end;
+end;*)
 
 
 
