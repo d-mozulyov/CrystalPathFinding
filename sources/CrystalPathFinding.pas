@@ -3272,9 +3272,13 @@ type
     Offsets: TCPFOffsets;
     QueueLast: PFloodSectorRec;
     Pool: PFloodSectorRec;
-    PoolLast: PFloodSectorRec;
+    PoolMarker: PFloodSectorRec;
     SectorValues: NativeUInt;
   end;
+
+const
+  SECTORS_MAX_CHILDS = 4;
+  
 
 procedure FillFloodSectorRec(var Result: TFloodSectorRec;
   Cell: PCPFCell; Sector: PByte{$ifdef LARGEINT}; NodeBuffers: PCPFNodeBuffers{$endif});
@@ -3386,10 +3390,9 @@ begin
 done:
 end;
 
-
 procedure FloodTileMapSectors(var _Storage: TFloodSectorStorage;
   BaseSectorRec: PFloodSectorRec
-  {$ifdef LARGEINT}; NodeBuffers: PCPFNodeBuffers{$endif});
+  {$ifdef LARGEINT}; NodeBuffers: PCPFNodeBuffers{$endif}); overload;
 type
   TByteList = array[0..0] of Byte;
   PByteList = ^TByteList;
@@ -3417,18 +3420,6 @@ begin
   Store.CurrentSectorRec := BaseSectorRec;
   {$endif}
   Storage := _Storage;
-
-  // add buffer items to the pool
-  CurrentSectorRec := @Buffer[High(Buffer)];
-  SectorRec := @Buffer[High(Buffer) - 1];
-  repeat
-    CurrentSectorRec.Next := SectorRec;
-    Dec(CurrentSectorRec);
-    Dec(SectorRec);
-  until (CurrentSectorRec = @Buffer[0]);
-  Storage.PoolLast.Next := @Buffer[High(Buffer)];
-  Storage.PoolLast := CurrentSectorRec{Buffer[0]};
-  CurrentSectorRec.Next := nil;
 
   // each sector rec loop
   CurrentSectorRec := {$ifdef CPUX86}Store.CurrentSectorRec{$else}BaseSectorRec{$endif};
@@ -3466,10 +3457,6 @@ begin
           Inc(Flags);
           Inc(Flags, Offset);
         end;
-        Mask := (Mask xor Flags) and -8;
-        Offset := Flags and -8;
-        Inc(Flags);
-        Inc(Flags, Offset);
 
         // check child
         Offset := Storage.Offsets[Flags and 7];
@@ -3510,19 +3497,27 @@ begin
             PByteList(Sector)[Offset] := SECTOR_PATHLESS;
           end;
         end;
+
+        Mask := (Mask xor Flags) and -8;
+        Offset := Flags and -8;
+        Inc(Flags);
+        Inc(Flags, Offset);        
       until (Mask = 0);
     until (Cell = Store.LastCell);
 
-    // add empty item to pool
     // take next queue item
     {$ifdef CPUX86}
     CurrentSectorRec := Store.CurrentSectorRec;
     {$endif}
     SectorRec := CurrentSectorRec.Next;
     if (SectorRec = nil) then Exit;
+
+    // add empty item to pool
     CurrentSectorRec.Next := Storage.Pool;
     Storage.Pool := CurrentSectorRec;
-    if (NativeUInt(CurrentSectorRec.Next{last pool}) >= NativeUInt(@Buffer[8])) then
+
+    // check a few pool items
+    if (NativeUInt(CurrentSectorRec.Next{last pool}) >= NativeUInt(Storage.PoolMarker)) then
     begin
       // next interation
       {$ifdef CPUX86}
@@ -3530,12 +3525,67 @@ begin
       {$endif}
       CurrentSectorRec := SectorRec;
     end else
+    if (Storage.PoolMarker = @Buffer[SECTORS_MAX_CHILDS]) then
     begin
       // allocate new pool items
       FloodTileMapSectors(Storage, SectorRec{$ifdef LARGEINT}, NodeBuffers{$endif});
       Exit;
+    end else
+    begin
+      // pool last item
+      PFloodSectorRec(NativeUInt(Storage.PoolMarker) -
+        SECTORS_MAX_CHILDS * SizeOf(TFloodSectorRec)).Next := @Buffer[High(Buffer)];
+
+      // add buffer items to the pool
+      {$ifdef CPUX86}
+      Store.CurrentSectorRec := SectorRec;
+      {$endif}
+      Storage.PoolMarker := SectorRec;
+      begin
+        CurrentSectorRec := @Buffer[High(Buffer)];
+        SectorRec := @Buffer[High(Buffer) - 1];
+        repeat
+          CurrentSectorRec.Next := SectorRec;
+          Dec(CurrentSectorRec);
+          Dec(SectorRec);
+        until (CurrentSectorRec = @Buffer[0]);
+        CurrentSectorRec.Next := nil;
+      end;
+      CurrentSectorRec := Storage.PoolMarker;
+      Storage.PoolMarker := @Buffer[SECTORS_MAX_CHILDS];
     end;
   until (False);
+end;
+
+procedure FloodTileMapSectors(var Storage: TFloodSectorStorage;
+  const Cell: PCPFCell; const Sector: PByte
+  {$ifdef LARGEINT}; NodeBuffers: PCPFNodeBuffers{$endif}); overload;
+var
+  FloodSectorRec: TFloodSectorRec;
+  Buffer: array[0..7] of TFloodSectorRec;
+begin
+  // initialize sector rec
+  FloodSectorRec.SectorValues := Storage.SectorValues;
+  FillFloodSectorRec(FloodSectorRec, Cell, Sector{$ifdef LARGEINT}, NodeBuffers{$endif});
+
+  // initialize queue
+  Storage.QueueLast := @FloodSectorRec;
+  FloodSectorRec.Next := nil;
+
+  // initialize basic pool
+  Buffer[0].Next := nil;
+  Buffer[1].Next := @Buffer[0];
+  Buffer[2].Next := @Buffer[1];
+  Buffer[3].Next := @Buffer[2];
+  Buffer[4].Next := @Buffer[3];
+  Buffer[5].Next := @Buffer[4];
+  Buffer[6].Next := @Buffer[5];
+  Buffer[7].Next := @Buffer[6];
+  Storage.Pool := @Buffer[High(Buffer)];
+  Storage.PoolMarker := @Buffer[SECTORS_MAX_CHILDS];
+
+  // call flood recursion
+  FloodTileMapSectors(Storage, @FloodSectorRec{$ifdef LARGEINT}, NodeBuffers{$endif});
 end;
 
 procedure TTileMap.ActualizeSectors;
@@ -3547,8 +3597,6 @@ var
   CellInfo: NativeUInt;
   Sector: PByte;
   Storage: TFloodSectorStorage;
-  FloodSectorRec: TFloodSectorRec;
-  PoolItem: TFloodSectorRec;
   {$ifdef LARGEINT}
     NodeBuffers: PCPFNodeBuffers;
   {$endif}
@@ -3600,17 +3648,8 @@ begin
           Inc(Storage.SectorValues, SECTORS_VALUES_INCREMENT);
         end;
 
-        // initialize sector rec
-        FloodSectorRec.SectorValues := Storage.SectorValues;
-        FillFloodSectorRec(FloodSectorRec, Cell, Sector{$ifdef LARGEINT}, NodeBuffers{$endif});
-
-        // call flood recursion
-        Storage.QueueLast := @FloodSectorRec;
-        FloodSectorRec.Next := nil;
-        Storage.Pool := @PoolItem;
-        Storage.PoolLast := @PoolItem;
-        PoolItem.Next := nil;
-        FloodTileMapSectors(Storage, @FloodSectorRec{$ifdef LARGEINT}, NodeBuffers{$endif});
+        // call recursion
+        FloodTileMapSectors(Storage, Cell, Sector{$ifdef LARGEINT}, NodeBuffers{$endif});
       end;
     end;
 
@@ -5534,22 +5573,6 @@ begin
 end;
 
 
-
-(*procedure Test;
-var
-  TileMap: TTileMap;
-begin
-  TileMap := TTileMap.Create(4000, 4000, mkSimple);
-  try
-    TileMap.ActualizeSectors;
-
-  finally
-    TileMap.Free;
-  end;
-end;*)
-
-
-
 initialization
   {$ifdef CPF_GENERATE_LOOKUPS}
     GenerateLookups;
@@ -5559,5 +5582,6 @@ initialization
     {$WARNINGS OFF} // deprecated warning bug fix (like Delphi 2010 compiler)
     System.GetMemoryManager(MemoryManager);
   {$endif}
+
 
 end.
