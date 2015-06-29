@@ -108,14 +108,14 @@ type
     procedure rgMapKindClick(Sender: TObject);
   private
     // internal data
-    UseWeights: Boolean;
-    SectorTest: Boolean;
-    Caching: Boolean;
-    ExcludedPoints: array of TPoint;
+    FUseWeights: Boolean;
+    FSectorTest: Boolean;
+    FCaching: Boolean;
+    FExcludedPoints: array of TPoint;
     FStartPoint: TPoint;
     FFinishPoint: TPoint;
-    CursorPoint: TPoint;
-    MousePressed: TMouseButton;
+    FCursorPoint: TPoint;
+    FMousePressed: TMouseButton;
     FTileMode: Byte;
     FBarrierMode: Byte;
     FMapKind: TTileMapKind;
@@ -142,7 +142,7 @@ type
     property BarrierMode: Byte read FBarrierMode write SetBarrierMode;
     property MapKind: TTileMapKind read FMapKind write SetMapKind;
     property StartPoint: TPoint read FStartPoint write SetStartPoint;
-    property FinishPoint: TPoint read FFinishPoint write SetFinishPoint;
+    property FinishPoint: TPoint read FFinishPoint write SetFinishPoint; 
   end;
 
 
@@ -248,17 +248,18 @@ begin
 
   // data initialization
   HWeights := cpfCreateWeights;
-  UseWeights := True;
-  SectorTest := True;
-  Caching := False;
+  FUseWeights := True;
+  FSectorTest := True;
+  FCaching := False;
+  FTileMode := 1;
   FillChar(TILE_MAP, SizeOf(TILE_MAP), 1);
   sbTile1.Position := Round(1.0 * 20);
   sbTile2.Position := Round(1.5 * 20);
   sbTile3.Position := Round(2.5 * 20);
   sbTile4.Position := Round(6.0 * 20);
-  StartPoint := Point(5, 9);
-  FinishPoint := Point(24, 9);
-  MousePressed := mbMiddle; // neutral value initialization
+  FStartPoint := Point(5, 9);
+  FFinishPoint := Point(24, 9);
+  FMousePressed := mbMiddle; // neutral value initialization
 
   // loading last map state from local "SAVE.dat" file
   FileName := ProjectPath + 'SAVE.dat';
@@ -287,8 +288,8 @@ begin
       seIterationsCount.Value := ReadInt;
 
       Len := ReadInt;
-      SetLength(ExcludedPoints, Len);
-      if (Len <> 0) then F.Read(pointer(ExcludedPoints)^, Len * SizeOf(TPoint));
+      SetLength(FExcludedPoints, Len);
+      if (Len <> 0) then F.Read(pointer(FExcludedPoints)^, Len * SizeOf(TPoint));
     finally
       F.Free;
     end;
@@ -368,9 +369,9 @@ begin
   WriteInt(sbTile4.Position);
   WriteInt(seIterationsCount.Value);
 
-  Len := Length(ExcludedPoints);
+  Len := Length(FExcludedPoints);
   WriteInt(Len);
-  if (Len <> 0) then F.Write(Pointer(ExcludedPoints)^, Len * SizeOf(TPoint));
+  if (Len <> 0) then F.Write(Pointer(FExcludedPoints)^, Len * SizeOf(TPoint));
   F.Free;
 end;  
 
@@ -387,19 +388,19 @@ begin
     sbTile2.Position := Round(1.5 * 20);
     sbTile3.Position := Round(2.5 * 20);
     sbTile4.Position := Round(6.0 * 20);
-    StartPoint := Point(5, 9);
-    FinishPoint := Point(24, 9);
-    ExcludedPoints := nil;
+    FStartPoint := Point(5, 9);
+    FFinishPoint := Point(24, 9);
+    FExcludedPoints := nil;
     cbUseWeights.Checked := True;
     cbCaching.Checked := False;
-    MapKind := mkSimple;
+    FMapKind := mkSimple;
     cbSectorTest.Checked := True;
     seIterationsCount.Value := 1000;
   end;
 
   MapBitmap := BufMapBitmap;
-  TileMode := 1;
-  BarrierMode := 0;
+  FTileMode := 1;
+  FBarrierMode := 0;
   RecreateMap;
 end;
 
@@ -432,19 +433,19 @@ begin
     sbTile2.Position := Random(200);
     sbTile3.Position := Random(200);
     sbTile4.Position := Random(200);
-    StartPoint := RandomPoint;
-    FinishPoint := RandomPoint;
-    ExcludedPoints := nil;
+    FStartPoint := RandomPoint;
+    FFinishPoint := RandomPoint;
+    FExcludedPoints := nil;
     for i := 0 to Random(20) do AddExcludedPoint(RandomPoint);
     cbUseWeights.Checked := RandomBool;
-    MapKind := TTileMapKind(Random(Byte(High(TTileMapKind)) + 1));
+    FMapKind := TTileMapKind(Random(Byte(High(TTileMapKind)) + 1));
     cbSectorTest.Checked := RandomBool;
     seIterationsCount.Value := Random(100000) + 1;
   end;
 
   MapBitmap := BufMapBitmap;
-  TileMode := 1;
-  BarrierMode := 0;
+  FTileMode := 1;
+  FBarrierMode := 0;
   RecreateMap;
 end;
 
@@ -475,7 +476,7 @@ begin
   if (HMap <> 0) then cpfDestroyMap(HMap);
 
   // create map
-  HMap := cpfCreateMap(MAP_WIDTH, MAP_HEIGHT, MapKind);
+  HMap := cpfCreateMap(MAP_WIDTH, MAP_HEIGHT, FMapKind);
 
   // fill tiles
   cpfMapUpdate(HMap, @TILE_MAP[0, 0], 0, 0, MAP_WIDTH, MAP_HEIGHT);
@@ -486,19 +487,19 @@ end;
 
 procedure TMainForm.cbUseWeightsClick(Sender: TObject);
 begin
-  UseWeights := cbUseWeights.Checked;
+  FUseWeights := cbUseWeights.Checked;
   ExecutePathFinding;
 end;
 
 procedure TMainForm.cbSectorTestClick(Sender: TObject);
 begin
-  SectorTest := cbSectorTest.Checked;
+  FSectorTest := cbSectorTest.Checked;
   ExecutePathFinding;
 end;
 
 procedure TMainForm.OnMapOptionChanged(Sender: TObject);
 begin
-  Caching := cbCaching.Checked;
+  FCaching := cbCaching.Checked;
   ExecutePathFinding;
 end;
 
@@ -586,31 +587,31 @@ begin
 
   cpfWeightSet(HWeights, TileNum, Weight);
   RepaintBoxes([TPaintBox(FindComponent('pbTile' + IntToStr(TileNum)))]);
-  if (UseWeights) then ExecutePathFinding();
+  if (FUseWeights) then ExecutePathFinding();
 end;
 
 procedure TMainForm.pbMapMouseDown(Sender: TObject; Button: TMouseButton;
                                     Shift: TShiftState; X, Y: Integer);
 begin
-  if (Button = mbMiddle)or (MousePressed = Button) then Exit;
+  if (Button = mbMiddle)or (FMousePressed = Button) then Exit;
 
   // unfocus controls
   Windows.SetFocus(0);
 
   // store button
-  MousePressed := Button;
+  FMousePressed := Button;
 
   // process mouse action
-  CursorPoint := ScreenToMap(X, Y);
+  FCursorPoint := ScreenToMap(X, Y);
   pbMapMouseMove(nil{the first time}, Shift, X, Y);
 end;
 
 procedure TMainForm.pbMapMouseUp(Sender: TObject; Button: TMouseButton;
                                   Shift: TShiftState; X, Y: Integer);
 begin
-  if (MousePressed = Button) then
+  if (FMousePressed = Button) then
   begin
-    MousePressed := mbMiddle;
+    FMousePressed := mbMiddle;
     ExecutePathFinding;
   end;  
 end;
@@ -621,33 +622,33 @@ var
 begin
   P := ScreenToMap(X, Y);
   if (P.X < 0) or (P.X >= MAP_WIDTH) or (P.Y < 0) or (P.Y >= MAP_HEIGHT) then Exit;
-  if (Sender <> nil) and (CursorPoint.X = P.X) and (CursorPoint.Y = P.Y) then Exit;
+  if (Sender <> nil) and (FCursorPoint.X = P.X) and (FCursorPoint.Y = P.Y) then Exit;
   {$ifdef CPFDBG}
     {$WARN SYMBOL_PLATFORM OFF}
     if (System.DebugHook > 0) then
       Caption := TTileMapPtr(HMap).CellInformation(P.X, P.Y);
   {$endif}  
-  LastCursorPoint := CursorPoint;
-  CursorPoint := P;
-  if (MousePressed = mbMiddle) then Exit;
+  LastCursorPoint := FCursorPoint;
+  FCursorPoint := P;
+  if (FMousePressed = mbMiddle) then Exit;
 
   // points
-  if (MousePressed = mbLeft) and (LastCursorPoint.X = StartPoint.X) and
-    (LastCursorPoint.Y = StartPoint.Y) then
+  if (FMousePressed = mbLeft) and (LastCursorPoint.X = FStartPoint.X) and
+    (LastCursorPoint.Y = FStartPoint.Y) then
   begin
     FStartPoint := P;
     ExecutePathFinding;
     Exit;
   end;
-  if (MousePressed = mbLeft) and (LastCursorPoint.X = FinishPoint.X) and
-    (LastCursorPoint.Y = FinishPoint.Y) then
+  if (FMousePressed = mbLeft) and (LastCursorPoint.X = FFinishPoint.X) and
+    (LastCursorPoint.Y = FFinishPoint.Y) then
   begin
     FFinishPoint := P;
     ExecutePathFinding;
     Exit;
   end;
 
-  if (MousePressed = mbLeft) then
+  if (FMousePressed = mbLeft) then
   begin
     // tile
     if (TILE_MAP[P.Y, P.X] <> TileMode) then
@@ -679,8 +680,8 @@ end;
 
 function TMainForm.ExcludePointPos(const Value: TPoint): integer;
 begin
-  for Result := 0 to Length(ExcludedPoints) - 1 do
-  with ExcludedPoints[Result] do
+  for Result := 0 to Length(FExcludedPoints) - 1 do
+  with FExcludedPoints[Result] do
   if (X = Value.X) and (Y = Value.Y) then Exit;
 
   Result := -1;
@@ -692,9 +693,9 @@ var
 begin
   if (ExcludePointPos(Value) >= 0) then Exit;
 
-  Len := Length(ExcludedPoints);
-  SetLength(ExcludedPoints, Len + 1);
-  ExcludedPoints[Len] := Value;
+  Len := Length(FExcludedPoints);
+  SetLength(FExcludedPoints, Len + 1);
+  FExcludedPoints[Len] := Value;
 end;
 
 procedure TMainForm.DeleteExcludedPoint(const Value: TPoint);
@@ -704,9 +705,9 @@ begin
   P := ExcludePointPos(Value);
   if (P < 0) then Exit;
 
-  Len := Length(ExcludedPoints) - 1;
-  if (P <> Len) then ExcludedPoints[P] := ExcludedPoints[Len];
-  SetLength(ExcludedPoints, Len);
+  Len := Length(FExcludedPoints) - 1;
+  if (P <> Len) then FExcludedPoints[P] := FExcludedPoints[Len];
+  SetLength(FExcludedPoints, Len);
 end;
 
 function TMainForm.MapToScreen(X, Y: Integer; Center: Boolean = True): TPoint;
@@ -819,8 +820,8 @@ begin
   if (MapBitmap = nil) then Exit;
 
   // todo
-  TTileMap(HMap).SectorTest := SectorTest;
-  TTileMap(HMap).Caching := Caching;
+  TTileMap(HMap).SectorTest := FSectorTest;
+  TTileMap(HMap).Caching := FCaching;
 
   // find path
  (* Weights := HWeights;
@@ -913,7 +914,7 @@ var
 begin
   // analize pathless tiles
   for TileNum := 1 to TILES_COUNT do
-  UsedTiles[TileNum] := (not UseWeights) or (cpfWeightGet(HWeights, TileNum) >= 0.1);
+  UsedTiles[TileNum] := (not FUseWeights) or (cpfWeightGet(HWeights, TileNum) >= 0.1);
 
   // hexagonal mask
   BitmapMask := nil;
@@ -936,8 +937,8 @@ begin
   end;
 
   // excluded points
-  for i := 0 to Length(ExcludedPoints) - 1 do
-  with ExcludedPoints[i] do
+  for i := 0 to Length(FExcludedPoints) - 1 do
+  with FExcludedPoints[i] do
   DrawTile(X, Y, TILE_BARRIER);
 
   // lines
@@ -994,15 +995,15 @@ begin
   Canvas.Brush.Style := bsSolid;
   Canvas.Pen.Width := 2;
   Canvas.Brush.Color := clBlue;
-  if (MousePressed = mbLeft) and (CursorPoint.X = StartPoint.X) and
-    (CursorPoint.Y = StartPoint.Y) then Canvas.Brush.Color := clAqua;
+  if (FMousePressed = mbLeft) and (FCursorPoint.X = FStartPoint.X) and
+    (FCursorPoint.Y = FStartPoint.Y) then Canvas.Brush.Color := clAqua;
   Canvas.Pen.Color := clRed;
   P := MapToScreen(StartPoint.X, StartPoint.Y);
   Canvas.Ellipse(Bounds(P.X - 9, P.Y - 9, 20, 20));
   Canvas.Pen.Width := 2;
   Canvas.Brush.Color := clRed;
-  if (MousePressed = mbLeft) and (CursorPoint.X = FinishPoint.X) and
-    (CursorPoint.Y = FinishPoint.Y) then Canvas.Brush.Color := clFuchsia;
+  if (FMousePressed = mbLeft) and (FCursorPoint.X = FFinishPoint.X) and
+    (FCursorPoint.Y = FFinishPoint.Y) then Canvas.Brush.Color := clFuchsia;
   Canvas.Pen.Color := clBlue;
   P := MapToScreen(FinishPoint.X, FinishPoint.Y);
   Canvas.Ellipse(Bounds(P.X - 9, P.Y - 9, 20, 20));
@@ -1027,7 +1028,7 @@ begin
   if (MapBitmap = nil) then Exit;
 
   Weights := HWeights;
-  if (not UseWeights) then Weights := 0;
+  if (not FUseWeights) then Weights := 0;
 
   Count := seIterationsCount.Value;
   Time := GetTickCount;
@@ -1036,11 +1037,11 @@ begin
     Params.StartsCount := 1;
     Params.Finish := FinishPoint;
     Params.Weights := {$ifNdef USECPFDLL}TTileMapWeights{$endif}(Weights);
-    Params.Excludes := PPoint(ExcludedPoints);
-    Params.ExcludesCount := Length(ExcludedPoints);
+    Params.Excludes := PPoint(FExcludedPoints);
+    Params.ExcludesCount := Length(FExcludedPoints);
 
     for i := 1 to Count do
-      cpfFindPath(HMap, @Params, SectorTest, Caching){ExecutePathFinding(Show = False)};
+      cpfFindPath(HMap, @Params, FSectorTest, FCaching){ExecutePathFinding(Show = False)};
   end;
   Time := GetTickCount - Time;
 
