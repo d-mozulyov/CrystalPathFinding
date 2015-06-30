@@ -106,6 +106,7 @@ type
     procedure btnRandomClick(Sender: TObject);
     procedure cbSectorTestClick(Sender: TObject);
     procedure rgMapKindClick(Sender: TObject);
+    procedure pbMapDblClick(Sender: TObject);
   private
     // internal data
     FUseWeights: Boolean;
@@ -120,12 +121,13 @@ type
     FBarrierMode: Byte;
     FMapKind: TTileMapKind;
 
+    function PointCorrection(const P: TPoint): TPoint;
+    function ScreenToMap(X, Y: Integer): TPoint;
+    function MapToScreen(X, Y: Integer; Center: Boolean = True): TPoint;
     procedure RepaintBoxes(const PaintBoxes: array of TPaintBox);
-    function  ExcludePointPos(const Value: TPoint): Integer;
+    function ExcludePointPos(const Value: TPoint): Integer;
     procedure AddExcludedPoint(const Value: TPoint);
     procedure DeleteExcludedPoint(const Value: TPoint);
-    function  MapToScreen(X, Y: Integer; Center: Boolean = True): TPoint;
-    function  ScreenToMap(X, Y: Integer): TPoint;
     procedure SetStartPoint(const Value: TPoint);
     procedure SetFinishPoint(const Value: TPoint);
     procedure SetBarrierMode(const Value: Byte);
@@ -142,7 +144,7 @@ type
     property BarrierMode: Byte read FBarrierMode write SetBarrierMode;
     property MapKind: TTileMapKind read FMapKind write SetMapKind;
     property StartPoint: TPoint read FStartPoint write SetStartPoint;
-    property FinishPoint: TPoint read FFinishPoint write SetFinishPoint; 
+    property FinishPoint: TPoint read FFinishPoint write SetFinishPoint;
   end;
 
 
@@ -199,6 +201,154 @@ begin
   end;
 end;
 
+// use dialog form to edit point coordinates
+function EditPoint(const Point: TPoint; const PointName: string): TPoint;
+var
+  Dialog: TForm;
+  SpinX, SpinY: TSpinEdit;
+  OnKeyDown: TKeyEvent;
+
+  procedure DialogOnKeyDown(Dialog: TForm; Sender: TObject; var Key: Word;
+    Shift: TShiftState) far;
+  begin
+    if (Key = VK_ESCAPE) then Dialog.Close;
+  end;
+
+  procedure SpinOnKeyDown(Dialog: TForm; Sender: TObject; var Key: Word;
+    Shift: TShiftState) far;
+  begin
+    if (Key = VK_RETURN) then Dialog.ModalResult := mrOk;
+  end;
+
+begin
+  Result := Point;
+
+  Dialog := TForm.Create(nil);
+  try
+    TMethod(OnKeyDown).Data := Dialog;  
+    Dialog.Caption := Format('%s point editor [%d, %d]', [PointName, Point.X, Point.Y]);
+    Dialog.BorderStyle := bsDialog;
+    Dialog.ClientHeight := 95;
+    Dialog.ClientWidth := 242;
+    Dialog.KeyPreview := True;
+    TMethod(OnKeyDown).Code := @DialogOnKeyDown;
+    Dialog.OnKeyDown := OnKeyDown;
+    Dialog.Position := poScreenCenter;
+
+    // buttons
+    with TButton.Create(Dialog) do
+    begin
+      Parent := Dialog;
+      Caption := 'Ok';
+      SetBounds(66, 64, 75, 25);
+      ModalResult := mrOk;
+    end;
+    with TButton.Create(Dialog) do
+    begin
+      Parent := Dialog;
+      Caption := 'Cancel';
+      SetBounds(153, 64, 75, 25);
+      ModalResult := mrCancel;
+    end;
+
+    // spin edits
+    TMethod(OnKeyDown).Code := @SpinOnKeyDown;
+    SpinX := TSpinEdit.Create(Dialog);
+    SpinX.Parent := Dialog;
+    SpinX.SetBounds(44, 19, 79, 22);
+    SpinX.MaxValue := 29;
+    SpinX.Value := Point.X;
+    SpinX.OnKeyDown := OnKeyDown;
+    SpinY := TSpinEdit.Create(Dialog);
+    SpinY.Parent := Dialog;
+    SpinY.SetBounds(151, 19, 79, 22);
+    SpinY.MaxValue := 19;
+    SpinY.Value := Point.Y;
+    SpinY.OnKeyDown := OnKeyDown;
+
+    // labels
+    with TLabel.Create(Dialog) do
+    begin
+      Parent := Dialog;
+      Caption := 'X:';
+      SetBounds(29, 23, 10, 13);
+    end;
+    with TLabel.Create(Dialog) do
+    begin
+      Parent := Dialog;
+      Caption := 'Y:';
+      SetBounds(136, 23, 10, 13);
+    end;
+
+    // show dialog
+    if (Dialog.ShowModal = mrOk) then
+    begin
+      Result.X := SpinX.Value;
+      Result.Y := SpinY.Value;
+    end;
+  finally
+    Dialog.Free;
+  end;
+end;
+
+function TMainForm.PointCorrection(const P: TPoint): TPoint;
+begin
+  Result := P;
+
+  if (Result.X < 0) then Result.X := 0;
+  if (Result.Y < 0) then Result.Y := 0;
+  if (Result.X >= MAP_WIDTH) then Result.X := MAP_WIDTH - 1;
+  if (Result.Y >= MAP_HEIGHT) then Result.Y := MAP_HEIGHT - 1;
+
+  if (MapKind = mkHexagonal{60}) and (Result.Y and 1 = 1) and
+    (Result.X = MAP_WIDTH - 1) then Dec(Result.X);
+end;
+
+function TMainForm.ScreenToMap(X, Y: Integer): TPoint;
+begin
+  Result.X := X div TILE_SIZE;
+  Result.Y := Y div TILE_SIZE;
+
+  if (MapKind = mkHexagonal{60}) then
+  begin
+    if (Result.Y and 1 = 1) then
+    begin
+      Result.X := (X-TILE_SIZE div 2) div TILE_SIZE;
+
+      if (Result.X = MAP_WIDTH - 1) then Result.X := -1;
+      if (X < TILE_SIZE div 2) then Result.X := -1;
+    end;
+
+    if (Y mod TILE_SIZE < (TILE_SIZE div 3)) then
+    begin
+      Result.X := Low(Integer);
+      Result.Y := Low(Integer);
+    end;
+  end;
+end;
+
+function TMainForm.MapToScreen(X, Y: Integer; Center: Boolean = True): TPoint;
+begin
+  Result.X := X * TILE_SIZE;
+  Result.Y := Y * TILE_SIZE;
+
+  if (MapKind = mkHexagonal{60}) then
+  begin
+    if (Y and 1 = 1) then
+      Inc(Result.X, TILE_SIZE div 2);
+
+    if (Center) then
+    begin
+      Inc(Result.X, TILE_SIZE div 2 + 1);
+      Inc(Result.Y, (TILE_SIZE * 4 div 3) div 2 - 1);
+    end;
+  end else
+  if (Center) then
+  begin
+    Inc(Result.X, TILE_SIZE div 2);
+    Inc(Result.Y, TILE_SIZE div 2);
+  end;
+end;
 
 procedure TMainForm.FormCreate(Sender: TObject);
 var
@@ -275,6 +425,8 @@ begin
       F.Read(FBarrierMode, SizeOf(FBarrierMode));
       F.Read(FMapKind, SizeOf(FMapKind));
       if (Byte(FMapKind) > Byte(High(TTileMapKind))) then FMapKind := High(TTileMapKind);
+      FStartPoint := PointCorrection(FStartPoint);
+      FFinishPoint := PointCorrection(FFinishPoint);
 
       cbUseWeights.Checked := ReadBool;
       cbCaching.Checked := ReadBool;
@@ -288,8 +440,14 @@ begin
       seIterationsCount.Value := ReadInt;
 
       Len := ReadInt;
-      SetLength(FExcludedPoints, Len);
-      if (Len <> 0) then F.Read(pointer(FExcludedPoints)^, Len * SizeOf(TPoint));
+      if (Len > 0) then
+      begin
+        SetLength(FExcludedPoints, Len);
+        F.Read(pointer(FExcludedPoints)^, Len * SizeOf(TPoint));
+
+        for i := 0 to Len - 1 do
+          FExcludedPoints[i] := PointCorrection(FExcludedPoints[i]);
+      end;
     finally
       F.Free;
     end;
@@ -393,7 +551,7 @@ begin
     FExcludedPoints := nil;
     cbUseWeights.Checked := True;
     cbCaching.Checked := False;
-    FMapKind := mkSimple;
+    MapKind := mkSimple;
     cbSectorTest.Checked := True;
     seIterationsCount.Value := 1000;
   end;
@@ -418,6 +576,7 @@ var
   begin
     Result.X := Random(MAP_WIDTH);
     Result.Y := Random(MAP_HEIGHT);
+    Result := PointCorrection(Result);
   end;
 begin
   BufMapBitmap := MapBitmap;
@@ -433,14 +592,14 @@ begin
     sbTile2.Position := Random(200);
     sbTile3.Position := Random(200);
     sbTile4.Position := Random(200);
+    cbUseWeights.Checked := RandomBool;
+    MapKind := TTileMapKind(Random(Byte(High(TTileMapKind)) + 1));
+    cbSectorTest.Checked := RandomBool;
+    seIterationsCount.Value := Random(100000) + 1;
     FStartPoint := RandomPoint;
     FFinishPoint := RandomPoint;
     FExcludedPoints := nil;
     for i := 0 to Random(20) do AddExcludedPoint(RandomPoint);
-    cbUseWeights.Checked := RandomBool;
-    FMapKind := TTileMapKind(Random(Byte(High(TTileMapKind)) + 1));
-    cbSectorTest.Checked := RandomBool;
-    seIterationsCount.Value := Random(100000) + 1;
   end;
 
   MapBitmap := BufMapBitmap;
@@ -593,7 +752,7 @@ end;
 procedure TMainForm.pbMapMouseDown(Sender: TObject; Button: TMouseButton;
                                     Shift: TShiftState; X, Y: Integer);
 begin
-  if (Button = mbMiddle)or (FMousePressed = Button) then Exit;
+  if (Button = mbMiddle) or (FMousePressed = Button) or (ssDouble in Shift) then Exit;
 
   // unfocus controls
   Windows.SetFocus(0);
@@ -678,6 +837,26 @@ begin
   end;
 end;
 
+procedure TMainForm.pbMapDblClick(Sender: TObject);
+var
+  P: TPoint;
+begin
+  GetCursorPos(P);
+  P := pbMap.ScreenToClient(P);
+  P := ScreenToMap(P.X, P.Y);
+
+  if (P.X = StartPoint.X) and (P.Y = StartPoint.Y) then
+  begin
+    StartPoint := EditPoint(StartPoint, 'Start');
+    FMousePressed := mbMiddle;
+  end else
+  if (P.X = FinishPoint.X) and (P.Y = FinishPoint.Y) then
+  begin
+    FinishPoint := EditPoint(FinishPoint, 'Finish');
+    FMousePressed := mbMiddle;
+  end;
+end;
+
 function TMainForm.ExcludePointPos(const Value: TPoint): integer;
 begin
   for Result := 0 to Length(FExcludedPoints) - 1 do
@@ -710,66 +889,26 @@ begin
   SetLength(FExcludedPoints, Len);
 end;
 
-function TMainForm.MapToScreen(X, Y: Integer; Center: Boolean = True): TPoint;
-begin
-  Result.X := X * TILE_SIZE;
-  Result.Y := Y * TILE_SIZE;
-
-  if (MapKind = mkHexagonal{60}) then
-  begin
-    if (Y and 1 = 1) then
-      Inc(Result.X, TILE_SIZE div 2);
-
-    if (Center) then
-    begin
-      Inc(Result.X, TILE_SIZE div 2 + 1);
-      Inc(Result.Y, (TILE_SIZE * 4 div 3) div 2 - 1);
-    end;
-  end else
-  if (Center) then
-  begin
-    Inc(Result.X, TILE_SIZE div 2);
-    Inc(Result.Y, TILE_SIZE div 2);
-  end;    
-end;
-
-function TMainForm.ScreenToMap(X, Y: Integer): TPoint;
-begin
-  Result.X := X div TILE_SIZE;
-  Result.Y := Y div TILE_SIZE;
-
-  if (MapKind = mkHexagonal{60}) then
-  begin
-    if (Result.Y and 1 = 1) then
-    begin
-      Result.X := (X-TILE_SIZE div 2) div TILE_SIZE;
-
-      if (Result.X = MAP_WIDTH - 1) then Result.X := -1;
-      if (X < TILE_SIZE div 2) then Result.X := -1;
-    end;
-
-    if (Y mod TILE_SIZE < (TILE_SIZE div 3)) then
-    begin
-      Result.X := Low(Integer);
-      Result.Y := Low(Integer);
-    end;
-  end;
-end;
-
 procedure TMainForm.SetStartPoint(const Value: TPoint);
+var
+  P: TPoint;
 begin
-  if (FStartPoint.X <> Value.X) or (FStartPoint.Y <> Value.Y) then
+  P := PointCorrection(Value);
+  if (FStartPoint.X <> P.X) or (FStartPoint.Y <> P.Y) then
   begin
-    FStartPoint := Value;
+    FStartPoint := P;
     ExecutePathFinding;
   end;
 end;
 
 procedure TMainForm.SetFinishPoint(const Value: TPoint);
+var
+  P: TPoint;
 begin
-  if (FFinishPoint.X <> Value.X) or (FFinishPoint.Y <> Value.Y) then
+  P := PointCorrection(Value);
+  if (FFinishPoint.X <> P.X) or (FFinishPoint.Y <> P.Y) then
   begin
-    FFinishPoint := Value;
+    FFinishPoint := P;
     ExecutePathFinding;
   end;
 end;
@@ -790,19 +929,17 @@ end;
 
 procedure TMainForm.SetMapKind(const Value: TTileMapKind);
 var
-  P: TPoint;
+  i: Integer;
 begin
   if (FMapKind = Value) then Exit;
   FMapKind := Value;
   rgMapKind.ItemIndex := Byte(Value);
 
   // points correction
-  P := ScreenToMap(FStartPoint.X * TILE_SIZE + TILE_SIZE div 2, FStartPoint.Y * TILE_SIZE + TILE_SIZE div 2);
-  if (P.X = -1) then Dec(FStartPoint.X);
-  if (P.Y = -1) then Dec(FStartPoint.Y);
-  P := ScreenToMap(FFinishPoint.X * TILE_SIZE + TILE_SIZE div 2, FFinishPoint.Y * TILE_SIZE + TILE_SIZE div 2);
-  if (P.X = -1) then Dec(FFinishPoint.X);
-  if (P.Y = -1) then Dec(FFinishPoint.Y);
+  FStartPoint := PointCorrection(FStartPoint);
+  FFinishPoint := PointCorrection(FFinishPoint);
+  for i := 0 to Length(FExcludedPoints) - 1 do
+    FExcludedPoints[i] := PointCorrection(FExcludedPoints[i]);
 
   // find new path and repaint map
   if (MapBitmap <> nil) then RecreateMap;

@@ -25,6 +25,7 @@ object MainForm: TMainForm
     Top = 40
     Width = 900
     Height = 600
+    OnDblClick = pbMapDblClick
     OnMouseDown = pbMapMouseDown
     OnMouseMove = pbMapMouseMove
     OnMouseUp = pbMapMouseUp
