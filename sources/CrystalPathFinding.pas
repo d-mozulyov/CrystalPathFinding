@@ -5129,8 +5129,16 @@ begin
               CellInfo and NODEPTR_CLEAN_MASK
                ).NodeInfo;
   end;
-  if (FActualInfo.Weights.Cardinals[CellInfo shr 24] = PATHLESS_TILE_WEIGHT) then
-    FinishX := -1{finish excluded flag};
+  if {$ifdef LARGEINT}
+       (CellInfo <= $ffffff)
+     {$else}
+       (CellInfo and Integer($ff000000){Tile} = 0{TILE_BARIER})
+     {$endif} or
+     (CellInfo and $ff00{Mask} = 0) then FinishX := -1{finish excluded flag}
+  else
+  if (Params.Weights <> nil) and
+    (Params.Weights.FInfo.Singles[CellInfo shr 24] = 0) then
+      FinishX := -1{finish pathless flag};
 
   // test excluded points coordinates
   S := Params.Excludes;
@@ -5143,12 +5151,12 @@ begin
     end;
 
     if (S.X = FinishX) and (S.Y = {$ifdef CPUX86}Params.Finish.Y{$else}FinishY{$endif}) then
-      FinishX := -1{finish excluded flag};
+      FinishX := -1{finish pathless flag};
 
     Inc(S);
   end;
 
-  // no start points or finish excluded case
+  // no start points or finish pathless case
   if (Params.StartsCount = 0) or (FinishX < 0) then
   begin
     ResultPath := @Result;
@@ -5406,7 +5414,13 @@ nodes_initialized:
     Node := AllocateHeuristedNode(StartPoint.X, StartPoint.Y);
     NodeInfo := Node.NodeInfo;
     StartPoint.Node := Node;
-    if (NodeInfo and Integer($00ff0000) = 0{excluded test}) or
+    if {$ifdef LARGEINT}
+       (NodeInfo <= $ffffff)
+       {$else}
+       (NodeInfo and Integer($ff000000){Tile} = 0{TILE_BARIER})
+       {$endif} or
+      (NodeInfo and $ff00{Mask} = 0) or
+      (NodeInfo and Integer($00ff0000) = 0{excluded test}) or
       (FActualInfo.Weights.Cardinals[NodeInfo shr 24] = PATHLESS_TILE_WEIGHT) then goto path_not_found;
     if (NodeInfo and FLAG_KNOWN_PATH <> 0) then
     begin

@@ -956,29 +956,24 @@ var
 begin
   if (MapBitmap = nil) then Exit;
 
-  // todo
-  TTileMap(HMap).SectorTest := FSectorTest;
-  TTileMap(HMap).Caching := FCaching;
-
   // find path
- (* Weights := HWeights;
-  if (not UseWeights) then Weights := 0;
+  Weights := HWeights;
+  if (not FUseWeights) then Weights := 0;
   try
     Params.Starts := @StartPoint;
     Params.StartsCount := 1;
     Params.Finish := FinishPoint;
     Params.Weights := {$ifNdef USECPFDLL}TTileMapWeights{$endif}(Weights);
-    Params.Excludes := PPoint(ExcludedPoints);
-    Params.ExcludesCount := Length(ExcludedPoints);
+    Params.Excludes := PPoint(FExcludedPoints);
+    Params.ExcludesCount := Length(FExcludedPoints);
 
-    Path := cpfFindPath(HMap, @Params, SectorTest, Caching);
+    Path := cpfFindPath(HMap, @Params, FSectorTest, FCaching);
   except
     SaveMap();
     Path.Count := 0;
-    FillMapBitmap(Path, ProjectPath+'map_exception.jpg');
+    FillMapBitmap(Path, ProjectPath + 'map_exception.jpg');
     raise;
-  end; *)
-  FillChar(Path, SizeOf(Path), 0);
+  end;
 
   // distance label
   lbDistance.Visible := (Path.Count <> 0);
