@@ -769,10 +769,7 @@ procedure TMainForm.pbMapMouseUp(Sender: TObject; Button: TMouseButton;
                                   Shift: TShiftState; X, Y: Integer);
 begin
   if (FMousePressed = Button) then
-  begin
     FMousePressed := mbMiddle;
-    ExecutePathFinding;
-  end;  
 end;
 
 procedure TMainForm.pbMapMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
@@ -795,15 +792,13 @@ begin
   if (FMousePressed = mbLeft) and (LastCursorPoint.X = FStartPoint.X) and
     (LastCursorPoint.Y = FStartPoint.Y) then
   begin
-    FStartPoint := P;
-    ExecutePathFinding;
+    StartPoint := P;
     Exit;
   end;
   if (FMousePressed = mbLeft) and (LastCursorPoint.X = FFinishPoint.X) and
     (LastCursorPoint.Y = FFinishPoint.Y) then
   begin
-    FFinishPoint := P;
-    ExecutePathFinding;
+    FinishPoint := P;
     Exit;
   end;
 

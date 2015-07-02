@@ -1487,14 +1487,14 @@ const
   );
 
   CHILD_ARRAYS_OFFSETS: array[0..63{parent:3,way:3}] of Byte = (
-    $B0, $B0, $B0, $A0, $A0, $A0, $A0, $A0,
     $40, $40, $40, $40, $50, $50, $50, $40,
-    $10, $10, $20, $20, $20, $10, $10, $10,
-    $00, $00, $00, $00, $00, $00, $00, $00,
-    $30, $30, $30, $30, $30, $30, $30, $30,
+    $B0, $B0, $B0, $A0, $A0, $A0, $A0, $A0,
+    $60, $60, $60, $60, $60, $60, $60, $60,
     $60, $60, $60, $60, $60, $60, $60, $60,
     $90, $90, $90, $90, $90, $90, $90, $90,
-    $60, $60, $60, $60, $60, $60, $60, $60
+    $10, $10, $20, $20, $20, $10, $10, $10,
+    $30, $30, $30, $30, $30, $30, $30, $30,
+    $00, $00, $00, $00, $00, $00, $00, $00
   );
 
   PARENT_BITS: array[0..31{oddy:1;hexagonal:1;child:3}] of NativeUInt = (
@@ -1606,6 +1606,7 @@ var
   Parent, WayChild: Integer;
   N: Byte;
 begin
+  // 0..2 way to -1..1
   if (WayX = 1) then WayX := -1
   else
   if (WayX = 2) then WayX := 1;
@@ -1614,7 +1615,11 @@ begin
   else
   if (WayY = 2) then WayY := 1;
 
+  // Start - Finish ==> Finish - Start
+  WayX := -WayX;
+  WayY := -WayY;
 
+  // way child
   if (WayX < 0) then
   begin
     if (WayY < 0) then
@@ -3013,7 +3018,7 @@ begin
     Mask := 2*Byte(Y > 0) + (Y shr HIGH_NATIVE_BIT);
     Mask := Mask * 3;
     Mask := Mask + 2*Byte(X > 0);
-    Mask := Mask - 1 + (X shr {$ifdef CPUX86}31{$else}HIGH_NATIVE_BIT{$endif}); // Delphi compiler optimization bug
+    Mask := Mask - 1 + (X shr HIGH_NATIVE_BIT) + {point = finish fix}Ord(X or Y = 0);
     Node.NodeInfo := (Node.NodeInfo and FLAGS_CLEAN_MASK) or $00ff0000 or Cardinal(Mask shl 3);
 
     // Y := Abs(dY)
@@ -3070,9 +3075,10 @@ begin
 
   // add to heuristed pool
   Right := FNodes.HeuristedPool.First.Next;
+  FNodes.HeuristedPool.First.Next := Node;
+  Node.Prev := @FNodes.HeuristedPool.First;
   Node.Next := Right;
   Right.Prev := Node;
-  FNodes.HeuristedPool.First.Next := Node;
 
   // result
   Result := Node;
@@ -3142,13 +3148,12 @@ begin
   if (Count < LastCount) then
   begin
     V := LastCount - Count;
-    Inc(LastCount);
 
-    FillCardinal(Pointer(@FActualInfo.Weights.Singles[LastCount]), V, DEFAULT_WEIGHT_VALUE);
-    FillCardinal(Pointer(@FActualInfo.Weights.SinglesDiagonal[LastCount]), V, DEFAULT_WEIGHT_VALUE_DIAGONAL);
+    FillCardinal(Pointer(@FActualInfo.Weights.Singles[Count + 1]), V, DEFAULT_WEIGHT_VALUE);
+    FillCardinal(Pointer(@FActualInfo.Weights.SinglesDiagonal[Count + 1]), V, {instance variable}DEFAULT_WEIGHT_VALUE_DIAGONAL);
 
-    FillCardinal(@FActualInfo.Weights.Cardinals[LastCount], V, FTileDefaultWeight);
-    FillCardinal(@FActualInfo.Weights.CardinalsDiagonal[LastCount], V, FTileDefaultWeightDiagonal);
+    FillCardinal(@FActualInfo.Weights.Cardinals[Count + 1], V, FTileDefaultWeight);
+    FillCardinal(@FActualInfo.Weights.CardinalsDiagonal[Count + 1], V, FTileDefaultWeightDiagonal);
   end;
 
   // copy and calculate weights
@@ -3836,7 +3841,7 @@ begin
           Mask := 2*Byte(Y > 0) + (Y shr HIGH_NATIVE_BIT);
           Mask := Mask * 3;
           Mask := Mask + 2*Byte(X > 0);
-          Mask := Mask - 1 + (X shr {$ifdef CPUX86}31{$else}HIGH_NATIVE_BIT{$endif}); // Delphi compiler optimization bug
+          Mask := Mask - 1 + (X shr HIGH_NATIVE_BIT) + {point = finish fix}Ord(X or Y = 0);
         end;
         {$ifdef LARGEINT}
           NodeInfo := (NodeInfo and FLAGS_CLEAN_MASK) or NativeUInt(Mask shl 3);
@@ -4440,7 +4445,7 @@ begin
 
   // path points buffer allocate
   {$ifdef CPUX86}
-    Length := N and $ffffff;
+    Length := NodePtrs and $ffffff;
   {$endif}
   {$ifNdef CPUX86}
   _Self := Store._Self;
@@ -5134,10 +5139,8 @@ begin
      {$else}
        (CellInfo and Integer($ff000000){Tile} = 0{TILE_BARIER})
      {$endif} or
-     (CellInfo and $ff00{Mask} = 0) then FinishX := -1{finish excluded flag}
-  else
-  if (Params.Weights <> nil) and
-    (Params.Weights.FInfo.Singles[CellInfo shr 24] = 0) then
+    (CellInfo and $ff00{Mask} = 0) or
+    ((Params.Weights <> nil) and (Params.Weights.FInfo.Singles[CellInfo shr 24] = 0)) then
       FinishX := -1{finish pathless flag};
 
   // test excluded points coordinates
@@ -5370,10 +5373,10 @@ begin
 
       // add to excluded pool
       Node := FNodes.ExcludedPool.First.Next;
-      Node.Prev := N;
-      N.Next := Node;
-      N.Prev := @FNodes.ExcludedPool.First;
       FNodes.ExcludedPool.First.Next := N;
+      N.Prev := @FNodes.ExcludedPool.First;
+      N.Next := Node;
+      Node.Prev := N;
 
       Dec(Flags);
       Inc(S);
@@ -5444,6 +5447,10 @@ nodes_initialized:
     FNodes.HotPool.Last.Prev := Node;
     Node.Prev := @FNodes.HotPool.First;
     Node.Next := @FNodes.HotPool.Last;
+
+    // zero path
+    Node.SortValue := Node.SortValue - Node.Path;
+    Node.Path := 0;
 
     // call find path loop
     StartPoint.KnownPathNode := DoFindPathLoop(Node);
@@ -5596,6 +5603,5 @@ initialization
     {$WARNINGS OFF} // deprecated warning bug fix (like Delphi 2010 compiler)
     System.GetMemoryManager(MemoryManager);
   {$endif}
-
 
 end.
