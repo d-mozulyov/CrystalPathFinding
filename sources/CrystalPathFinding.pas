@@ -1497,15 +1497,15 @@ const
     $00, $00, $00, $00, $00, $00, $00, $00
   );
 
-  PARENT_BITS: array[0..31{oddy:1;hexagonal:1;child:3}] of NativeUInt = (
-    $00C70004, $00C70004, $00C70004, $00000004,
-    $00070005, $00070005, $004F0005, $00970005,
-    $001F0006, $001F0006, $00000006, $001F0006,
-    $001C0007, $001C0007, $003E0007, $005D0007,
-    $007C0000, $007C0000, $00000000, $007C0000,
-    $00700001, $00700001, $00790001, $00F40001,
-    $00F10002, $00F10002, $00F10002, $00000002,
-    $00C10003, $00C10003, $00D50003, $00E30003
+  PARENT_BITS: array[0..63{oddy:1;hexagonal:1;simple:1;child:3}] of NativeUInt = (
+    $00C70004, $00C70004, $00C70004, $00000004, $00000004, $00000004, $00000004, $00000004,
+    $00070005, $00070005, $004F0005, $00970005, $00DF0005, $00DF0005, $00DF0005, $00DF0005,
+    $001F0006, $001F0006, $00000006, $001F0006, $00000006, $00000006, $00000006, $00000006,
+    $001C0007, $001C0007, $003E0007, $005D0007, $007F0007, $007F0007, $007F0007, $007F0007,
+    $007C0000, $007C0000, $00000000, $007C0000, $00000000, $00000000, $00000000, $00000000,
+    $00700001, $00700001, $00790001, $00F40001, $00FD0001, $00FD0001, $00FD0001, $00FD0001,
+    $00F10002, $00F10002, $00F10002, $00000002, $00000002, $00000002, $00000002, $00000002,
+    $00C10003, $00C10003, $00D50003, $00E30003, $00F70003, $00F70003, $00F70003, $00F70003
   );
 
   ROUNDED_MASKS: array[Byte] of Byte = (
@@ -1686,8 +1686,8 @@ end;
 procedure AddParentBits(Child: Integer; Finalize: Boolean);
 var
   Parent: Integer;
-  Buffer: array[0..3] of Cardinal;
-  Hexagonal, OddY: Boolean;
+  Buffer: array[0..7] of Cardinal;
+  Simple, Hexagonal, OddY: Boolean;
   Item: PCardinal;
   S: string;
 
@@ -1700,9 +1700,21 @@ begin
   Parent := (Child + 4) and 7;
   Item := @Buffer[0];
 
+  for Simple := False to True do
   for Hexagonal := False to True do
   for OddY := False to True do
   begin
+    if (Simple) then
+    begin
+      case Child of
+        1: AddParentMask(_5);
+        3: AddParentMask(_7);
+        5: AddParentMask(_1);
+        7: AddParentMask(_3);
+      else
+        AddParentMask($FF);
+      end;
+    end else
     if (not Hexagonal) then
     begin
       case Child of
@@ -1743,8 +1755,9 @@ begin
     end;
   end;
 
-  S := Format('  $%0.8x, $%0.8x, $%0.8x, $%0.8x',
-    [Buffer[0], Buffer[1], Buffer[2], Buffer[3]]);
+  S := Format('  $%0.8x, $%0.8x, $%0.8x, $%0.8x, $%0.8x, $%0.8x, $%0.8x, $%0.8x',
+    [Buffer[0], Buffer[1], Buffer[2], Buffer[3],
+     Buffer[4], Buffer[5], Buffer[6], Buffer[7]]);
 
   if (not Finalize) then S := S + ',';
   LookupLine(S);
@@ -1830,7 +1843,7 @@ begin
 
     // PARENT_BITS
     LookupLine;
-    LookupLine('PARENT_BITS: array[0..31{oddy:1;hexagonal:1;child:3}] of NativeUInt = (');
+    LookupLine('PARENT_BITS: array[0..63{oddy:1;hexagonal:1;simple:1;child:3}] of NativeUInt = (');
     for Child := 0 to 7 do
     begin
       AddParentBits(Child, Child = 7);
@@ -4569,7 +4582,7 @@ label
   next_current, current_initialize;
 const
   NODEPTR_FLAGS = NODEPTR_FLAG_HEURISTED + NODEPTR_FLAG_ALLOCATED;
-  PARENT_BITS_CLEAR_MASK = not Cardinal($00ff000 + 7);
+  PARENT_BITS_CLEAR_MASK = not Cardinal($00ff0000 + 7);
   COUNTER_OFFSET = 16;
 type
   TMapNodeBuffer = array[0..7] of PCPFNode;
@@ -4600,7 +4613,7 @@ var
   Store: record
     Buffer: TMapNodeBuffer;
     Self: Pointer;
-    HexagonalFlag: NativeUInt;
+    MapKindFlags: NativeUInt;
     Info: TCPFInfo;
 
     {$ifdef CPUX86}
@@ -4632,7 +4645,9 @@ var
   {$endif}
 begin
   Store.Self := Pointer({$ifdef CPFLIB}@Self{$else}Self{$endif});
-  Store.HexagonalFlag := NativeUInt(Self.FKind = mkHexagonal) * 2;
+  // (bit simple << 2) | (bit hexagonal << 1)
+  X := NativeInt(Self.FKind);
+  Store.MapKindFlags := ((X - 1) and 4) + (((X + 1) and 4) shr 1);
   Move(Self.FInfo, Store.Info,
     (SizeOf(Store.Info) - 32 * SizeOf(Pointer)) +
     (Self.FInfo.NodeAllocator.Count * SizeOf(Pointer)) );
@@ -4675,10 +4690,11 @@ begin
 
     // reinitialize NodeInfo (from parentflags, mask, parentmask, tile):
     //   - bit hexagonal << 1
+    //   - bit simple << 2
     //   - mask
     //   - stored childs counter
     //   - tile
-    NodeInfo := ((NodeInfo and (NodeInfo shr 8)) and Integer($ff00ff00)) or Store.HexagonalFlag;
+    NodeInfo := ((NodeInfo and (NodeInfo shr 8)) and Integer($ff00ff00)) or Store.MapKindFlags;
 
     // each child cell loop
     goto nextchild;
@@ -4706,8 +4722,8 @@ begin
       Inc(NativeInt(Cell), Store.Info.CellOffsets[Child]);
 
       // parent bits
-      Child := Child shl 2;
-      Child := Child + (NodeInfo and 2) + (NativeUInt(Cardinal(Store.Current.Coordinates)) and 1);
+      Child := Child shl 3;
+      Child := Child + (NodeInfo and (4+2)) + (NativeUInt(Cardinal(Store.Current.Coordinates)) and 1);
       ParentBits := PARENT_BITS[Child];
 
       // allocated new or use exists
@@ -4830,7 +4846,7 @@ begin
           Dec(X, Mask);
 
           // calculate
-          if (Store.HexagonalFlag and 1 = 0) then
+          if (Store.MapKindFlags = 2{hexagonal}) then
           begin
             if (X <= Y) then
             begin
