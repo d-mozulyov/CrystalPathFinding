@@ -73,7 +73,7 @@ unit CrystalPathFinding;
 {$U-}{$V+}{$B-}{$X+}{$T+}{$P+}{$H+}{$J-}{$Z1}{$A4}
 {$O+}{$R-}{$I-}{$Q-}{$W-}
 {$if Defined(CPUX86) or Defined(CPUX64)}
-   {$define CPUINTEL}
+  {$define CPUINTEL}
 {$ifend}
 {$if Defined(CPUX64) or Defined(CPUARM64)}
   {$define LARGEINT}
@@ -358,15 +358,13 @@ type
     FCaching: Boolean;
     FSameDiagonalWeight: Boolean;
     FSectorOffsets: TCPFOffsets;
-    FTileWeightScale: Double;
+    FTileWeightScaleLine: Double;
     FTileWeightScaleDiagonal: Double;
-    FTileWeightLimit: Cardinal;
+    FTileWeightLimitLine: Cardinal;
     FTileWeightLimitDiagonal: Cardinal;
-    FTileWeightMinimum: Cardinal;
+    FTileWeightMinimumLine: Cardinal;
     FTileWeightMinimumDiagonal: Cardinal;
-    DEFAULT_WEIGHT_VALUE_DIAGONAL: Cardinal;
-    FTileDefaultWeight: Cardinal;
-    FTileDefaultWeightDiagonal: Cardinal;
+    DEFAULT_DIAGONAL_WEIGHT_VALUE: Cardinal;
 
     procedure RaiseCoordinates(const X, Y: Integer; const Id: TCPFExceptionString);
     procedure UpdateCellMasks(const ChangedArea: TRect);
@@ -412,12 +410,13 @@ type
         UpdateId: Cardinal;
         Count: Cardinal;
 
-        Cardinals: array[0..255] of Cardinal;
         CardinalsDiagonal: array[0..255] of Cardinal;
+        CardinalsLine: array[0..255] of Cardinal;
         case Boolean of
         False: (
-                 Singles: array[0..255] of Single;
+                 {0,2,4,6 - Diagonal; 1,3,5,7 - Line}
                  SinglesDiagonal: array[0..255] of Single;
+                 SinglesLine: array[0..255] of Single;
                 );
          True: (SingleValues: array[0..1, 0..255] of Single);
       end;
@@ -1466,9 +1465,9 @@ const
     {7 --> 3} (y:  0; x: +1)
   );
 
-  MIN_WEIGHT_VALUE = Cardinal($3DCCCCCD){0.1};
-  MAX_WEIGHT_VALUE = Cardinal($42480000){50.0};
-  DEFAULT_WEIGHT_VALUE = Cardinal($3F800000){1.0};
+  MIN_WEIGHT_VALUE_LINE = Cardinal($3DCCCCCD){0.1};
+  MAX_WEIGHT_VALUE_LINE = Cardinal($42480000){50.0};
+  DEFAULT_WEIGHT_VALUE_LINE = Cardinal($3F800000){1.0};
   ERROR_WEIGHT_VALUE = 'Invalid weight value. 0,0..0,1 - pathless, 0,1..50 - correct';
 
   CHILD_ARRAYS: array[0..11{4 diagonal + 4 clockwise optional}] of TChildList = (
@@ -1793,9 +1792,9 @@ end;
 
 procedure GenerateLookups;
 const
-  MIN_WEIGHT_VALUE: Single = 0.1;
-  MAX_WEIGHT_VALUE: Single = 50;
-  DEFAULT_WEIGHT_VALUE: Single = 1;
+  MIN_WEIGHT_VALUE_LINE: Single = 0.1;
+  MAX_WEIGHT_VALUE_LINE: Single = 50;
+  DEFAULT_WEIGHT_VALUE_LINE: Single = 1;
 var
   Way, WayX, WayY: Integer;
   Child: Integer;
@@ -1807,12 +1806,12 @@ begin
 
     // weight consts
     FormatSettings.DecimalSeparator := '.';
-    LookupLineFmt('MIN_WEIGHT_VALUE = Cardinal($%8x){%0.1f};', [PCardinal(@MIN_WEIGHT_VALUE)^, MIN_WEIGHT_VALUE]);
-    LookupLineFmt('MAX_WEIGHT_VALUE = Cardinal($%8x){%0.1f};', [PCardinal(@MAX_WEIGHT_VALUE)^, MAX_WEIGHT_VALUE]);
-    LookupLineFmt('DEFAULT_WEIGHT_VALUE = Cardinal($%8x){%0.1f};', [PCardinal(@DEFAULT_WEIGHT_VALUE)^, DEFAULT_WEIGHT_VALUE]);
+    LookupLineFmt('MIN_WEIGHT_VALUE_LINE = Cardinal($%8x){%0.1f};', [PCardinal(@MIN_WEIGHT_VALUE_LINE)^, MIN_WEIGHT_VALUE_LINE]);
+    LookupLineFmt('MAX_WEIGHT_VALUE_LINE = Cardinal($%8x){%0.1f};', [PCardinal(@MAX_WEIGHT_VALUE_LINE)^, MAX_WEIGHT_VALUE_LINE]);
+    LookupLineFmt('DEFAULT_WEIGHT_VALUE_LINE = Cardinal($%8x){%0.1f};', [PCardinal(@DEFAULT_WEIGHT_VALUE_LINE)^, DEFAULT_WEIGHT_VALUE_LINE]);
     FormatSettings.DecimalSeparator := ',';
     LookupLineFmt('ERROR_WEIGHT_VALUE = ''Invalid weight value. 0,0..%0.1f - pathless, %0.1f..%0.0f - correct'';',
-      [MIN_WEIGHT_VALUE, MIN_WEIGHT_VALUE, MAX_WEIGHT_VALUE]);
+      [MIN_WEIGHT_VALUE_LINE, MIN_WEIGHT_VALUE_LINE, MAX_WEIGHT_VALUE_LINE]);
 
     // CHILD_ARRAYS
     LookupLine;
@@ -1882,7 +1881,7 @@ begin
   Result.Scale := 1.0;
 
   // default values
-  FillCardinal(@Result.Singles[1], Length(Result.Singles), DEFAULT_WEIGHT_VALUE);
+  FillCardinal(@Result.Singles[1], Length(Result.Singles), DEFAULT_WEIGHT_VALUE_LINE);
 end;
 
 procedure TCPFWeightsInfo.Release(const Address: Pointer);
@@ -1915,8 +1914,8 @@ begin
 
   PValue := @Singles[1];
   PHighValue := @Singles[Count + 1];
-  Min := DEFAULT_WEIGHT_VALUE;
-  Max := DEFAULT_WEIGHT_VALUE;
+  Min := DEFAULT_WEIGHT_VALUE_LINE;
+  Max := DEFAULT_WEIGHT_VALUE_LINE;
   while (PValue <> PHighValue) do
   begin
     Value := PValue^;
@@ -1994,7 +1993,7 @@ var
   Info: PCPFWeightsInfo;
 begin
   V := PCardinal(@Value)^;
-  if (Tile = TILE_BARRIER) or (V > MAX_WEIGHT_VALUE) then
+  if (Tile = TILE_BARRIER) or (V > MAX_WEIGHT_VALUE_LINE) then
   begin
     {$ifNdef CPFLIB}
       FCallAddress := ReturnAddress;
@@ -2009,7 +2008,7 @@ begin
   end else
   begin
     Info := FInfo;
-    V := V and (Integer(Byte(V < MIN_WEIGHT_VALUE)) - 1); // 0..0,1 --> 0
+    V := V and (Integer(Byte(V < MIN_WEIGHT_VALUE_LINE)) - 1); // 0..0,1 --> 0
     Index := Tile;
     PValue := @Info.Singles[Index];
 
@@ -2018,7 +2017,7 @@ begin
       PValue^ := V;
       Inc(Info.UpdateId);
 
-      if (V = DEFAULT_WEIGHT_VALUE) then
+      if (V = DEFAULT_WEIGHT_VALUE_LINE) then
       begin
         if (Index = Info.Count) then
         begin
@@ -2026,7 +2025,7 @@ begin
             Dec(PValue);
             Dec(Index);
             if (PValue = @Info.Count{Index = 0}) or
-              (PValue^ <> DEFAULT_WEIGHT_VALUE) then Break;
+              (PValue^ <> DEFAULT_WEIGHT_VALUE_LINE) then Break;
           until (False);
 
           goto fillcount;
@@ -2097,33 +2096,26 @@ begin
     Min := AWidth;
   end;
   PathLengthLimit := ((Min + 1) shr 1) * Max + (Min shr 1);
-  FTileWeightScale := SORTVALUE_LIMIT / PathLengthLimit;
-  FTileWeightLimit := CPFRound(FTileWeightScale) - 1;
-  FTileDefaultWeight := CPFRound({1 *} FTileWeightScale);
-  FInfo.TileWeights[1] := @FActualInfo.Weights.Cardinals;
+  FTileWeightScaleLine := SORTVALUE_LIMIT / PathLengthLimit;
+  FTileWeightLimitLine := CPFRound(FTileWeightScaleLine) - 1;
+  FInfo.TileWeights[1] := @FActualInfo.Weights.CardinalsLine;
   if (FSameDiagonalWeight) then
   begin
-    FTileWeightScaleDiagonal := FTileWeightScale;
-    DEFAULT_WEIGHT_VALUE_DIAGONAL := DEFAULT_WEIGHT_VALUE;
-    FTileDefaultWeightDiagonal := FTileDefaultWeight;
-    FTileWeightLimitDiagonal := FTileWeightLimit;
-    FTileWeightMinimum := 1;
+    FTileWeightScaleDiagonal := FTileWeightScaleLine;
+    DEFAULT_DIAGONAL_WEIGHT_VALUE := DEFAULT_WEIGHT_VALUE_LINE;
+    FTileWeightLimitDiagonal := FTileWeightLimitLine;
+    FTileWeightMinimumLine := 1;
     FTileWeightMinimumDiagonal := 1;
     FInfo.TileWeights[0] := FInfo.TileWeights[1];
   end else
   begin
-    FTileWeightScaleDiagonal := SQRT2 * FTileWeightScale;
-    PSingle(@DEFAULT_WEIGHT_VALUE_DIAGONAL)^ := SQRT2;
-    FTileDefaultWeightDiagonal := CPFRound({1 *} FTileWeightScaleDiagonal);
-    FTileWeightLimitDiagonal := CPFRound(FTileWeightLimit * SQRT2);
-    FTileWeightMinimum := 2;
+    FTileWeightScaleDiagonal := SQRT2 * FTileWeightScaleLine;
+    PSingle(@DEFAULT_DIAGONAL_WEIGHT_VALUE)^ := SQRT2;
+    FTileWeightLimitDiagonal := CPFRound(FTileWeightLimitLine * SQRT2);
+    FTileWeightMinimumLine := 2;
     FTileWeightMinimumDiagonal := 3;
-    FInfo.TileWeights[1] := @FActualInfo.Weights.CardinalsDiagonal;
+    FInfo.TileWeights[0] := @FActualInfo.Weights.CardinalsDiagonal;
   end;
-  if (FTileDefaultWeight > FTileWeightLimit) then FTileDefaultWeight := FTileWeightLimit
-  else
-  if (FTileDefaultWeight < FTileWeightMinimum) then FTileDefaultWeight := FTileWeightMinimum;
-  if (FTileDefaultWeightDiagonal < FTileWeightMinimum) then FTileDefaultWeightDiagonal := FTileWeightMinimum;
   FActualInfo.Weights.Count := 255;
 
   // internal buffers
@@ -3105,6 +3097,13 @@ var
   V: Cardinal;
   i: NativeUInt;
   PWeight: PSingle;
+
+  Consts: record
+    ScaleLine: Double;
+    ScaleDiagonal: Double;
+    DefaultWeightLine: Cardinal;
+    DefaultWeightDiagonal: Cardinal;
+  end;
 begin
   LastCount := FActualInfo.Weights.Count;
 
@@ -3124,6 +3123,12 @@ begin
     end;
 
     Count := 0;
+
+    // consts
+    Consts.ScaleLine := {1*} FTileWeightScaleLine;
+    Consts.ScaleDiagonal := {1*} FTileWeightScaleDiagonal;
+    Consts.DefaultWeightLine := FTileWeightLimitLine;
+    Consts.DefaultWeightDiagonal := FTileWeightLimitDiagonal;
   end else
   if (FActualInfo.Weights.Current = Weights) and
     (FActualInfo.Weights.UpdateId = Weights.UpdateId) then
@@ -3149,11 +3154,21 @@ begin
     // compare
     Count := Weights.Count;
     if (Compare) and (LastCount = Count) and
-      (CompareMem(@FActualInfo.Weights.Singles, @Weights.Singles, SizeOf(Single) * Count)) then
+      (CompareMem(@FActualInfo.Weights.SinglesLine, @Weights.Singles, SizeOf(Single) * Count)) then
     begin
       Result := True;
       Exit;
     end;
+
+    // consts
+    Consts.ScaleLine := Weights.Scale * FTileWeightScaleLine;
+    Consts.ScaleDiagonal := Weights.Scale * FTileWeightScaleDiagonal;
+    Consts.DefaultWeightLine := CPFRound({1*} Consts.ScaleLine);
+    Consts.DefaultWeightDiagonal := CPFRound({1*} Consts.ScaleDiagonal);
+    if (Consts.DefaultWeightLine > FTileWeightLimitLine) then Consts.DefaultWeightLine := FTileWeightLimitLine
+    else
+    if (Consts.DefaultWeightLine < FTileWeightMinimumLine) then Consts.DefaultWeightLine := FTileWeightMinimumLine;
+    if (Consts.DefaultWeightDiagonal < FTileWeightMinimumDiagonal) then Consts.DefaultWeightDiagonal := FTileWeightMinimumDiagonal;
   end;
   FActualInfo.Weights.Count := Count;
 
@@ -3162,33 +3177,33 @@ begin
   begin
     V := LastCount - Count;
 
-    FillCardinal(Pointer(@FActualInfo.Weights.Singles[Count + 1]), V, DEFAULT_WEIGHT_VALUE);
-    FillCardinal(Pointer(@FActualInfo.Weights.SinglesDiagonal[Count + 1]), V, {instance variable}DEFAULT_WEIGHT_VALUE_DIAGONAL);
+    FillCardinal(Pointer(@FActualInfo.Weights.SinglesLine[Count + 1]), V, DEFAULT_WEIGHT_VALUE_LINE);
+    FillCardinal(Pointer(@FActualInfo.Weights.SinglesDiagonal[Count + 1]), V, {instance variable}DEFAULT_DIAGONAL_WEIGHT_VALUE);
 
-    FillCardinal(@FActualInfo.Weights.Cardinals[Count + 1], V, FTileDefaultWeight);
-    FillCardinal(@FActualInfo.Weights.CardinalsDiagonal[Count + 1], V, FTileDefaultWeightDiagonal);
+    FillCardinal(@FActualInfo.Weights.CardinalsLine[Count + 1], V, Consts.DefaultWeightLine);
+    FillCardinal(@FActualInfo.Weights.CardinalsDiagonal[Count + 1], V, Consts.DefaultWeightDiagonal);
   end;
 
   // copy and calculate weights
   if (Count <> 0) then
   begin
-    Move(Weights.Singles[1], FActualInfo.Weights.Singles[1], SizeOf(Single) * Count);
+    Move(Weights.Singles[1], FActualInfo.Weights.SinglesLine[1], SizeOf(Single) * Count);
 
-    for i := Count downto 1 do      
+    for i := Count downto 1 do
     begin
-      PWeight := @FActualInfo.Weights.Singles[i];
+      PWeight := @FActualInfo.Weights.SinglesLine[i];
       if (PCardinal(PWeight)^ = 0) then
       begin
-        FActualInfo.Weights.Cardinals[i] := PATHLESS_TILE_WEIGHT;
+        FActualInfo.Weights.CardinalsLine[i] := PATHLESS_TILE_WEIGHT;
         FActualInfo.Weights.CardinalsDiagonal[i] := PATHLESS_TILE_WEIGHT;
         Continue;
       end;
 
-      V := CPFRound(PWeight^ * FTileWeightScale);
-      if (V > FTileWeightLimit) then V := FTileWeightLimit
+      V := CPFRound(PWeight^ * Consts.ScaleLine);
+      if (V > FTileWeightLimitLine) then V := FTileWeightLimitLine
       else
-      if (V < FTileWeightMinimum) then V := FTileWeightMinimum;
-      FActualInfo.Weights.Cardinals[i] := V;
+      if (V < FTileWeightMinimumLine) then V := FTileWeightMinimumLine;
+      FActualInfo.Weights.CardinalsLine[i] := V;
 
       if (FSameDiagonalWeight) then
       begin
@@ -3198,29 +3213,29 @@ begin
       begin
         FActualInfo.Weights.SinglesDiagonal[i] := SQRT2 * PWeight^;
 
-        V := CPFRound(PWeight^ * FTileWeightScaleDiagonal);
+        V := CPFRound(PWeight^ * Consts.ScaleDiagonal);
         if (V < FTileWeightMinimumDiagonal) then V := FTileWeightMinimumDiagonal;
         FActualInfo.Weights.CardinalsDiagonal[i] := V;
       end;
     end;
 
     // heuristics
-    V := CPFRound(PSingle(@Weights.Minimum)^ * FTileWeightScale);
-    if (V > FTileWeightLimit) then FInfo.HeuristicsLine := FTileWeightLimit
+    V := CPFRound(PSingle(@Weights.Minimum)^ * Consts.ScaleLine);
+    if (V > FTileWeightLimitLine) then FInfo.HeuristicsLine := FTileWeightLimitLine
     else
-    if (V < FTileWeightMinimum) then FInfo.HeuristicsLine := FTileWeightMinimum
+    if (V < FTileWeightMinimumLine) then FInfo.HeuristicsLine := FTileWeightMinimumLine
     else
     FInfo.HeuristicsLine := V;
 
-    V := CPFRound(PSingle(@Weights.Minimum)^ * FTileWeightScaleDiagonal);
+    V := CPFRound(PSingle(@Weights.Minimum)^ * Consts.ScaleDiagonal);
     if (V < FTileWeightMinimumDiagonal) then FInfo.HeuristicsDiagonal := FTileWeightMinimumDiagonal
     else
     FInfo.HeuristicsDiagonal := V;
   end else
   begin
     // default heuristics
-    FInfo.HeuristicsLine := FTileDefaultWeight;
-    FInfo.HeuristicsDiagonal := FTileDefaultWeightDiagonal;
+    FInfo.HeuristicsLine := Consts.DefaultWeightLine;
+    FInfo.HeuristicsDiagonal := Consts.DefaultWeightDiagonal;
   end;
 
   // simple map heuristics correction
@@ -4138,7 +4153,7 @@ begin
   Store.StartPoint := @StartPoint;
   {$ifdef CPUX86}
     Store.StartPointNode := StartPoint.Node;
-    Store.SingleLineWeigths := Pointer(@FActualInfo.Weights.Singles);
+    Store.SingleLineWeigths := Pointer(@FActualInfo.Weights.SinglesLine);
   {$else}
     HALF := CrystalPathFinding.HALF;
     StartPointNode := StartPoint.Node;
@@ -4365,13 +4380,13 @@ end;
 procedure TTileMap.FillStandardPath(const StartNode, FinishNode: PCPFNode);
 type
   TWeightCounts = packed record
-    Line: Integer;
     Diagonal: Integer;
+    Line: Integer;
   end;
   TWeightCountsBuffer = packed record
   case Boolean of
-    False: (WeightCounts: array[0..255 - 1] of TWeightCounts);
-    True: (Values: array[0..255*2 - 1] of Integer);
+    False: (WeightCounts: array[0..256 - 1] of TWeightCounts);
+    True: (Values: array[0..256*2 - 1] of Integer);
   end;
 var
   Buffer: TWeightCountsBuffer;
@@ -4385,6 +4400,7 @@ var
 
   Store: record
     FinishNode: PCPFNode;
+    SecondNodeInfo: NativeUInt;
     {$ifdef CPUX86}
       StartNode: PCPFNode;
       NodePtrs: NativeUInt;
@@ -4474,9 +4490,9 @@ begin
 
   // clear weigths counters
   NodePtrs := NodePtrs shr 24;
-  WeightCounts := @Buffer.WeightCounts[0];
+  WeightCounts := @Buffer.WeightCounts[1];
   {$ifdef CPUX86}Store.NodePtrs := NodePtrs;{$endif}
-  for i := 0 to NodePtrs{HighTile} do
+  for i := 1 to NodePtrs{HighTile} do
   begin
     PInt64(WeightCounts)^ := 0;
     Inc(WeightCounts);
@@ -4493,22 +4509,25 @@ begin
     Point := FActualInfo.FoundPath.Buffer.FMemory;
   end;
   Inc(NativeUInt(Point), {$ifdef CPUX86}Store.{$endif}Length{Size});
-  Dec(Point);
-  N := Cardinal(Node.Coordinates);
-  {$ifdef LARGEINT}
-    PNativeUInt(Point)^ := (NativeUInt(Word(N)) shl 32) + (N shr 16);
-  {$else}
-    Point.Y := Word(N);
-    Point.X := N shr 16;
-  {$endif}
-  N := Node.NodeInfo;
-  {$ifdef CPUX86}
-    Inc(Buffer.Values[((N shr 23) and -2) + (N and 1)]);
-  {$else}
-    _Buffer := @Buffer;
-    Inc(_Buffer.Values[((N shr 23) and -2) + (N and 1)]);
-  {$endif}
   repeat
+    // coordinates, counter
+    Dec(Point);
+    N := Cardinal(Node.Coordinates);
+    {$ifdef LARGEINT}
+      PNativeUInt(Point)^ := (NativeUInt(Word(N)) shl 32) + (N shr 16);
+    {$else}
+      Point.Y := Word(N);
+      Point.X := N shr 16;
+    {$endif}
+    N := Node.NodeInfo;
+    Store.SecondNodeInfo := N;
+    {$ifdef CPUX86}
+      Inc(Buffer.Values[((N shr 23) and -2) + (N and 1)]);
+    {$else}
+      _Buffer := @Buffer;
+      Inc(_Buffer.Values[((N shr 23) and -2) + (N and 1)]);
+    {$endif}
+
     // next cell
     {$ifdef CPUX86}
     CellOffsets := @FInfo.CellOffsets;
@@ -4524,26 +4543,24 @@ begin
     {$else}
       Node := Pointer(Cell.NodePtr and NODEPTR_CLEAN_MASK);
     {$endif}
-
-    // coordinates
-    Dec(Point);
-    N := Cardinal(Node.Coordinates);
-    {$ifdef LARGEINT}
-      PNativeUInt(Point)^ := (NativeUInt(Word(N)) shl 32) + (N shr 16);
-    {$else}
-      Point.Y := Word(N);
-      Point.X := N shr 16;
-    {$endif}
-
-    // counters
-    N := Node.NodeInfo;
-    {$ifdef CPUX86}
-      Inc(Buffer.Values[((N shr 23) and -2) + (N and 1)]);
-    {$else}
-      _Buffer := @Buffer;
-      Inc(_Buffer.Values[((N shr 23) and -2) + (N and 1)]);
-    {$endif}
   until ({$ifdef CPUX86}Store.{$endif}StartNode = Node);
+
+  // start node coordinates, counter
+  Dec(Point);
+  N := Cardinal(Node.Coordinates);
+  {$ifdef LARGEINT}
+    PNativeUInt(Point)^ := (NativeUInt(Word(N)) shl 32) + (N shr 16);
+  {$else}
+    Point.Y := Word(N);
+    Point.X := N shr 16;
+  {$endif}
+  N := Node.NodeInfo;
+  {$ifdef CPUX86}
+    Inc(Buffer.Values[((N shr 23) and -2) + (Store.SecondNodeInfo and 1)]);
+  {$else}
+    _Buffer := @Buffer;
+    Inc(_Buffer.Values[((N shr 23) and -2) + (Store.SecondNodeInfo and 1)]);
+  {$endif}
 
   // distance
   {$ifNdef CPUX86}
@@ -4552,14 +4569,14 @@ begin
   {$endif}
   begin
     FActualInfo.FoundPath.Distance := 0;
-    WeightCounts := @Buffer.WeightCounts[0];
-    for i := 0 to {$ifdef CPUX86}Store.{$endif}NodePtrs{HighTile} do
+    WeightCounts := @Buffer.WeightCounts[1];
+    for i := 1 to {$ifdef CPUX86}Store.{$endif}NodePtrs{HighTile} do
     begin
       if (PInt64(WeightCounts)^ <> 0) then
       begin
         FActualInfo.FoundPath.Distance := FActualInfo.FoundPath.Distance +
           (WeightCounts.Diagonal * FActualInfo.Weights.SinglesDiagonal[i]) +
-          (WeightCounts.Line * FActualInfo.Weights.Singles[i]);
+          (WeightCounts.Line * FActualInfo.Weights.SinglesLine[i]);
       end;
 
       Inc(WeightCounts);
@@ -4568,7 +4585,7 @@ begin
     // distance correction
     N := {$ifdef CPUX86}Store.{$endif}StartNode.NodeInfo;
     FActualInfo.FoundPath.Distance := FActualInfo.FoundPath.Distance -
-      HALF * FActualInfo.Weights.SingleValues[(N and Ord(not FSameDiagonalWeight)), N shr 24];
+      HALF * FActualInfo.Weights.SingleValues[(Store.SecondNodeInfo and Ord(not FSameDiagonalWeight)), N shr 24];
     N := Store.FinishNode.NodeInfo;
     FActualInfo.FoundPath.Distance := FActualInfo.FoundPath.Distance -
       HALF * FActualInfo.Weights.SingleValues[(N and Ord(not FSameDiagonalWeight)), N shr 24];
@@ -4691,10 +4708,12 @@ begin
     // reinitialize NodeInfo (from parentflags, mask, parentmask, tile):
     //   - bit hexagonal << 1
     //   - bit simple << 2
-    //   - mask
+    //   - mask & parent mask
     //   - stored childs counter
     //   - tile
-    NodeInfo := ((NodeInfo and (NodeInfo shr 8)) and Integer($ff00ff00)) or Store.MapKindFlags;
+    NodeInfo := (NodeInfo and Integer($ff000000)) or
+      ((NodeInfo and (NodeInfo shr 8)) and $ff00) or
+      Store.MapKindFlags;
 
     // each child cell loop
     goto nextchild;
@@ -5440,7 +5459,7 @@ nodes_initialized:
        {$endif} or
       (NodeInfo and $ff00{Mask} = 0) or
       (NodeInfo and Integer($00ff0000) = 0{excluded test}) or
-      (FActualInfo.Weights.Cardinals[NodeInfo shr 24] = PATHLESS_TILE_WEIGHT) then goto path_not_found;
+      (FActualInfo.Weights.CardinalsLine[NodeInfo shr 24] = PATHLESS_TILE_WEIGHT) then goto path_not_found;
     if (NodeInfo and FLAG_KNOWN_PATH <> 0) then
     begin
       StartPoint.KnownPathNode := Node;
