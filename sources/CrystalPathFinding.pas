@@ -4756,6 +4756,7 @@ begin
           // child node info (without heuristics data)
           ChildNodeInfo := ChildNodeInfo and Integer($ff00ff00);
           ParentBits := ParentBits or ChildNodeInfo;
+          if (ChildNodeInfo and $ff00 = 0) then goto nextchild_continue;
 
           // child path
           TileWeights := Store.Info.TileWeights[ParentBits and 1];
@@ -4819,6 +4820,7 @@ begin
           // child node info (without heuristics data)
           TileWeights{ChildNodeInfo} := Pointer(NativeUInt(ChildNode.NodeInfo) and Integer($ff00ff00));
           ParentBits := ParentBits or NativeUInt(TileWeights){ChildNodeInfo};
+          if (NativeUInt(TileWeights){ChildNodeInfo} and $ff00 = 0) then goto nextchild_continue;
 
           // child path
           TileWeights := Store.Info.TileWeights[ParentBits and 1];
@@ -4897,8 +4899,9 @@ begin
         // child node info (with new parent bits)
         ChildNodeInfo := ChildNode.NodeInfo;
         ParentBits := ParentBits + (ChildNodeInfo and PARENT_BITS_CLEAR_MASK);
+        if (ChildNodeInfo and $ff00 = 0) then goto nextchild_continue;
 
-        // child locked test
+        // child locked/excluded test
         if (ChildNodeInfo and $ff0000 = 0) then goto nextchild_continue;
 
         // child path
