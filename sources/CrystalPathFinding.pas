@@ -4716,7 +4716,9 @@ begin
       Store.MapKindFlags;
 
     // each child cell loop
-    goto nextchild;
+    {$ifdef CPUX86}
+    Store.ChildList := ChildList;
+    {$endif}
     nextchild_continue:
     if (NodeInfo and $ff00 <> 0) then
     repeat
@@ -4754,7 +4756,6 @@ begin
           // child node info (without heuristics data)
           ChildNodeInfo := ChildNodeInfo and Integer($ff00ff00);
           ParentBits := ParentBits or ChildNodeInfo;
-          if (ParentBits and (ChildNodeInfo shl 8) = 0) then goto nextchild_continue;
 
           // child path
           TileWeights := Store.Info.TileWeights[ParentBits and 1];
@@ -4818,7 +4819,6 @@ begin
           // child node info (without heuristics data)
           TileWeights{ChildNodeInfo} := Pointer(NativeUInt(ChildNode.NodeInfo) and Integer($ff00ff00));
           ParentBits := ParentBits or NativeUInt(TileWeights){ChildNodeInfo};
-          if (ParentBits and (NativeUInt(TileWeights){ChildNodeInfo} shl 8) = 0) then goto nextchild_continue;
 
           // child path
           TileWeights := Store.Info.TileWeights[ParentBits and 1];
@@ -4899,7 +4899,7 @@ begin
         ParentBits := ParentBits + (ChildNodeInfo and PARENT_BITS_CLEAR_MASK);
 
         // child locked test
-        if (ParentBits and ((ChildNodeInfo and $ff0000) shr 8) = 0) then goto nextchild_continue;
+        if (ChildNodeInfo and $ff0000 = 0) then goto nextchild_continue;
 
         // child path
         Cell{TileWeights} := Store.Info.TileWeights[ParentBits and 1];

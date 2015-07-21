@@ -32,7 +32,7 @@ unit DemoUnit1;
 {$U-}{$V+}{$B-}{$X+}{$T+}{$P+}{$H+}{$J-}{$Z1}{$A4}
 {$O+}{$R-}{$I-}{$Q-}{$W-}
 {$if Defined(CPUX86) or Defined(CPUX64)}
-   {$define CPUINTEL}
+  {$define CPUINTEL}
 {$ifend}
 {$if SizeOf(Pointer) = 8}
   {$define LARGEINT}
