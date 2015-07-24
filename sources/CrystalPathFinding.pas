@@ -2335,6 +2335,9 @@ begin
           CellInfo := CellInfo + Format(', way: %d%d%d',
             [(ChildList[0] shr 4) and 7, (ChildList[1] shr 4) and 7, (ChildList[2] shr 4) and 7]);
         end;
+
+        // path, sort value
+        CellInfo := CellInfo + Format(', path: %d, sort value: %d', [Node.Path, Node.SortValue]);
       end;
 
       CellInfo := CellInfo + ')';      
@@ -4157,7 +4160,7 @@ begin
   {$else}
     HALF := CrystalPathFinding.HALF;
     StartPointNode := StartPoint.Node;
-    SingleLineWeigths := Pointer(@FActualInfo.Weights.Singles);
+    SingleLineWeigths := Pointer(@FActualInfo.Weights.SinglesLine);
   {$endif}
 
   {$ifdef LARGEINT}
@@ -4393,17 +4396,17 @@ var
   CellOffsets: PCPFOffsets;
   Cell: PCPFCell;
   Node: PCPFNode;
-  NodePtrs, N: NativeUInt;
+  NodePtrs, N, X: NativeUInt;
   Length, i: NativeUInt;
   WeightCounts: ^TWeightCounts;
   Point: PPoint;
 
   Store: record
     FinishNode: PCPFNode;
-    SecondNodeInfo: NativeUInt;
+    HighTile: NativeUInt;
+    LastLine: NativeUInt{Boolean};
     {$ifdef CPUX86}
       StartNode: PCPFNode;
-      NodePtrs: NativeUInt;
       Length: NativeUInt;
     {$else}
       _Self: Pointer;
@@ -4491,7 +4494,7 @@ begin
   // clear weigths counters
   NodePtrs := NodePtrs shr 24;
   WeightCounts := @Buffer.WeightCounts[1];
-  {$ifdef CPUX86}Store.NodePtrs := NodePtrs;{$endif}
+  Store.HighTile := NodePtrs;
   for i := 1 to NodePtrs{HighTile} do
   begin
     PInt64(WeightCounts)^ := 0;
@@ -4509,43 +4512,7 @@ begin
     Point := FActualInfo.FoundPath.Buffer.FMemory;
   end;
   Inc(NativeUInt(Point), {$ifdef CPUX86}Store.{$endif}Length{Size});
-  repeat
-    // coordinates, counter
-    Dec(Point);
-    N := Cardinal(Node.Coordinates);
-    {$ifdef LARGEINT}
-      PNativeUInt(Point)^ := (NativeUInt(Word(N)) shl 32) + (N shr 16);
-    {$else}
-      Point.Y := Word(N);
-      Point.X := N shr 16;
-    {$endif}
-    N := Node.NodeInfo;
-    Store.SecondNodeInfo := N;
-    {$ifdef CPUX86}
-      Inc(Buffer.Values[((N shr 23) and -2) + (N and 1)]);
-    {$else}
-      _Buffer := @Buffer;
-      Inc(_Buffer.Values[((N shr 23) and -2) + (N and 1)]);
-    {$endif}
-
-    // next cell
-    {$ifdef CPUX86}
-    CellOffsets := @FInfo.CellOffsets;
-    {$endif}
-    Inc(NativeInt(Cell), CellOffsets[N and 7{parent}]);
-
-    // cell node
-    {$ifdef LARGEINT}
-      N := Cell.NodePtr;
-      Node := Pointer(
-        (NodeBuffers[N shr LARGE_NODEPTR_OFFSET]) +
-        (N and NODEPTR_CLEAN_MASK) );
-    {$else}
-      Node := Pointer(Cell.NodePtr and NODEPTR_CLEAN_MASK);
-    {$endif}
-  until ({$ifdef CPUX86}Store.{$endif}StartNode = Node);
-
-  // start node coordinates, counter
+  // finish point
   Dec(Point);
   N := Cardinal(Node.Coordinates);
   {$ifdef LARGEINT}
@@ -4556,10 +4523,57 @@ begin
   {$endif}
   N := Node.NodeInfo;
   {$ifdef CPUX86}
-    Inc(Buffer.Values[((N shr 23) and -2) + (Store.SecondNodeInfo and 1)]);
+    Inc(Buffer.Values[((N shr 23) and -2) + (N and 1)]);
   {$else}
     _Buffer := @Buffer;
-    Inc(_Buffer.Values[((N shr 23) and -2) + (Store.SecondNodeInfo and 1)]);
+    Inc(_Buffer.Values[((N shr 23) and -2) + (N and 1)]);
+  {$endif}
+  Store.LastLine := N and 1;
+  repeat
+    // next parent cell/node
+    {$ifdef CPUX86}
+    CellOffsets := @FInfo.CellOffsets;
+    {$endif}
+    Inc(NativeInt(Cell), CellOffsets[N and 7{parent}]);
+    {$ifdef LARGEINT}
+      N := Cell.NodePtr;
+      Node := Pointer(
+        (NodeBuffers[N shr LARGE_NODEPTR_OFFSET]) +
+        (N and NODEPTR_CLEAN_MASK) );
+    {$else}
+      Node := Pointer(Cell.NodePtr and NODEPTR_CLEAN_MASK);
+    {$endif}
+
+    // coordinates
+    Dec(Point);
+    N := Cardinal(Node.Coordinates);
+    {$ifdef LARGEINT}
+      PNativeUInt(Point)^ := (NativeUInt(Word(N)) shl 32) + (N shr 16);
+    {$else}
+      Point.Y := Word(N);
+      Point.X := N shr 16;
+    {$endif}
+
+    // counters
+    N := Node.NodeInfo;
+    X := (N shr 23) and -2;
+    {$ifdef CPUX86}
+      Inc(Buffer.Values[X + Store.LastLine]);
+      Store.LastLine := N and 1;
+      Inc(Buffer.Values[X + (N and 1)]);
+    {$else}
+      _Buffer := @Buffer;
+      Inc(_Buffer.Values[X + Store.LastLine]);
+      Store.LastLine := N and 1;
+      Inc(_Buffer.Values[X + (N and 1)]);
+    {$endif}
+  until ({$ifdef CPUX86}Store.{$endif}StartNode = Node);
+
+  // correction
+  {$ifdef CPUX86}
+    Dec(Buffer.Values[X + (N and 1)]);
+  {$else}
+    Dec(_Buffer.Values[X + (N and 1)]);
   {$endif}
 
   // distance
@@ -4570,25 +4584,17 @@ begin
   begin
     FActualInfo.FoundPath.Distance := 0;
     WeightCounts := @Buffer.WeightCounts[1];
-    for i := 1 to {$ifdef CPUX86}Store.{$endif}NodePtrs{HighTile} do
+    for i := 1 to Store.HighTile do
     begin
       if (PInt64(WeightCounts)^ <> 0) then
       begin
-        FActualInfo.FoundPath.Distance := FActualInfo.FoundPath.Distance +
-          (WeightCounts.Diagonal * FActualInfo.Weights.SinglesDiagonal[i]) +
-          (WeightCounts.Line * FActualInfo.Weights.SinglesLine[i]);
+        FActualInfo.FoundPath.Distance := FActualInfo.FoundPath.Distance + HALF *
+          ((WeightCounts.Diagonal * FActualInfo.Weights.SinglesDiagonal[i]) +
+          (WeightCounts.Line * FActualInfo.Weights.SinglesLine[i]));
       end;
 
       Inc(WeightCounts);
     end;
-
-    // distance correction
-    N := {$ifdef CPUX86}Store.{$endif}StartNode.NodeInfo;
-    FActualInfo.FoundPath.Distance := FActualInfo.FoundPath.Distance -
-      HALF * FActualInfo.Weights.SingleValues[(Store.SecondNodeInfo and Ord(not FSameDiagonalWeight)), N shr 24];
-    N := Store.FinishNode.NodeInfo;
-    FActualInfo.FoundPath.Distance := FActualInfo.FoundPath.Distance -
-      HALF * FActualInfo.Weights.SingleValues[(N and Ord(not FSameDiagonalWeight)), N shr 24];
   end;
 end;
 
@@ -4866,9 +4872,10 @@ begin
           X := X xor Mask;
           Dec(X, Mask);
 
-          // calculate
-          if (Store.MapKindFlags = 2{hexagonal}) then
+          // calculate heuristics
+          if (Store.MapKindFlags <> 2) then
           begin
+            // simple, diagonal, diagonalex
             if (X <= Y) then
             begin
               ChildNode.SortValue := {$ifdef CPUX86}ChildNode.{$endif}Path +
@@ -4880,6 +4887,7 @@ begin
             end;
           end else
           begin
+            // hexagonal
             X := X - ((Mask xor PNativeInt(@Store.Info.FinishPoint)^) and Y and 1) - (Y shr 1);
             ChildNode.SortValue := {$ifdef CPUX86}ChildNode.{$endif}Path +
                Cardinal(Store.Info.HeuristicsLine * (Y + (X and ((X shr HIGH_NATIVE_BIT) - 1))));
