@@ -1535,57 +1535,6 @@ begin
   LookupLine(Format(FmtStr, Args));
 end;
 
-(*procedure AddChildList(Base: Integer; Clockwise, Finalize: Boolean);
-const
-  CHILD_VALUES: array[0..7] of Word = (
-    ((1 shl 0) shl 8) or (0 shl 4),
-    ((1 shl 1) shl 8) or (1 shl 4),
-    ((1 shl 2) shl 8) or (2 shl 4),
-    ((1 shl 3) shl 8) or (3 shl 4),
-    ((1 shl 4) shl 8) or (4 shl 4),
-    ((1 shl 5) shl 8) or (5 shl 4),
-    ((1 shl 6) shl 8) or (6 shl 4),
-    ((1 shl 7) shl 8) or (7 shl 4)
-  );
-
-var
-  S: string;
-  i, Sign: integer;
-  ChildList: TChildList;
-  Child: PWord;
-
-  procedure AddChilds(N1, N2: Integer);
-  begin
-    Child^ := CHILD_VALUES[(N + 8) and 7];
-    Inc(Child);
-  end;
-begin
-  Sign := 1;
-  if (not Clockwise) then Sign := -1;
-
-  Child := @ChildList[0];
-  AddChild(Base);
-  for i := 1 to 3 do
-  begin
-    AddChild(Base + Sign * i);
-    AddChild(Base - Sign * i);
-  end;
-  AddChild(Base + 4);
-
-  S := Format(' ($%0.4x, $%0.4x, $%0.4x, $%0.4x, $%0.4x, $%0.4x, $%0.4x, $%0.4x)',
-    [ChildList[0], ChildList[1], ChildList[2], ChildList[3],
-     ChildList[4], ChildList[5], ChildList[6], ChildList[7]]);
-
-  if (not Finalize) then S := S + ',';
-  LookupLine(S);
-end;
-
-procedure AddTwoChildLists(Base: Integer; Finalize: Boolean);
-begin
-  AddChildList(Base, False, False);
-  AddChildList(Base, True, Finalize);
-end; *)
-
 procedure AddChildArray(WayX, WayY: Integer; Finalize: Boolean);
 const
   CHILD_VALUES: array[0..7] of Word = (
