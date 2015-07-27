@@ -102,9 +102,7 @@ interface
            , KOL, err
          {$else}
            , SysUtils
-           {$if Defined(CPFDBG) or Defined(CPF_GENERATE_LOOKUPS)}
-           , Classes, Clipbrd
-           {$ifend}
+           {$if Defined(CPFDBG) or Defined(CPF_GENERATE_LOOKUPS)}, Classes{$ifend}
          {$endif}
        {$endif};
 
@@ -468,7 +466,6 @@ type
     function CellInformation(const X, Y: Word): string;
     function NodeInformation(const Node: PCPFNode): string;
     function HotPoolInformation: string;
-    procedure ClipHotPoolInformation;
     procedure SaveHotPoolToFile(const FileName: string = 'HotPool.txt');
   {$endif}
   public
@@ -1477,30 +1474,15 @@ const
   DEFAULT_WEIGHT_VALUE_LINE = Cardinal($3F800000){1.0};
   ERROR_WEIGHT_VALUE = 'Invalid weight value. 0,0..0,1 - pathless, 0,1..50 - correct';
 
-  CHILD_ARRAYS: array[0..11{4 diagonal + 4 clockwise optional}] of TChildList = (
-   ($0100, $8070, $0210, $4060, $0420, $2050, $0830, $1040),
-   ($0210, $0100, $0420, $8070, $0830, $4060, $1040, $2050),
-   ($0210, $0420, $0100, $0830, $8070, $1040, $4060, $2050),
-   ($0420, $0830, $0210, $1040, $0100, $2050, $8070, $4060),
-   ($0830, $0420, $1040, $0210, $2050, $0100, $4060, $8070),
+  CHILD_ARRAYS: array[0..7{way}] of TChildList = (
    ($0830, $1040, $0420, $2050, $0210, $4060, $0100, $8070),
-   ($1040, $2050, $0830, $4060, $0420, $8070, $0210, $0100),
-   ($2050, $1040, $4060, $0830, $8070, $0420, $0100, $0210),
-   ($2050, $4060, $1040, $8070, $0830, $0100, $0420, $0210),
-   ($4060, $2050, $8070, $1040, $0100, $0830, $0210, $0420),
-   ($8070, $4060, $0100, $2050, $0210, $1040, $0420, $0830),
-   ($8070, $0100, $4060, $0210, $2050, $0420, $1040, $0830)
-  );
-
-  CHILD_ARRAYS_OFFSETS: array[0..63{parent:3,way:3}] of Byte = (
-    $40, $40, $40, $40, $50, $50, $50, $40,
-    $B0, $B0, $B0, $A0, $A0, $A0, $A0, $A0,
-    $60, $60, $60, $60, $60, $60, $60, $60,
-    $60, $60, $60, $60, $60, $60, $60, $60,
-    $90, $90, $90, $90, $90, $90, $90, $90,
-    $10, $10, $20, $20, $20, $10, $10, $10,
-    $30, $30, $30, $30, $30, $30, $30, $30,
-    $00, $00, $00, $00, $00, $00, $00, $00
+   ($8070, $0100, $4060, $0210, $2050, $0420, $1040, $0830),
+   ($1040, $0830, $2050, $4060, $0420, $8070, $0210, $0100),
+   ($1040, $0830, $2050, $4060, $0420, $8070, $0210, $0100),
+   ($4060, $8070, $2050, $0100, $1040, $0830, $0210, $0420),
+   ($0210, $0420, $0100, $0830, $8070, $1040, $4060, $2050),
+   ($0420, $0830, $0210, $1040, $0100, $8070, $2050, $4060),
+   ($0100, $8070, $0210, $0420, $4060, $0830, $2050, $1040)
   );
 
   PARENT_BITS: array[0..63{oddy:1;hexagonal:1;simple:1;child:3}] of NativeUInt = (
@@ -1553,7 +1535,7 @@ begin
   LookupLine(Format(FmtStr, Args));
 end;
 
-procedure AddChildList(Base: Integer; Clockwise, Finalize: Boolean);
+(*procedure AddChildList(Base: Integer; Clockwise, Finalize: Boolean);
 const
   CHILD_VALUES: array[0..7] of Word = (
     ((1 shl 0) shl 8) or (0 shl 4),
@@ -1572,7 +1554,7 @@ var
   ChildList: TChildList;
   Child: PWord;
 
-  procedure AddChild(const N: Integer);
+  procedure AddChilds(N1, N2: Integer);
   begin
     Child^ := CHILD_VALUES[(N + 8) and 7];
     Inc(Child);
@@ -1602,15 +1584,33 @@ procedure AddTwoChildLists(Base: Integer; Finalize: Boolean);
 begin
   AddChildList(Base, False, False);
   AddChildList(Base, True, Finalize);
-end;
+end; *)
 
-procedure AddChildListOffsets(WayX, WayY: Integer; Finalize: Boolean);
+procedure AddChildArray(WayX, WayY: Integer; Finalize: Boolean);
+const
+  CHILD_VALUES: array[0..7] of Word = (
+    ((1 shl 0) shl 8) or (0 shl 4),
+    ((1 shl 1) shl 8) or (1 shl 4),
+    ((1 shl 2) shl 8) or (2 shl 4),
+    ((1 shl 3) shl 8) or (3 shl 4),
+    ((1 shl 4) shl 8) or (4 shl 4),
+    ((1 shl 5) shl 8) or (5 shl 4),
+    ((1 shl 6) shl 8) or (6 shl 4),
+    ((1 shl 7) shl 8) or (7 shl 4)
+  );
 var
-  Buffer: array[0..7] of Byte;
-  Offset: PByte;
+  ChildList: TChildList;
+  Child: PWord;
+  WayChild, i: Integer;
+  N1, N2: Byte;
   S: string;
-  Parent, WayChild: Integer;
-  N: Byte;
+
+  procedure AddChild(C: Byte);
+  begin
+    Child^ := CHILD_VALUES[C];
+    Inc(Child);
+  end;
+
 begin
   // 0..2 way to -1..1
   if (WayX = 1) then WayX := -1
@@ -1662,28 +1662,30 @@ begin
     end;
   end;
 
-  Offset := @Buffer[0];
-  for Parent := 0 to 7 do
+  Child := @ChildList[0];
+  for i := 0 to 4 do
   begin
-    N := (WayChild shr 1) * 3;
+    N1 := (WayChild + i + 8) and 7;
+    N2 := (WayChild - i + 8) and 7;
 
-    if (WayChild and 1 <> 0) then
+    if (N1 = N2) then
     begin
-      Inc(N);
-
-      if (Parent = ((WayChild - 1 + 4) and 7)) or
-        (Parent = ((WayChild - 2 + 4) and 7)) or
-        (Parent = ((WayChild - 3 + 4) and 7)) then
-        Inc(N);
+      AddChild(N1);
+    end else
+    if ((N2 = 3) or (N2 = 7)) and (i <> 2) then
+    begin
+      AddChild(N2);
+      AddChild(N1);
+    end else
+    begin
+      AddChild(N1);
+      AddChild(N2);
     end;
-
-    Offset^ := N * SizeOf(TChildList);
-    Inc(Offset);
   end;
 
-  S := Format('  $%0.2x, $%0.2x, $%0.2x, $%0.2x, $%0.2x, $%0.2x, $%0.2x, $%0.2x',
-    [Buffer[0], Buffer[1], Buffer[2], Buffer[3],
-     Buffer[4], Buffer[5], Buffer[6], Buffer[7]]);
+  S := Format(' ($%0.4x, $%0.4x, $%0.4x, $%0.4x, $%0.4x, $%0.4x, $%0.4x, $%0.4x)',
+    [ChildList[0], ChildList[1], ChildList[2], ChildList[3],
+     ChildList[4], ChildList[5], ChildList[6], ChildList[7]]);
 
   if (not Finalize) then S := S + ',';
   LookupLine(S);
@@ -1822,28 +1824,13 @@ begin
 
     // CHILD_ARRAYS
     LookupLine;
-    LookupLine('CHILD_ARRAYS: array[0..11{4 diagonal + 4 clockwise optional}] of TChildList = (');
-    begin
-      AddChildList(0, False, False);
-      AddTwoChildLists(1, False);
-      AddChildList(2, True, False);
-      AddTwoChildLists(3, False);
-      AddChildList(4, True, False);
-      AddTwoChildLists(5, False);
-      AddChildList(6, False, False);
-      AddTwoChildLists(7, True);
-    end;
-    LookupLine(');');
-
-    // CHILD_ARRAYS_OFFSETS
-    LookupLine;
-    LookupLine('CHILD_ARRAYS_OFFSETS: array[0..63{parent:3,way:3}] of Byte = (');
+    LookupLine('CHILD_ARRAYS: array[0..7{way}] of TChildList = (');
     for Way := 0 to 7 do
     begin
       WayX := (Way + 1) mod 3;
       WayY := (Way + 1) div 3;
 
-      AddChildListOffsets(WayX, WayY, Way = 7);
+      AddChildArray(WayX, WayY, Way = 7);
     end;
     LookupLine(');');
 
@@ -2338,7 +2325,7 @@ begin
         // way (child list)
         if (WayBits <> -1) then
         begin
-          ChildList := Pointer(NativeUInt(@CHILD_ARRAYS) + CHILD_ARRAYS_OFFSETS[WayBits]);
+          ChildList := @CHILD_ARRAYS[WayBits];
           CellInfo := CellInfo + Format(', way: %d%d%d',
             [(ChildList[0] shr 4) and 7, (ChildList[1] shr 4) and 7, (ChildList[2] shr 4) and 7]);
         end;
@@ -2425,11 +2412,6 @@ begin
     Previous := Node;
     Node := Node.Next;
   until (False);
-end;
-
-procedure TTileMap.ClipHotPoolInformation;
-begin
-  Clipboard.AsText := HotPoolInformation;
 end;
 
 procedure TTileMap.SaveHotPoolToFile(const FileName: string);
@@ -4777,8 +4759,8 @@ begin
     end;
 
     // child list
-    ChildList := Pointer(NativeUInt(CHILD_ARRAYS_OFFSETS[NodeInfo and 63]));
-    Inc(NativeUInt(ChildList), NativeUInt(@CHILD_ARRAYS));
+    ChildList := Pointer(@CHILD_ARRAYS);
+    Inc(NativeUInt(ChildList), (NodeInfo and (7 shl 3)) shl 1);
 
     // reinitialize NodeInfo (from parentflags, mask, parentmask, tile):
     //   - bit hexagonal << 1
