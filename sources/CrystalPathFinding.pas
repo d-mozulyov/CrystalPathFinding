@@ -469,6 +469,7 @@ type
     function NodeInformation(const Node: PCPFNode): string;
     function HotPoolInformation: string;
     procedure ClipHotPoolInformation;
+    procedure SaveHotPoolToFile(const FileName: string = 'HotPool.txt');
   {$endif}
   public
     {$ifdef CPFLIB}procedure{$else}constructor{$endif}
@@ -2385,13 +2386,65 @@ begin
 end;
 
 function TTileMap.HotPoolInformation: string;
+var
+  Previous, Node: PCPFNode;
+  WasUnlocked: Boolean;
 begin
-  {$message 'todo'}
+  Result := '';
+
+  WasUnlocked := False;
+  Previous := @FNodes.HotPool.First;
+  Node := FNodes.HotPool.First.Next;
+  repeat
+    if (Result <> '') then
+      Result := Result + #13#10;
+
+    if (Node.ParentMask <> 0) and (not WasUnlocked) then
+    begin
+      WasUnlocked := True;
+      Result := Result + #13#10'  --------  '#13#10#13#10;
+    end;
+
+    Result := Result + Format('[$%p] ', [Node]);
+
+    if (Node.Prev <> Previous) then
+      Result := Result + Format('FAILURE PREV $%p ', [Node.Prev]);
+
+    if (Node.SortValue < Previous.SortValue) then
+      Result := Result + 'FAILURE SORTVALUE ';
+
+    if (Node = @FNodes.HotPool.Last) then
+    begin
+      Result := Result + ' HOT POOL LAST';
+      Break;
+    end else
+    begin
+      Result := Result + NodeInformation(Node);
+    end;
+
+    Previous := Node;
+    Node := Node.Next;
+  until (False);
 end;
 
 procedure TTileMap.ClipHotPoolInformation;
 begin
   Clipboard.AsText := HotPoolInformation;
+end;
+
+procedure TTileMap.SaveHotPoolToFile(const FileName: string);
+var
+  S: AnsiString;
+  F: TFileStream;
+begin
+  S := AnsiString(HotPoolInformation);
+
+  F := TFileStream.Create(FileName, fmCreate);
+  try
+    F.Write(Pointer(S)^, Length(S));
+  finally
+    F.Free;
+  end;
 end;
 {$endif}
 
@@ -4951,6 +5004,12 @@ begin
           Right := ChildNode.Next;
           Node{Left}.Next := Right;
           Right.Prev := Node{Left};
+
+          if (ChildNode = Store.Top.Node) then
+          begin
+            Store.Top.Node := Right;
+            Store.Top.SortValue := Right.SortValue;
+          end;
         end;
       end;
 
