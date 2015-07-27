@@ -102,7 +102,9 @@ interface
            , KOL, err
          {$else}
            , SysUtils
-           {$if Defined(CPFDBG) or Defined(CPF_GENERATE_LOOKUPS)}, Classes{$ifend}
+           {$if Defined(CPFDBG) or Defined(CPF_GENERATE_LOOKUPS)}
+           , Classes, Clipbrd
+           {$ifend}
          {$endif}
        {$endif};
 
@@ -410,6 +412,8 @@ type
         UpdateId: Cardinal;
         Count: Cardinal;
 
+        ScaleLine: Double;
+        ScaleDiagonal: Double;
         CardinalsDiagonal: array[0..255] of Cardinal;
         CardinalsLine: array[0..255] of Cardinal;
         case Boolean of
@@ -463,6 +467,8 @@ type
   published
     function CellInformation(const X, Y: Word): string;
     function NodeInformation(const Node: PCPFNode): string;
+    function HotPoolInformation: string;
+    procedure ClipHotPoolInformation;
   {$endif}
   public
     {$ifdef CPFLIB}procedure{$else}constructor{$endif}
@@ -2337,7 +2343,9 @@ begin
         end;
 
         // path, sort value
-        CellInfo := CellInfo + Format(', path: %d, sort value: %d', [Node.Path, Node.SortValue]);
+        CellInfo := CellInfo + Format(', path: %0.2f [%d], sort value: %0.2f [%d]',
+          [Node.Path / FActualInfo.Weights.ScaleLine, Node.Path,
+           Node.SortValue / FActualInfo.Weights.ScaleLine, Node.SortValue]);
       end;
 
       CellInfo := CellInfo + ')';      
@@ -2374,6 +2382,16 @@ begin
   begin
     Result := CellInformation(Node.Coordinates.X, Node.Coordinates.Y);
   end;
+end;
+
+function TTileMap.HotPoolInformation: string;
+begin
+  {$message 'todo'}
+end;
+
+procedure TTileMap.ClipHotPoolInformation;
+begin
+  Clipboard.AsText := HotPoolInformation;
 end;
 {$endif}
 
@@ -3101,11 +3119,9 @@ var
   i: NativeUInt;
   PWeight: PSingle;
 
-  Consts: record
-    ScaleLine: Double;
-    ScaleDiagonal: Double;
-    DefaultWeightLine: Cardinal;
-    DefaultWeightDiagonal: Cardinal;
+  DefaultWeight: record
+    Line: Cardinal;
+    Diagonal: Cardinal;
   end;
 begin
   LastCount := FActualInfo.Weights.Count;
@@ -3128,10 +3144,10 @@ begin
     Count := 0;
 
     // consts
-    Consts.ScaleLine := {1*} FTileWeightScaleLine;
-    Consts.ScaleDiagonal := {1*} FTileWeightScaleDiagonal;
-    Consts.DefaultWeightLine := FTileWeightLimitLine;
-    Consts.DefaultWeightDiagonal := FTileWeightLimitDiagonal;
+    FActualInfo.Weights.ScaleLine := {1*} FTileWeightScaleLine;
+    FActualInfo.Weights.ScaleDiagonal := {1*} FTileWeightScaleDiagonal;
+    DefaultWeight.Line := FTileWeightLimitLine;
+    DefaultWeight.Diagonal := FTileWeightLimitDiagonal;
   end else
   if (FActualInfo.Weights.Current = Weights) and
     (FActualInfo.Weights.UpdateId = Weights.UpdateId) then
@@ -3164,14 +3180,14 @@ begin
     end;
 
     // consts
-    Consts.ScaleLine := Weights.Scale * FTileWeightScaleLine;
-    Consts.ScaleDiagonal := Weights.Scale * FTileWeightScaleDiagonal;
-    Consts.DefaultWeightLine := CPFRound({1*} Consts.ScaleLine);
-    Consts.DefaultWeightDiagonal := CPFRound({1*} Consts.ScaleDiagonal);
-    if (Consts.DefaultWeightLine > FTileWeightLimitLine) then Consts.DefaultWeightLine := FTileWeightLimitLine
+    FActualInfo.Weights.ScaleLine := Weights.Scale * FTileWeightScaleLine;
+    FActualInfo.Weights.ScaleDiagonal := Weights.Scale * FTileWeightScaleDiagonal;
+    DefaultWeight.Line := CPFRound({1*} FActualInfo.Weights.ScaleLine);
+    DefaultWeight.Diagonal := CPFRound({1*} FActualInfo.Weights.ScaleDiagonal);
+    if (DefaultWeight.Line > FTileWeightLimitLine) then DefaultWeight.Line := FTileWeightLimitLine
     else
-    if (Consts.DefaultWeightLine < FTileWeightMinimumLine) then Consts.DefaultWeightLine := FTileWeightMinimumLine;
-    if (Consts.DefaultWeightDiagonal < FTileWeightMinimumDiagonal) then Consts.DefaultWeightDiagonal := FTileWeightMinimumDiagonal;
+    if (DefaultWeight.Line < FTileWeightMinimumLine) then DefaultWeight.Line := FTileWeightMinimumLine;
+    if (DefaultWeight.Diagonal < FTileWeightMinimumDiagonal) then DefaultWeight.Diagonal := FTileWeightMinimumDiagonal;
   end;
   FActualInfo.Weights.Count := Count;
 
@@ -3183,8 +3199,8 @@ begin
     FillCardinal(Pointer(@FActualInfo.Weights.SinglesLine[Count + 1]), V, DEFAULT_WEIGHT_VALUE_LINE);
     FillCardinal(Pointer(@FActualInfo.Weights.SinglesDiagonal[Count + 1]), V, {instance variable}DEFAULT_DIAGONAL_WEIGHT_VALUE);
 
-    FillCardinal(@FActualInfo.Weights.CardinalsLine[Count + 1], V, Consts.DefaultWeightLine);
-    FillCardinal(@FActualInfo.Weights.CardinalsDiagonal[Count + 1], V, Consts.DefaultWeightDiagonal);
+    FillCardinal(@FActualInfo.Weights.CardinalsLine[Count + 1], V, DefaultWeight.Line);
+    FillCardinal(@FActualInfo.Weights.CardinalsDiagonal[Count + 1], V, DefaultWeight.Diagonal);
   end;
 
   // copy and calculate weights
@@ -3202,7 +3218,7 @@ begin
         Continue;
       end;
 
-      V := CPFRound(PWeight^ * Consts.ScaleLine);
+      V := CPFRound(PWeight^ * FActualInfo.Weights.ScaleLine);
       if (V > FTileWeightLimitLine) then V := FTileWeightLimitLine
       else
       if (V < FTileWeightMinimumLine) then V := FTileWeightMinimumLine;
@@ -3216,29 +3232,29 @@ begin
       begin
         FActualInfo.Weights.SinglesDiagonal[i] := SQRT2 * PWeight^;
 
-        V := CPFRound(PWeight^ * Consts.ScaleDiagonal);
+        V := CPFRound(PWeight^ * FActualInfo.Weights.ScaleDiagonal);
         if (V < FTileWeightMinimumDiagonal) then V := FTileWeightMinimumDiagonal;
         FActualInfo.Weights.CardinalsDiagonal[i] := V;
       end;
     end;
 
     // heuristics
-    V := CPFRound(PSingle(@Weights.Minimum)^ * Consts.ScaleLine);
+    V := CPFRound(PSingle(@Weights.Minimum)^ * FActualInfo.Weights.ScaleLine);
     if (V > FTileWeightLimitLine) then FInfo.HeuristicsLine := FTileWeightLimitLine
     else
     if (V < FTileWeightMinimumLine) then FInfo.HeuristicsLine := FTileWeightMinimumLine
     else
     FInfo.HeuristicsLine := V;
 
-    V := CPFRound(PSingle(@Weights.Minimum)^ * Consts.ScaleDiagonal);
+    V := CPFRound(PSingle(@Weights.Minimum)^ * FActualInfo.Weights.ScaleDiagonal);
     if (V < FTileWeightMinimumDiagonal) then FInfo.HeuristicsDiagonal := FTileWeightMinimumDiagonal
     else
     FInfo.HeuristicsDiagonal := V;
   end else
   begin
     // default heuristics
-    FInfo.HeuristicsLine := Consts.DefaultWeightLine;
-    FInfo.HeuristicsDiagonal := Consts.DefaultWeightDiagonal;
+    FInfo.HeuristicsLine := DefaultWeight.Line;
+    FInfo.HeuristicsDiagonal := DefaultWeight.Diagonal;
   end;
 
   // simple map heuristics correction
