@@ -89,6 +89,7 @@ type
     gbOptions: TGroupBox;
     cbSectorTest: TCheckBox;
     cbCaching: TCheckBox;
+    btnSave: TButton;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
@@ -107,6 +108,7 @@ type
     procedure cbSectorTestClick(Sender: TObject);
     procedure rgMapKindClick(Sender: TObject);
     procedure pbMapDblClick(Sender: TObject);
+    procedure btnSaveClick(Sender: TObject);
   private
     // internal data
     FUseWeights: Boolean;
@@ -606,6 +608,11 @@ begin
   FTileMode := 1;
   FBarrierMode := 0;
   RecreateMap;
+end;
+
+procedure TMainForm.btnSaveClick(Sender: TObject);
+begin
+  SaveMap;
 end;
 
 procedure TMainForm.RepaintBoxes(const PaintBoxes: array of TPaintBox);

@@ -268,7 +268,7 @@ object MainForm: TMainForm
     end
   end
   object btnRandom: TButton
-    Left = 834
+    Left = 755
     Top = 13
     Width = 75
     Height = 25
@@ -277,7 +277,7 @@ object MainForm: TMainForm
     OnClick = btnRandomClick
   end
   object btnClear: TButton
-    Left = 755
+    Left = 676
     Top = 13
     Width = 75
     Height = 25
@@ -301,5 +301,14 @@ object MainForm: TMainForm
     ShowHint = False
     TabOrder = 5
     OnClick = rgMapKindClick
+  end
+  object btnSave: TButton
+    Left = 834
+    Top = 13
+    Width = 75
+    Height = 25
+    Caption = 'Save'
+    TabOrder = 7
+    OnClick = btnSaveClick
   end
 end
