@@ -275,11 +275,10 @@ type
                    {
                      Parent:3;
                      case Boolean of
-                       False: (Way:3);
-                        True: (KnownChild:3);
+                       False: (Way:3; dXsmall:1);
+                        True: (KnownChild:3; Attainable:1);
                      end;
                      KnownPath:1;
-                     Attainable:1;
                    };
                    Mask: Byte;
                    ParentMask: Byte;
@@ -1402,10 +1401,10 @@ const
   PATHLENGTH_LIMIT = 6666667;
   NATTANABLE_LENGTH_LIMIT = not Cardinal(PATHLENGTH_LIMIT);
   SORTVALUE_LIMIT = NATTANABLE_LENGTH_LIMIT - 1;
-
-  FLAG_KNOWN_PATH = 1 shl 6;
-  FLAG_ATTAINABLE = 1 shl 7;
-  FLAGS_CLEAN_MASK = Integer(not (FLAG_KNOWN_PATH or FLAG_ATTAINABLE or (7 shl 3)));
+  FLAG_DX_SMALLER = 1 shl 6;
+  FLAG_ATTAINABLE = 1 shl 6;
+  FLAG_KNOWN_PATH = 1 shl 7;
+  FLAGS_CLEAN_MASK = Integer(not ((7 shl 3) or (FLAG_ATTAINABLE or FLAG_DX_SMALLER) or FLAG_KNOWN_PATH));
   PATHLESS_TILE_WEIGHT = High(Cardinal) shr 1;
 
   {$ifdef LARGEINT}
@@ -1474,15 +1473,23 @@ const
   DEFAULT_WEIGHT_VALUE_LINE = Cardinal($3F800000){1.0};
   ERROR_WEIGHT_VALUE = 'Invalid weight value. 0,0..0,1 - pathless, 0,1..50 - correct';
 
-  CHILD_ARRAYS: array[0..7{way}] of TChildList = (
-   ($0830, $1040, $0420, $2050, $0210, $4060, $0100, $8070),
+  CHILD_ARRAYS: array[0..15{way:3;dxsmall:1}] of TChildList = (
+   ($0830, $0420, $1040, $0210, $2050, $0100, $4060, $8070),
    ($8070, $0100, $4060, $0210, $2050, $0420, $1040, $0830),
-   ($1040, $0830, $2050, $4060, $0420, $8070, $0210, $0100),
-   ($1040, $0830, $2050, $4060, $0420, $8070, $0210, $0100),
-   ($4060, $8070, $2050, $0100, $1040, $0830, $0210, $0420),
-   ($0210, $0420, $0100, $0830, $8070, $1040, $4060, $2050),
-   ($0420, $0830, $0210, $1040, $0100, $8070, $2050, $4060),
-   ($0100, $8070, $0210, $0420, $4060, $0830, $2050, $1040)
+   ($2050, $4060, $1040, $8070, $0830, $0100, $0420, $0210),
+   ($0830, $1040, $2050, $0420, $4060, $0210, $8070, $0100),
+   ($8070, $4060, $2050, $0100, $1040, $0210, $0830, $0420),
+   ($0210, $0100, $0420, $8070, $0830, $4060, $1040, $2050),
+   ($0830, $0420, $0210, $1040, $0100, $2050, $8070, $4060),
+   ($8070, $0100, $0210, $4060, $0420, $2050, $0830, $1040),
+   ($0830, $0420, $1040, $0210, $2050, $0100, $4060, $8070),
+   ($8070, $0100, $4060, $0210, $2050, $0420, $1040, $0830),
+   ($2050, $4060, $1040, $8070, $0830, $0100, $0420, $0210),
+   ($0830, $1040, $2050, $4060, $0420, $8070, $0210, $0100),
+   ($8070, $4060, $2050, $1040, $0100, $0830, $0210, $0420),
+   ($0210, $0100, $0420, $8070, $0830, $4060, $1040, $2050),
+   ($0830, $0420, $0210, $0100, $1040, $8070, $2050, $4060),
+   ($8070, $0100, $0210, $0420, $4060, $0830, $2050, $1040)
   );
 
   PARENT_BITS: array[0..63{oddy:1;hexagonal:1;simple:1;child:3}] of NativeUInt = (
@@ -1535,7 +1542,7 @@ begin
   LookupLine(Format(FmtStr, Args));
 end;
 
-procedure AddChildArray(WayX, WayY: Integer; Finalize: Boolean);
+procedure AddChildArray(WayX, WayY: Integer; dXSmall, Finalize: Boolean);
 const
   CHILD_VALUES: array[0..7] of Word = (
     ((1 shl 0) shl 8) or (0 shl 4),
@@ -1547,17 +1554,22 @@ const
     ((1 shl 6) shl 8) or (6 shl 4),
     ((1 shl 7) shl 8) or (7 shl 4)
   );
+  CLOCKWISE: array[Boolean] of Integer = (-1, +1);
 var
   ChildList: TChildList;
   Child: PWord;
-  WayChild, i: Integer;
-  N1, N2: Byte;
+  WayChild, LineChild, Sign, i: Integer;
   S: string;
 
-  procedure AddChild(C: Byte);
+  procedure AddChild(C: Integer);
   begin
-    Child^ := CHILD_VALUES[C];
-    Inc(Child);
+    C := (C + 8) and 7;
+
+    if (C <> LineChild) then
+    begin
+      Child^ := CHILD_VALUES[C];
+      Inc(Child);
+    end;
   end;
 
 begin
@@ -1574,64 +1586,82 @@ begin
   WayX := -WayX;
   WayY := -WayY;
 
+  // default extended parameters
+  LineChild := -1;
+
   // way child
-  if (WayX < 0) then
+  if (WayX = 0) then
   begin
     if (WayY < 0) then
     begin
-      WayChild := 0;
+      WayChild := 1;
+      Sign := -1;
     end else
-    if (WayY = 0) then
+    begin
+      WayChild := 5;
+      Sign := +1;
+    end;
+  end else
+  if (WayY = 0) then
+  begin
+    if (WayX < 0) then
     begin
       WayChild := 7;
+      Sign := +1;
+    end else
+    begin
+      WayChild := 3;
+      Sign := -1;
+    end;
+  end else
+  if (WayX < 0) then
+  begin
+    LineChild := 7;
+
+    if (WayY < 0) then
+    begin
+      WayChild := 0;
+      Sign := CLOCKWISE[dXSmall];
     end else
     // (WayY > 0) then
     begin
       WayChild := 6;
+      Sign := -CLOCKWISE[dXSmall];
     end;
-  end else
-  if (WayX = 0) then
-  begin
-    if (WayY < 0) then WayChild := 1
-    else WayChild := 4;
   end else
   // (WayX > 0) then
   begin
+    LineChild := 3;
+
     if (WayY < 0) then
     begin
       WayChild := 2;
-    end else
-    if (WayY = 0) then
-    begin
-      WayChild := 3;
+      Sign := -CLOCKWISE[dXSmall];
     end else
     // (WayY > 0) then
     begin
       WayChild := 4;
+      Sign := CLOCKWISE[dXSmall];
     end;
   end;
 
+  // childs
   Child := @ChildList[0];
-  for i := 0 to 4 do
+  if (LineChild >= 0) then
   begin
-    N1 := (WayChild + i + 8) and 7;
-    N2 := (WayChild - i + 8) and 7;
-
-    if (N1 = N2) then
-    begin
-      AddChild(N1);
-    end else
-    if ((N2 = 3) or (N2 = 7)) and (i <> 2) then
-    begin
-      AddChild(N2);
-      AddChild(N1);
-    end else
-    begin
-      AddChild(N1);
-      AddChild(N2);
-    end;
+    Child^ := CHILD_VALUES[LineChild];
+    Inc(Child);
   end;
+  AddChild(WayChild);
+  for i := 1 to 3 do
+  begin
+    AddChild(WayChild + i*Sign);
+    AddChild(WayChild - i*Sign);
+  end;
+  // last child
+  AddChild(WayChild + 4);
 
+  // text
   S := Format(' ($%0.4x, $%0.4x, $%0.4x, $%0.4x, $%0.4x, $%0.4x, $%0.4x, $%0.4x)',
     [ChildList[0], ChildList[1], ChildList[2], ChildList[3],
      ChildList[4], ChildList[5], ChildList[6], ChildList[7]]);
@@ -1773,13 +1803,13 @@ begin
 
     // CHILD_ARRAYS
     LookupLine;
-    LookupLine('CHILD_ARRAYS: array[0..7{way}] of TChildList = (');
-    for Way := 0 to 7 do
+    LookupLine('CHILD_ARRAYS: array[0..15{way:3;dxsmall:1}] of TChildList = (');
+    for Way := 0 to 15 do
     begin
-      WayX := (Way + 1) mod 3;
-      WayY := (Way + 1) div 3;
+      WayX := ((Way and 7) + 1) mod 3;
+      WayY := ((Way and 7) + 1) div 3;
 
-      AddChildArray(WayX, WayY, Way = 7);
+      AddChildArray(WayX, WayY, Way >= 8, Way = 15);
     end;
     LookupLine(');');
 
@@ -2247,7 +2277,7 @@ begin
         end else
         begin
           CellKind := 'heuristed';
-          WayBits := Node.NodeInfo and 63;
+          WayBits := (Node.NodeInfo shr 3) and $f;
         end;
 
         // detect pool
@@ -2266,9 +2296,6 @@ begin
           if (N = @FNodes.UnattainablePool.First) then CellKind := CellKind + ' [unattainable]'
           else
           CellKind := CellKind + ' [UNKNOWN!!!]';
-
-          if (WayBits <> -1) then
-            WayBits := WayBits and (not 7);
         end;
 
         // way (child list)
@@ -3045,17 +3072,19 @@ begin
     Node.SortValue := SORTVALUE_LIMIT;
     if (FKind <> mkHexagonal) then
     begin
-      if (X <= Y) then
-      begin
-        Node.Path := SORTVALUE_LIMIT -
-           Cardinal(X * FInfo.HeuristicsDiagonal + (Y - X) * FInfo.HeuristicsLine);
-      end else
+      if (X >= Y) then
       begin
         Node.Path := SORTVALUE_LIMIT -
            Cardinal(Y * FInfo.HeuristicsDiagonal + (X - Y) * FInfo.HeuristicsLine);
+      end else
+      begin
+        Node.Path := SORTVALUE_LIMIT -
+           Cardinal(X * FInfo.HeuristicsDiagonal + (Y - X) * FInfo.HeuristicsLine);
+        Node.NodeInfo := Node.NodeInfo or FLAG_DX_SMALLER;
       end;
     end else
     begin
+      Node.NodeInfo := Node.NodeInfo or Cardinal(((X - Y) shr (HIGH_NATIVE_BIT - 6)) and FLAG_DX_SMALLER);
       X := X - ((Mask xor PNativeInt(@FInfo.FinishPoint)^) and Y and 1) - (Y shr 1);
       Node.Path := SORTVALUE_LIMIT -
          Cardinal(FInfo.HeuristicsLine * (Y + (X and ((X shr HIGH_NATIVE_BIT) - 1))));
@@ -4709,7 +4738,7 @@ begin
 
     // child list
     ChildList := Pointer(@CHILD_ARRAYS);
-    Inc(NativeUInt(ChildList), (NodeInfo and (7 shl 3)) shl 1);
+    Inc(NativeUInt(ChildList), (NodeInfo and ($f shl 3)) shl 1);
 
     // reinitialize NodeInfo (from parentflags, mask, parentmask, tile):
     //   - bit hexagonal << 1
@@ -4876,18 +4905,20 @@ begin
           if (Store.MapKindFlags <> 2) then
           begin
             // simple, diagonal, diagonalex
-            if (X <= Y) then
-            begin
-              ChildNode.SortValue := {$ifdef CPUX86}ChildNode.{$endif}Path +
-                 Cardinal(X * Store.Info.HeuristicsDiagonal + (Y - X) * Store.Info.HeuristicsLine);
-            end else
+            if (X >= Y) then
             begin
               ChildNode.SortValue := {$ifdef CPUX86}ChildNode.{$endif}Path +
                  Cardinal(Y * Store.Info.HeuristicsDiagonal + (X - Y) * Store.Info.HeuristicsLine);
+            end else
+            begin
+              ChildNode.SortValue := {$ifdef CPUX86}ChildNode.{$endif}Path +
+                 Cardinal(X * Store.Info.HeuristicsDiagonal + (Y - X) * Store.Info.HeuristicsLine);
+              ChildNode.NodeInfo := ChildNode.NodeInfo or FLAG_DX_SMALLER;
             end;
           end else
           begin
             // hexagonal
+            ChildNode.NodeInfo := ChildNode.NodeInfo or Cardinal(((X - Y) shr (HIGH_NATIVE_BIT - 6)) and FLAG_DX_SMALLER);
             X := X - ((Mask xor PNativeInt(@Store.Info.FinishPoint)^) and Y and 1) - (Y shr 1);
             ChildNode.SortValue := {$ifdef CPUX86}ChildNode.{$endif}Path +
                Cardinal(Store.Info.HeuristicsLine * (Y + (X and ((X shr HIGH_NATIVE_BIT) - 1))));
