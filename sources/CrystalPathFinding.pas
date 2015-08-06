@@ -85,9 +85,6 @@ unit CrystalPathFinding;
 {$endif}
 
 {$ifdef CPF_GENERATE_LOOKUPS}
-  {$undef CPFLOG}
-  {$undef CPFDBG}
-  {$undef CPFAPI}
   {$undef CPFLIB}
 {$endif}
 
@@ -274,11 +271,11 @@ type
                    ParentAndFlags: Byte
                    {
                      Parent:3;
+                     KnownPath:1;
                      case Boolean of
-                       False: (Way:3; dXsmall:1);
+                       False: (Way:3; ClockWise:1);
                         True: (KnownChild:3; Attainable:1);
                      end;
-                     KnownPath:1;
                    };
                    Mask: Byte;
                    ParentMask: Byte;
@@ -1401,10 +1398,9 @@ const
   PATHLENGTH_LIMIT = 6666667;
   NATTANABLE_LENGTH_LIMIT = not Cardinal(PATHLENGTH_LIMIT);
   SORTVALUE_LIMIT = NATTANABLE_LENGTH_LIMIT - 1;
-  FLAG_DX_SMALLER = 1 shl 6;
-  FLAG_ATTAINABLE = 1 shl 6;
-  FLAG_KNOWN_PATH = 1 shl 7;
-  FLAGS_CLEAN_MASK = Integer(not ((7 shl 3) or (FLAG_ATTAINABLE or FLAG_DX_SMALLER) or FLAG_KNOWN_PATH));
+  FLAG_KNOWN_PATH = 1 shl 3;
+  FLAG_ATTAINABLE = 1 shl 7;
+  FLAGS_CLEAN_MASK = Integer(not ($1f shl 3));
   PATHLESS_TILE_WEIGHT = High(Cardinal) shr 1;
 
   {$ifdef LARGEINT}
@@ -1473,23 +1469,84 @@ const
   DEFAULT_WEIGHT_VALUE_LINE = Cardinal($3F800000){1.0};
   ERROR_WEIGHT_VALUE = 'Invalid weight value. 0,0..0,1 - pathless, 0,1..50 - correct';
 
-  CHILD_ARRAYS: array[0..15{way:3;dxsmall:1}] of TChildList = (
-   ($0830, $0420, $1040, $0210, $2050, $0100, $4060, $8070),
-   ($8070, $0100, $4060, $0210, $2050, $0420, $1040, $0830),
-   ($2050, $4060, $1040, $8070, $0830, $0100, $0420, $0210),
-   ($0830, $1040, $2050, $0420, $4060, $0210, $8070, $0100),
-   ($8070, $4060, $2050, $0100, $1040, $0210, $0830, $0420),
-   ($0210, $0100, $0420, $8070, $0830, $4060, $1040, $2050),
-   ($0830, $0420, $0210, $1040, $0100, $2050, $8070, $4060),
-   ($8070, $0100, $0210, $4060, $0420, $2050, $0830, $1040),
-   ($0830, $0420, $1040, $0210, $2050, $0100, $4060, $8070),
-   ($8070, $0100, $4060, $0210, $2050, $0420, $1040, $0830),
-   ($2050, $4060, $1040, $8070, $0830, $0100, $0420, $0210),
-   ($0830, $1040, $2050, $4060, $0420, $8070, $0210, $0100),
-   ($8070, $4060, $2050, $1040, $0100, $0830, $0210, $0420),
-   ($0210, $0100, $0420, $8070, $0830, $4060, $1040, $2050),
-   ($0830, $0420, $0210, $0100, $1040, $8070, $2050, $4060),
-   ($8070, $0100, $0210, $0420, $4060, $0830, $2050, $1040)
+  FLAGS_MOVE_LEFT_DOWN: array[0..15{way:3;clockwise:1}] of Byte = (
+    $00, $18, $10, $10, $18, $08, $00, $08, $10, $08, $18, $10, $18, $00, $00, $08
+  );
+
+  CHILD_ARRAYS: array[0..31{way:3;clockwise:1;hexagonal:1}] of TChildList = (
+   ($0864, $0440, $1080, $0220, $20A4, $0100, $40C0, $80E0),
+   ($80E4, $40C0, $0100, $20A0, $0224, $1080, $0440, $0860),
+   ($20A4, $1080, $40C0, $0860, $80E4, $0440, $0100, $0220),
+   ($1080, $0860, $20A0, $0440, $40C0, $0220, $80E0, $0100),
+   ($40C0, $20A0, $80E0, $1080, $0100, $0860, $0220, $0440),
+   ($0224, $0100, $0440, $80E0, $0864, $40C0, $1080, $20A0),
+   ($0440, $0220, $0860, $0100, $1080, $80E0, $20A0, $40C0),
+   ($0100, $80E0, $0220, $40C0, $0440, $20A0, $0860, $1080),
+   ($0864, $1080, $0440, $20A0, $0224, $40C0, $0100, $80E0),
+   ($80E4, $0100, $40C0, $0220, $20A4, $0440, $1080, $0860),
+   ($20A4, $40C0, $1080, $80E0, $0864, $0100, $0440, $0220),
+   ($1080, $20A0, $0860, $40C0, $0440, $80E0, $0220, $0100),
+   ($40C0, $80E0, $20A0, $0100, $1080, $0220, $0860, $0440),
+   ($0224, $0440, $0100, $0860, $80E4, $1080, $40C0, $20A0),
+   ($0440, $0860, $0220, $1080, $0100, $20A0, $80E0, $40C0),
+   ($0100, $0220, $80E0, $0440, $40C0, $0860, $20A0, $1080),
+   ($0860, $0440, $1080, $0220, $20A0, $0100, $40C0, $80E0),
+   ($80E0, $40C0, $0100, $20A0, $0220, $1080, $0440, $0860),
+   ($1080, $20A0, $40C0, $0860, $80E0, $0440, $0220, $0100),
+   ($0860, $1080, $20A0, $0440, $40C0, $0220, $80E0, $0100),
+   ($80E0, $40C0, $20A0, $1080, $0100, $0860, $0220, $0440),
+   ($0100, $0220, $0440, $80E0, $0860, $40C0, $20A0, $1080),
+   ($0860, $0440, $0220, $0100, $1080, $80E0, $20A0, $40C0),
+   ($80E0, $0100, $0220, $40C0, $0440, $20A0, $0860, $1080),
+   ($0860, $1080, $0440, $20A0, $0220, $40C0, $0100, $80E0),
+   ($80E0, $0100, $40C0, $0220, $20A0, $0440, $1080, $0860),
+   ($40C0, $20A0, $1080, $80E0, $0860, $0100, $0220, $0440),
+   ($0860, $1080, $20A0, $40C0, $0440, $80E0, $0220, $0100),
+   ($80E0, $40C0, $20A0, $0100, $1080, $0220, $0860, $0440),
+   ($0440, $0220, $0100, $0860, $80E0, $1080, $20A0, $40C0),
+   ($0860, $0440, $0220, $1080, $0100, $20A0, $80E0, $40C0),
+   ($80E0, $0100, $0220, $0440, $40C0, $0860, $20A0, $1080)
+  );
+
+  SIMPLE_DIAGONAL_WAY_BITS: array[0..127{oddxy:1;simple:1;moveleft:1;movedown:1;way:3}] of Byte = (
+    $80, $80, $80, $80, $80, $80, $80, $80, $00, $00, $00, $00, $00, $00, $00, $00,
+    $10, $10, $10, $10, $10, $10, $10, $10, $90, $90, $90, $90, $90, $90, $90, $90,
+    $A0, $A0, $A0, $A0, $20, $20, $20, $20, $A0, $A0, $A0, $A0, $20, $20, $20, $20,
+    $30, $30, $80, $20, $30, $30, $80, $20, $30, $30, $80, $20, $30, $30, $80, $20,
+    $C0, $C0, $10, $A0, $C0, $C0, $10, $A0, $C0, $C0, $10, $A0, $C0, $C0, $10, $A0,
+    $50, $50, $50, $50, $D0, $D0, $D0, $D0, $50, $50, $50, $50, $D0, $D0, $D0, $D0,
+    $E0, $E0, $00, $D0, $E0, $E0, $00, $D0, $E0, $E0, $00, $D0, $E0, $E0, $00, $D0,
+    $70, $70, $90, $50, $70, $70, $90, $50, $70, $70, $90, $50, $70, $70, $90, $50
+  );
+
+  SIMPLE_DIAGONAL_DXSMALLER_WAY_BITS: array[0..127{oddxy:1;simple:1;moveleft:1;movedown:1;way:3}] of Byte = (
+    $80, $80, $80, $80, $80, $80, $80, $80, $00, $00, $00, $00, $00, $00, $00, $00,
+    $10, $10, $10, $10, $10, $10, $10, $10, $90, $90, $90, $90, $90, $90, $90, $90,
+    $A0, $A0, $A0, $A0, $20, $20, $20, $20, $A0, $A0, $A0, $A0, $20, $20, $20, $20,
+    $B0, $B0, $80, $20, $B0, $B0, $80, $20, $B0, $B0, $80, $20, $B0, $B0, $80, $20,
+    $40, $40, $10, $A0, $40, $40, $10, $A0, $40, $40, $10, $A0, $40, $40, $10, $A0,
+    $50, $50, $50, $50, $D0, $D0, $D0, $D0, $50, $50, $50, $50, $D0, $D0, $D0, $D0,
+    $60, $60, $00, $D0, $60, $60, $00, $D0, $60, $60, $00, $D0, $60, $60, $00, $D0,
+    $F0, $F0, $90, $50, $F0, $F0, $90, $50, $F0, $F0, $90, $50, $F0, $F0, $90, $50
+  );
+
+  HEXAGONAL_WAY_BITS: array[0..255{oddyfinish:1;odddy:1;dxsmaller:1;moveleft:1;movedown:1;way:3}] of Byte = (
+    $80, $80, $80, $80, $80, $80, $80, $80, $80, $80, $80, $80, $80, $80, $80, $80,
+    $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00,
+    $10, $10, $10, $10, $10, $10, $10, $10, $10, $10, $10, $10, $10, $10, $10, $10,
+    $90, $90, $90, $90, $90, $90, $90, $90, $90, $90, $90, $90, $90, $90, $90, $90,
+    $A0, $A0, $A0, $20, $A0, $A0, $A0, $20, $20, $20, $A0, $20, $20, $20, $A0, $20,
+    $A0, $A0, $A0, $20, $A0, $A0, $A0, $20, $20, $20, $A0, $20, $20, $20, $A0, $20,
+    $30, $30, $30, $30, $B0, $B0, $B0, $B0, $30, $30, $30, $30, $B0, $B0, $B0, $B0,
+    $30, $30, $30, $30, $B0, $B0, $B0, $B0, $30, $30, $30, $30, $B0, $B0, $B0, $B0,
+    $C0, $C0, $C0, $C0, $40, $40, $40, $40, $C0, $C0, $C0, $C0, $40, $40, $40, $40,
+    $C0, $C0, $C0, $C0, $40, $40, $40, $40, $C0, $C0, $C0, $C0, $40, $40, $40, $40,
+    $50, $50, $50, $D0, $50, $50, $50, $D0, $D0, $D0, $50, $D0, $D0, $D0, $50, $D0,
+    $50, $50, $50, $D0, $50, $50, $50, $D0, $D0, $D0, $50, $D0, $D0, $D0, $50, $D0,
+    $E0, $E0, $E0, $E0, $60, $60, $60, $60, $E0, $E0, $E0, $E0, $60, $60, $60, $60,
+    $E0, $E0, $E0, $E0, $60, $60, $60, $60, $E0, $E0, $E0, $E0, $60, $60, $60, $60,
+    $70, $70, $70, $70, $F0, $F0, $F0, $F0, $70, $70, $70, $70, $F0, $F0, $F0, $F0,
+    $70, $70, $70, $70, $F0, $F0, $F0, $F0, $70, $70, $70, $70, $F0, $F0, $F0, $F0
   );
 
   PARENT_BITS: array[0..63{oddy:1;hexagonal:1;simple:1;child:3}] of NativeUInt = (
@@ -1522,8 +1579,11 @@ const
     $E0, $E0, $E2, $E3, $E0, $E0, $E2, $E3, $F8, $F8, $FA, $FB, $F8, $F8, $FE, $FF
   );
 
-
 {$ifdef CPF_GENERATE_LOOKUPS}
+type
+  TBytes16 = array[0..15] of Byte;
+  PBytes16 = ^TBytes16;
+
 var
   LookupsText: TStringList;
 
@@ -1542,37 +1602,27 @@ begin
   LookupLine(Format(FmtStr, Args));
 end;
 
-procedure AddChildArray(WayX, WayY: Integer; dXSmall, Finalize: Boolean);
-const
-  CHILD_VALUES: array[0..7] of Word = (
-    ((1 shl 0) shl 8) or (0 shl 4),
-    ((1 shl 1) shl 8) or (1 shl 4),
-    ((1 shl 2) shl 8) or (2 shl 4),
-    ((1 shl 3) shl 8) or (3 shl 4),
-    ((1 shl 4) shl 8) or (4 shl 4),
-    ((1 shl 5) shl 8) or (5 shl 4),
-    ((1 shl 6) shl 8) or (6 shl 4),
-    ((1 shl 7) shl 8) or (7 shl 4)
-  );
-  CLOCKWISE: array[Boolean] of Integer = (-1, +1);
+procedure LookupBytes16(const Buffer: TBytes16; const Finalize: Boolean);
 var
-  ChildList: TChildList;
-  Child: PWord;
-  WayChild, LineChild, Sign, i: Integer;
   S: string;
-
-  procedure AddChild(C: Integer);
-  begin
-    C := (C + 8) and 7;
-
-    if (C <> LineChild) then
-    begin
-      Child^ := CHILD_VALUES[C];
-      Inc(Child);
-    end;
-  end;
-
 begin
+  S := Format('  $%0.2x, $%0.2x, $%0.2x, $%0.2x, $%0.2x, $%0.2x, $%0.2x, $%0.2x'+
+              ', $%0.2x, $%0.2x, $%0.2x, $%0.2x, $%0.2x, $%0.2x, $%0.2x, $%0.2x',
+    [Buffer[0], Buffer[1], Buffer[2], Buffer[3], Buffer[4], Buffer[5], Buffer[6], Buffer[7],
+     Buffer[8], Buffer[9], Buffer[10], Buffer[11], Buffer[12], Buffer[13], Buffer[14], Buffer[15]]);
+
+  if (not Finalize) then S := S + ',';
+  LookupLine(S);
+end;
+
+function WayChildValue(Way: Integer): Byte;
+var
+  WayX, WayY: Integer;
+begin
+  // unpack 0..7 way to 0..2/0..2
+  WayX := (Way + 1) mod 3;
+  WayY := (Way + 1) div 3;
+
   // 0..2 way to -1..1
   if (WayX = 1) then WayX := -1
   else
@@ -1586,88 +1636,313 @@ begin
   WayX := -WayX;
   WayY := -WayY;
 
-  // default extended parameters
-  LineChild := -1;
-
-  // way child
+  // result
   if (WayX = 0) then
   begin
     if (WayY < 0) then
     begin
-      WayChild := 1;
-      Sign := -1;
+      Result := 1;
     end else
+    // (WayY > 0) then
     begin
-      WayChild := 5;
-      Sign := +1;
+      Result := 5;
     end;
   end else
   if (WayY = 0) then
   begin
     if (WayX < 0) then
     begin
-      WayChild := 7;
-      Sign := +1;
+      Result := 7;
     end else
+    // (WayX > 0) then
     begin
-      WayChild := 3;
-      Sign := -1;
+      Result := 3;
     end;
   end else
   if (WayX < 0) then
   begin
-    LineChild := 7;
-
     if (WayY < 0) then
     begin
-      WayChild := 0;
-      Sign := CLOCKWISE[dXSmall];
+      Result := 0;
     end else
     // (WayY > 0) then
     begin
-      WayChild := 6;
-      Sign := -CLOCKWISE[dXSmall];
+      Result := 6;
     end;
   end else
   // (WayX > 0) then
   begin
-    LineChild := 3;
-
     if (WayY < 0) then
     begin
-      WayChild := 2;
-      Sign := -CLOCKWISE[dXSmall];
+      Result := 2;
     end else
     // (WayY > 0) then
     begin
-      WayChild := 4;
-      Sign := CLOCKWISE[dXSmall];
+      Result := 4;
+    end;
+  end;
+end;
+
+procedure AddFlagMoveLeftDown(Result: PByte; WayChild: Byte; ClockWise: Boolean);
+var
+  FlagMoveLeft, FlagMoveDown: Boolean;
+begin
+  case WayChild of
+    1:
+    begin
+      FlagMoveLeft := not ClockWise;
+      FlagMoveDown := False;
+    end;
+    5:
+    begin
+      FlagMoveLeft := ClockWise;
+      FlagMoveDown := True;
+    end;
+    3:
+    begin
+      FlagMoveLeft := False;
+      FlagMoveDown := ClockWise;
+    end;
+    7:
+    begin
+      FlagMoveLeft := True;
+      FlagMoveDown := not ClockWise;
+    end;
+  else
+    // diagonal
+    FlagMoveLeft := WayChild in [0, 6];
+    FlagMoveDown := WayChild in [4, 6];
+  end;
+
+  Result^ := (Byte(FlagMoveLeft) shl 3) +
+             (Byte(FlagMoveDown) shl 4);
+end;
+
+procedure AddChildArray(WayChild: Integer; ClockWise, Hexagonal, Finalize: Boolean);
+label
+  filled;
+const
+  CHILD_VALUES: array[0..7] of Word = (
+    ((1 shl 0) shl 8) or (0 shl 5),
+    ((1 shl 1) shl 8) or (1 shl 5),
+    ((1 shl 2) shl 8) or (2 shl 5),
+    ((1 shl 3) shl 8) or (3 shl 5),
+    ((1 shl 4) shl 8) or (4 shl 5),
+    ((1 shl 5) shl 8) or (5 shl 5),
+    ((1 shl 6) shl 8) or (6 shl 5),
+    ((1 shl 7) shl 8) or (7 shl 5)
+  );
+  CLOCKWISE_SIGN: array[Boolean] of Integer = (-1, +1);
+var
+  ChildList: TChildList;
+  Child: PWord;
+  LineChild, Sign, i: Integer;
+  MaySimpleFlag: Boolean;
+  S: string;
+
+  procedure AddChild(C: Integer; SimpleIncrement: Boolean = False);
+  begin
+    C := (C + 8) and 7;
+
+    if (C <> LineChild) then
+    begin
+      Child^ := CHILD_VALUES[C];
+      if (SimpleIncrement) then Child^ := Child^ or 4;
+      Inc(Child);
     end;
   end;
 
-  // childs
+  procedure AddChilds(const Childs: array of Integer);
+  var
+    i: Integer;
+  begin
+    for i := Low(Childs) to High(Childs) do
+      AddChild(Childs[i]);
+  end;
+
+begin
+  // default parameters
   Child := @ChildList[0];
+  LineChild := -1;
+  Sign := CLOCKWISE_SIGN[ClockWise];
+
+  // difficult hexagonal up/down cases
+  if (Hexagonal) and ((WayChild = 1) or (WayChild = 5)) then
+  begin
+    if (WayChild = 1) then
+    begin
+      // hexagonal up
+      if (ClockWise) then
+      begin
+        AddChilds([2,1,0,3,7,4,5,6]);
+      end else
+      begin
+        AddChilds([0,1,2,7,3,6,5,4]);
+      end;
+    end else
+    begin
+      // hexagonal down
+      if (ClockWise) then
+      begin
+        AddChilds([6,5,4,7,3,0,1,2]);
+      end else
+      begin
+        AddChilds([4,5,6,3,7,2,1,0]);
+      end;
+    end;
+
+    goto filled;
+  end;
+
+  // hexagonal line childs
+  if (Hexagonal) then
+  case WayChild of
+    2, 4: LineChild := 3;
+    0, 6: LineChild := 7;
+  end;
+
+  // childs
   if (LineChild >= 0) then
   begin
     Child^ := CHILD_VALUES[LineChild];
     Inc(Child);
   end;
-  AddChild(WayChild);
+  MaySimpleFlag := (LineChild < 0) and (not Hexagonal) and (WayChild and 1 = 1);
+  AddChild(WayChild, MaySimpleFlag);
   for i := 1 to 3 do
   begin
-    AddChild(WayChild + i*Sign);
-    AddChild(WayChild - i*Sign);
+    AddChild(WayChild + i * Sign);
+    AddChild(WayChild - i * Sign, MaySimpleFlag and (i = 2));
   end;
   // last child
   AddChild(WayChild + 4);
 
   // text
+filled:
   S := Format(' ($%0.4x, $%0.4x, $%0.4x, $%0.4x, $%0.4x, $%0.4x, $%0.4x, $%0.4x)',
     [ChildList[0], ChildList[1], ChildList[2], ChildList[3],
      ChildList[4], ChildList[5], ChildList[6], ChildList[7]]);
 
   if (not Finalize) then S := S + ',';
   LookupLine(S);
+end;
+
+procedure AddSimpleDiagonalWayBits(Result: PByte; Way: Byte;
+  OddXY, Simple, MoveLeft, MoveDown, dXsmaller: Boolean);
+const
+  WAYCHILD_TO_WAY: array[0..7] of Byte = (7, 5, 6, 0, 3, 2, 4, 1);
+var
+  MoveRight, MoveUp: Boolean;
+  WayChild: Byte;
+  ClockWise: Boolean;
+begin
+  MoveRight := not MoveLeft;
+  MoveUp := not MoveDown;
+  WayChild := WayChildValue(Way);
+  ClockWise := False{warn off};
+
+  if (Simple) and (WayChild and 1 = 0) then
+  begin
+    case WayChild of
+      0:
+      if (not OddXY) then
+      begin
+        WayChild := 7;
+        ClockWise := True;
+      end else
+      begin
+        WayChild := 1;
+        ClockWise := False;
+      end;
+      2:
+      if (not OddXY) then
+      begin
+        WayChild := 3;
+        ClockWise := False;
+      end else
+      begin
+        WayChild := 1;
+        ClockWise := True;
+      end;
+      4:
+      if (not OddXY) then
+      begin
+        WayChild := 3;
+        ClockWise := True;
+      end else
+      begin
+        WayChild := 5;
+        ClockWise := False;
+      end;
+      6:
+      if (not OddXY) then
+      begin
+        WayChild := 7;
+        ClockWise := False;
+      end else
+      begin
+        WayChild := 5;
+        ClockWise := True;
+      end;
+    end;
+  end else
+  case WayChild of
+    1: ClockWise := not MoveRight;
+    5: ClockWise := MoveRight;
+    3: ClockWise := MoveUp;
+    7: ClockWise := not MoveUp;
+
+    0: ClockWise := dXsmaller;
+    2: ClockWise := not dXsmaller;
+    4: ClockWise := dXsmaller;
+    6: ClockWise := not dXsmaller;
+  end;
+
+  Result^ := (WAYCHILD_TO_WAY[WayChild]{Way} shl 4) + (Byte(ClockWise) shl 7);
+end;
+
+procedure HexagonalWayBits(Result: PByte; Way: Byte;
+  OddFinishY, OddDY, dXsmaller, MoveLeft, MoveDown: Boolean);
+var
+  MoveRight, MoveUp: Boolean;
+  WayChild: Byte;
+  ClockWise: Boolean;
+begin
+  MoveRight := not MoveLeft;
+  MoveUp := not MoveDown;
+  WayChild := WayChildValue(Way);
+
+  case WayChild of
+    0: ClockWise := dXsmaller;
+    2: ClockWise := not dXsmaller;
+    4: ClockWise := dXsmaller;
+    6: ClockWise := not dXsmaller;
+
+    3: ClockWise := MoveUp;
+    7: ClockWise := not MoveUp;
+
+    1:
+    if (not OddDY) then
+    begin
+      ClockWise := not MoveRight;
+    end else
+    begin
+      ClockWise := OddFinishY;
+    end;
+
+    5:
+    if (not OddDY) then
+    begin
+      ClockWise := MoveRight;
+    end else
+    begin
+      ClockWise := not OddFinishY;
+    end;
+  else
+    ClockWise := False{warn off};
+  end;
+
+  Result^ := (Way shl 4) + (Byte(ClockWise) shl 7);
 end;
 
 procedure AddParentBits(Child: Integer; Finalize: Boolean);
@@ -1753,9 +2028,8 @@ end;
 procedure AddRoundMasks(Line: Integer; Finalize: Boolean);
 var
   i: Integer;
-  Buffer: array[0..15] of Byte;
+  Buffer: TBytes16;
   Mask: Byte;
-  S: string;
 begin
   for i := 0 to 15 do
   begin
@@ -1769,13 +2043,7 @@ begin
     Buffer[i] := Mask;
   end;
 
-  S := Format('  $%0.2x, $%0.2x, $%0.2x, $%0.2x, $%0.2x, $%0.2x, $%0.2x, $%0.2x'+
-              ', $%0.2x, $%0.2x, $%0.2x, $%0.2x, $%0.2x, $%0.2x, $%0.2x, $%0.2x',
-    [Buffer[0], Buffer[1], Buffer[2], Buffer[3], Buffer[4], Buffer[5], Buffer[6], Buffer[7],
-     Buffer[8], Buffer[9], Buffer[10], Buffer[11], Buffer[12], Buffer[13], Buffer[14], Buffer[15]]);
-
-  if (not Finalize) then S := S + ',';
-  LookupLine(S);
+  LookupBytes16(Buffer, Finalize);
 end;
 
 procedure GenerateLookups;
@@ -1784,9 +2052,21 @@ const
   MAX_WEIGHT_VALUE_LINE: Single = 50;
   DEFAULT_WEIGHT_VALUE_LINE: Single = 1;
 var
-  Way, WayX, WayY: Integer;
+  Way: Integer;
   Child: Integer;
   Line: Integer;
+
+  ByteValue: PByte;
+  BytesBuffer: array[0..15] of TBytes16;
+
+  procedure LookupBytesBufferLines(Count: Integer);
+  var
+    i: Integer;
+  begin
+    for i := 0 to Count - 1 do
+      LookupBytes16(BytesBuffer[i], i = (Count - 1));
+  end;
+
 begin
   LookupsText := TStringList.Create;
   try
@@ -1801,16 +2081,67 @@ begin
     LookupLineFmt('ERROR_WEIGHT_VALUE = ''Invalid weight value. 0,0..%0.1f - pathless, %0.1f..%0.0f - correct'';',
       [MIN_WEIGHT_VALUE_LINE, MIN_WEIGHT_VALUE_LINE, MAX_WEIGHT_VALUE_LINE]);
 
-    // CHILD_ARRAYS
+    // FLAGS_MOVE_LEFT_DOWN
     LookupLine;
-    LookupLine('CHILD_ARRAYS: array[0..15{way:3;dxsmall:1}] of TChildList = (');
+    LookupLine('FLAGS_MOVE_LEFT_DOWN: array[0..15{way:3;clockwise:1}] of Byte = (');
+    ByteValue := @BytesBuffer[0][0];
     for Way := 0 to 15 do
     begin
-      WayX := ((Way and 7) + 1) mod 3;
-      WayY := ((Way and 7) + 1) div 3;
-
-      AddChildArray(WayX, WayY, Way >= 8, Way = 15);
+      AddFlagMoveLeftDown(ByteValue, WayChildValue(Way and 7), Way >= 8);
+      Inc(ByteValue);
     end;
+    LookupBytesBufferLines(1);
+    LookupLine(');');
+
+    // CHILD_ARRAYS
+    LookupLine;
+    LookupLine('CHILD_ARRAYS: array[0..31{way:3;clockwise:1;hexagonal:1}] of TChildList = (');
+    for Way := 0 to 31 do
+    begin
+      AddChildArray(WayChildValue(Way and 7),
+        {clockwise}Way and 8 <> 0,
+        {hexagonal}Way >= 16,
+        {finalize}Way = 31);
+    end;
+    LookupLine(');');
+
+    // SIMPLE_DIAGONAL_WAY_BITS
+    LookupLine;
+    LookupLine('SIMPLE_DIAGONAL_WAY_BITS: array[0..127{oddxy:1;simple:1;moveleft:1;movedown:1;way:3}] of Byte = (');
+    ByteValue := @BytesBuffer[0][0];
+    for Way := 0 to 127 do
+    begin
+      AddSimpleDiagonalWayBits(ByteValue, (Way shr 4) and 7,
+        Way and 1 <> 0, Way and 2 <> 0, Way and 4 <> 0, Way and 8 <> 0, False);
+      Inc(ByteValue);
+    end;
+    LookupBytesBufferLines(8);
+    LookupLine(');');
+
+    // SIMPLE_DIAGONAL_DXSMALLER_WAY_BITS
+    LookupLine;
+    LookupLine('SIMPLE_DIAGONAL_DXSMALLER_WAY_BITS: array[0..127{oddxy:1;simple:1;moveleft:1;movedown:1;way:3}] of Byte = (');
+    ByteValue := @BytesBuffer[0][0];
+    for Way := 0 to 127 do
+    begin
+      AddSimpleDiagonalWayBits(ByteValue, (Way shr 4) and 7,
+        Way and 1 <> 0, Way and 2 <> 0, Way and 4 <> 0, Way and 8 <> 0, True);
+      Inc(ByteValue);
+    end;
+    LookupBytesBufferLines(8);
+    LookupLine(');');
+
+    // HEXAGONAL_WAY_BITS
+    LookupLine;
+    LookupLine('HEXAGONAL_WAY_BITS: array[0..255{oddyfinish:1;odddy:1;dxsmaller:1;moveleft:1;movedown:1;way:3}] of Byte = (');
+    ByteValue := @BytesBuffer[0][0];
+    for Way := 0 to 255 do
+    begin
+      HexagonalWayBits(ByteValue, (Way shr 5) and 7,
+        Way and 1 <> 0, Way and 2 <> 0, Way and 4 <> 0, Way and 8 <> 0, Way and 16 <> 0);
+      Inc(ByteValue);
+    end;
+    LookupBytesBufferLines(16);
     LookupLine(');');
 
     // PARENT_BITS
@@ -2177,12 +2508,15 @@ end;
 
 {$ifdef CPFDBG}
 function TTileMap.CellInformation(const X, Y: Word): string;
+const
+  STAR: array[Boolean] of string = ('', '*');
 var
   Cell: PCPFCell;
   Node, N: PCPFNode;
   CellKind, CellInfo: string;
   WayBits: Integer;
   ChildList: PChildList;
+  IsSimple: Boolean;
   Sector: Byte;
 
   {$ifdef LARGEINT}
@@ -2277,7 +2611,7 @@ begin
         end else
         begin
           CellKind := 'heuristed';
-          WayBits := (Node.NodeInfo shr 3) and $f;
+          WayBits := ((Node.NodeInfo shr 4) and $f) + (Byte(Self.FKind = mkHexagonal) shl 4);
         end;
 
         // detect pool
@@ -2301,9 +2635,18 @@ begin
         // way (child list)
         if (WayBits <> -1) then
         begin
+          IsSimple := (Self.Kind = mkSimple);
           ChildList := @CHILD_ARRAYS[WayBits];
-          CellInfo := CellInfo + Format(', way: %d%d%d',
-            [(ChildList[0] shr 4) and 7, (ChildList[1] shr 4) and 7, (ChildList[2] shr 4) and 7]);
+          CellInfo := CellInfo + Format(', way: %d%s%d%s%d%s%d%s%d%s%d%s%d%s%d%s',
+            [(ChildList[0] shr 5) and 7, STAR[IsSimple and (ChildList[0] and 4 <> 0)],
+             (ChildList[1] shr 5) and 7, STAR[IsSimple and (ChildList[1] and 4 <> 0)],
+             (ChildList[2] shr 5) and 7, STAR[IsSimple and (ChildList[2] and 4 <> 0)],
+             (ChildList[3] shr 5) and 7, STAR[IsSimple and (ChildList[3] and 4 <> 0)],
+             (ChildList[4] shr 5) and 7, STAR[IsSimple and (ChildList[4] and 4 <> 0)],
+             (ChildList[5] shr 5) and 7, STAR[IsSimple and (ChildList[5] and 4 <> 0)],
+             (ChildList[6] shr 5) and 7, STAR[IsSimple and (ChildList[6] and 4 <> 0)],
+             (ChildList[7] shr 5) and 7, STAR[IsSimple and (ChildList[7] and 4 <> 0)]
+            ]);
         end;
 
         // path, sort value
@@ -2988,6 +3331,12 @@ begin
 end;
 
 function TTileMap.AllocateHeuristedNode(X, Y: NativeInt): PCPFNode;
+const
+  TEMP_WAY_OFFSET = 5;
+  MOVELEFT_OFFSET = 3;
+  MOVELEFT_MASK = Integer(1 shl MOVELEFT_OFFSET);
+  MOVEDOWN_OFFSET = 4;
+  MOVEDOWN_MASK = Integer(1 shl MOVEDOWN_OFFSET);
 var
   Cell: PCPFCell;
   Node, Right: PCPFNode;
@@ -3056,36 +3405,66 @@ begin
     Mask := Mask * 3;
     Mask := Mask + 2*Byte(X > 0);
     Mask := Mask - 1 + (X shr HIGH_NATIVE_BIT) + {point = finish fix}Ord(X or Y = 0);
-    Node.NodeInfo := (Node.NodeInfo and FLAGS_CLEAN_MASK) or $00ff0000 or Cardinal(Mask shl 3);
+    Node.NodeInfo := (Node.NodeInfo and FLAGS_CLEAN_MASK) or $00ff0000;
+    NodeInfo := Mask shl TEMP_WAY_OFFSET;
+
+    // flags: hexagonal, simple
+    Mask := NativeInt(Self.FKind);
+    Inc(NodeInfo, (Mask - 1) and 4);
+    Inc(NodeInfo, ((Mask + 1) and 4) shr 1);
 
     // Y := Abs(dY)
     Mask := -(Y shr HIGH_NATIVE_BIT);
     Y := Y xor Mask;
     Dec(Y, Mask);
+    NodeInfo := NodeInfo or NativeUInt(Mask and MOVEDOWN_MASK);
 
     // X := Abs(dX)
     Mask := -(X shr HIGH_NATIVE_BIT);
     X := X xor Mask;
     Dec(X, Mask);
+    NodeInfo := NodeInfo or NativeUInt((Mask and MOVELEFT_MASK) xor MOVELEFT_MASK);
 
     // calculate
     Node.SortValue := SORTVALUE_LIMIT;
-    if (FKind <> mkHexagonal) then
+    if (NodeInfo and 2 = 0) then
     begin
+      // flag: oddy
+      NodeInfo := NodeInfo shr 1;
+      Mask := (X xor Y) and 1;
+      Mask := Mask + (NativeInt(NodeInfo) and 127);
+
       if (X >= Y) then
       begin
+        Node.NodeInfo := Node.NodeInfo or SIMPLE_DIAGONAL_WAY_BITS[Mask];
         Node.Path := SORTVALUE_LIMIT -
            Cardinal(Y * FInfo.HeuristicsDiagonal + (X - Y) * FInfo.HeuristicsLine);
       end else
       begin
+        Node.NodeInfo := Node.NodeInfo or SIMPLE_DIAGONAL_DXSMALLER_WAY_BITS[Mask];
         Node.Path := SORTVALUE_LIMIT -
            Cardinal(X * FInfo.HeuristicsDiagonal + (Y - X) * FInfo.HeuristicsLine);
-        Node.NodeInfo := Node.NodeInfo or FLAG_DX_SMALLER;
       end;
     end else
     begin
-      Node.NodeInfo := Node.NodeInfo or Cardinal(((X - Y) shr (HIGH_NATIVE_BIT - 6)) and FLAG_DX_SMALLER);
-      X := X - ((Mask xor PNativeInt(@FInfo.FinishPoint)^) and Y and 1) - (Y shr 1);
+      // flag: oddfinishy
+      NodeInfo := NodeInfo + (NativeUInt(Cardinal(FInfo.FinishPoint)) and 1);
+
+      // move left correction
+      if (X = 0) then
+      begin
+        NodeInfo := NodeInfo and (not MOVELEFT_MASK);
+        NodeInfo := NodeInfo or NativeUInt(((not NodeInfo) and Y and 1) shl MOVELEFT_OFFSET);
+      end;
+
+      // include bits
+      NodeInfo := NodeInfo + NativeUInt((Y and 1) shl 1);
+      NodeInfo := NodeInfo + NativeUInt(((X - Y) shr (HIGH_NATIVE_BIT - 4)) and 4);
+
+      // total way bits/heuristics
+      Mask := Mask xor NativeInt(NodeInfo);
+      Node.NodeInfo := Node.NodeInfo or HEXAGONAL_WAY_BITS[NodeInfo];
+      X := X - (Mask and Y and 1) - (Y shr 1);
       Node.Path := SORTVALUE_LIMIT -
          Cardinal(FInfo.HeuristicsLine * (Y + (X and ((X shr HIGH_NATIVE_BIT) - 1))));
     end;
@@ -4636,6 +5015,8 @@ const
   NODEPTR_FLAGS = NODEPTR_FLAG_HEURISTED + NODEPTR_FLAG_ALLOCATED;
   PARENT_BITS_CLEAR_MASK = not Cardinal($00ff0000 + 7);
   COUNTER_OFFSET = 16;
+  TEMP_WAY_OFFSET = 5;
+  TEMP_WAY_CLEAR_MASK = not Integer(7 shl TEMP_WAY_OFFSET);
 type
   TMapNodeBuffer = array[0..7] of PCPFNode;
   PMapNodeBuffer = ^TMapNodeBuffer;
@@ -4643,7 +5024,7 @@ type
   PCardinalList = ^TCardinalList;
 var
   Node: PCPFNode;
-  NodeInfo: NativeUInt;
+  NodeFlags: NativeUInt;
   ChildList: PWord;
   Child: NativeUInt;
   Cell: PCPFCell;
@@ -4665,7 +5046,7 @@ var
   Store: record
     Buffer: TMapNodeBuffer;
     Self: Pointer;
-    MapKindFlags: NativeUInt;
+    Flags: NativeUInt;
     Info: TCPFInfo;
 
     {$ifdef CPUX86}
@@ -4696,10 +5077,16 @@ var
     NODEPTR_MODIFIER: NativeInt;
   {$endif}
 begin
+  // store Self
   Store.Self := Pointer({$ifdef CPFLIB}@Self{$else}Self{$endif});
-  // (bit simple << 2) | (bit hexagonal << 1)
+
+  // flags: oddyfinish, hexagonal, simple, moveleft, movedown
   X := NativeInt(Self.FKind);
-  Store.MapKindFlags := ((X - 1) and 4) + (((X + 1) and 4) shr 1);
+  Store.Flags := ((X - 1) and 4) + (((X + 1) and 4) shr 1) +
+    (PNativeInt(@Self.FInfo.FinishPoint)^ and 1) +
+    FLAGS_MOVE_LEFT_DOWN[(StartNode.NodeInfo shr 4) and $f];
+
+  // information copy
   Move(Self.FInfo, Store.Info,
     (SizeOf(Store.Info) - 32 * SizeOf(Pointer)) +
     (Self.FInfo.NodeAllocator.Count * SizeOf(Pointer)) );
@@ -4736,42 +5123,56 @@ begin
       Store.Top.SortValue := Path;
     end;
 
-    // child list
+    // basic child list (way, clockwise)
     ChildList := Pointer(@CHILD_ARRAYS);
-    Inc(NativeUInt(ChildList), (NodeInfo and ($f shl 3)) shl 1);
+    Inc(NativeUInt(ChildList), NodeFlags{Node.NodeInfo} and $f0);
 
-    // reinitialize NodeInfo (from parentflags, mask, parentmask, tile):
-    //   - bit hexagonal << 1
-    //   - bit simple << 2
-    //   - mask & parent mask
-    //   - stored childs counter
-    //   - tile
-    NodeInfo := (NodeInfo and Integer($ff000000)) or
-      ((NodeInfo and (NodeInfo shr 8)) and $ff00) or
-      Store.MapKindFlags;
+    // reinitialize Node.NodeInfo (from parentflags, mask, parentmask, tile):
+    {
+      is finish.Y odd: 1;
+      is hexagonal: 1;
+      is simple: 1;
+      is move left: 1;
+      is move down: 1;
+      three zero/temporary bits: 3;
+
+      mask & parent mask: 8;
+      stored childs counter: 8;
+      tile: 8;
+    }
+    X := Store.Flags;
+    NodeFlags := (NodeFlags and Integer($ff000000)) or NativeUInt(X){Store.Flags} or
+      ((NodeFlags and (NodeFlags shr 8)) and $ff00);
+
+    // hexagonal child list offset
+    Inc(NativeUInt(ChildList), (X and 2) shl 7);
 
     // each child cell loop
     {$ifdef CPUX86}
     Store.ChildList := ChildList;
     {$endif}
     nextchild_continue:
-    if (NodeInfo and $ff00 <> 0) then
+    if (NodeFlags and $ff00 <> 0) then
     repeat
-      // first available
+      // first available, skip 2 in some simple cases
       {$ifdef CPUX86}
       ChildList := Store.ChildList;
       {$endif}
       nextchild:
+      X := NodeFlags and 4;
       Child := ChildList^;
       Inc(ChildList);
-      if (NodeInfo and Child = 0) then goto nextchild;
+      X := X and Child;
+      Child := Child and Integer(not 4);
+      Inc(NativeInt(ChildList), X);
+      if (NodeFlags and Child = 0) then goto nextchild;
       {$ifdef CPUX86}
       Store.ChildList := ChildList;
       {$endif}
 
       // clear child bit, get child number
-      NodeInfo := NodeInfo and (not Child);
-      Child := (Child shr 4) and 7;
+      NodeFlags := NodeFlags and (not Child);
+      Child := (Child shr 5) and 7;
 
       // child map cell
       Cell := Store.Current.Cell;
@@ -4779,7 +5180,7 @@ begin
 
       // parent bits
       Child := Child shl 3;
-      Child := Child + (NodeInfo and (4+2)) + (NativeUInt(Cardinal(Store.Current.Coordinates)) and 1);
+      Child := Child + (NodeFlags and (4+2)) + (NativeUInt(Cardinal(Store.Current.Coordinates)) and 1);
       ParentBits := PARENT_BITS[Child];
 
       // allocated new or use exists
@@ -4795,7 +5196,7 @@ begin
 
           // child path
           TileWeights := Store.Info.TileWeights[ParentBits and 1];
-          Path := TileWeights[NodeInfo shr 24];
+          Path := TileWeights[NodeFlags shr 24];
           Inc(Path, TileWeights[ParentBits shr 24]);
           if (Path > PATHLESS_TILE_WEIGHT) then goto nextchild_continue;
           Path := (Path shr 1) + Store.Current.Path;
@@ -4828,14 +5229,14 @@ begin
           end else
           begin
             {$ifdef CPUX86}
-              NativeUInt(Store.TopGreatherNode) := NodeInfo;
+              NativeUInt(Store.TopGreatherNode) := NodeFlags;
             {$endif}
             TTileMapPtr(Store.Self).GrowNodeAllocator(Store.Info);
             {$ifdef LARGEINT}
               NODEPTR_MODIFIER := Store.Info.NodeAllocator.LargeModifier + NODEPTR_FLAGS;
             {$endif}
             {$ifdef CPUX86}
-              NodeInfo := NativeUInt(Store.TopGreatherNode);
+              NodeFlags := NativeUInt(Store.TopGreatherNode);
             {$endif}
           end;
           goto heuristics_data;
@@ -4859,7 +5260,7 @@ begin
 
           // child path
           TileWeights := Store.Info.TileWeights[ParentBits and 1];
-          Path := TileWeights[NodeInfo shr 24];
+          Path := TileWeights[NodeFlags shr 24];
           Inc(Path, TileWeights[ParentBits shr 24]);
           if (Path > PATHLESS_TILE_WEIGHT) then goto nextchild_continue;
           Path := (Path shr 1) + Store.Current.Path;
@@ -4889,7 +5290,7 @@ begin
           Mask := Mask * 3;
           Mask := Mask + 2*Byte(X > 0);
           Mask := Mask - 1 + (X shr {$ifdef CPUX86}31{$else}HIGH_NATIVE_BIT{$endif}); // Delphi compiler optimization bug
-          ChildNode.NodeInfo := ChildNode.NodeInfo or Cardinal(Mask shl 3);
+          NodeFlags := NodeFlags or NativeUInt(Mask shl TEMP_WAY_OFFSET);
 
           // Y := Abs(dY)
           Mask := -(Y shr HIGH_NATIVE_BIT);
@@ -4902,26 +5303,34 @@ begin
           Dec(X, Mask);
 
           // calculate heuristics
-          if (Store.MapKindFlags <> 2) then
+          if (NodeFlags and 2 = 0) then
           begin
             // simple, diagonal, diagonalex
             if (X >= Y) then
             begin
               ChildNode.SortValue := {$ifdef CPUX86}ChildNode.{$endif}Path +
                  Cardinal(Y * Store.Info.HeuristicsDiagonal + (X - Y) * Store.Info.HeuristicsLine);
+              ChildNode.NodeInfo := ChildNode.NodeInfo or SIMPLE_DIAGONAL_WAY_BITS[NativeInt((NodeFlags shr 1) and 127) + ((X xor Y) and 1)];
+              NodeFlags := NodeFlags and TEMP_WAY_CLEAR_MASK;
             end else
             begin
               ChildNode.SortValue := {$ifdef CPUX86}ChildNode.{$endif}Path +
                  Cardinal(X * Store.Info.HeuristicsDiagonal + (Y - X) * Store.Info.HeuristicsLine);
-              ChildNode.NodeInfo := ChildNode.NodeInfo or FLAG_DX_SMALLER;
+              ChildNode.NodeInfo := ChildNode.NodeInfo or SIMPLE_DIAGONAL_DXSMALLER_WAY_BITS[NativeInt((NodeFlags shr 1) and 127) + ((X xor Y) and 1)];
+              NodeFlags := NodeFlags and TEMP_WAY_CLEAR_MASK;
             end;
           end else
           begin
             // hexagonal
-            ChildNode.NodeInfo := ChildNode.NodeInfo or Cardinal(((X - Y) shr (HIGH_NATIVE_BIT - 6)) and FLAG_DX_SMALLER);
-            X := X - ((Mask xor PNativeInt(@Store.Info.FinishPoint)^) and Y and 1) - (Y shr 1);
+            ChildNode.NodeInfo := ChildNode.NodeInfo or HEXAGONAL_WAY_BITS[
+              NativeInt(NodeFlags and ((31 shl 3) or 1)) +
+              (((X - Y) shr (HIGH_NATIVE_BIT - 4)) and 4) +
+              ((Y and 1) shl 1)
+            ];
+            X := X - ((Mask xor NativeInt(NodeFlags)) and Y and 1) - (Y shr 1);
             ChildNode.SortValue := {$ifdef CPUX86}ChildNode.{$endif}Path +
                Cardinal(Store.Info.HeuristicsLine * (Y + (X and ((X shr HIGH_NATIVE_BIT) - 1))));
+            NodeFlags := NodeFlags and TEMP_WAY_CLEAR_MASK;
           end;
         end;
       end else
@@ -4945,7 +5354,7 @@ begin
 
         // child path
         Cell{TileWeights} := Store.Info.TileWeights[ParentBits and 1];
-        Path := PCardinalList(Cell{TileWeights})[NodeInfo shr 24] +
+        Path := PCardinalList(Cell{TileWeights})[NodeFlags shr 24] +
                 PCardinalList(Cell{TileWeights})[ParentBits shr 24];
         Path := (Path shr 1) + Store.Current.Path;
 
@@ -4976,15 +5385,15 @@ begin
       end;
 
       // add child node to buffer
-      {$ifdef CPUX86}Store.{$endif}Buffer[(NodeInfo shr COUNTER_OFFSET) and 7] := ChildNode;
-      Inc(NodeInfo, (1 shl COUNTER_OFFSET));
+      {$ifdef CPUX86}Store.{$endif}Buffer[(NodeFlags shr COUNTER_OFFSET) and 7] := ChildNode;
+      Inc(NodeFlags, (1 shl COUNTER_OFFSET));
 
       // goto nextchild_continue;
-      if (NodeInfo and $ff00 = 0) then Break;
+      if (NodeFlags and $ff00 = 0) then Break;
     until (False);
 
     // move buffered nodes to opened list
-    if (NodeInfo and ($f shl COUNTER_OFFSET) = 0) then
+    if (NodeFlags and ($f shl COUNTER_OFFSET) = 0) then
       goto next_current;
 
     // internal child buffer sort by SortValue
@@ -5001,7 +5410,7 @@ begin
          end;
        end;
     }
-    PBufferHigh := @{$ifdef CPUX86}Store.{$endif}Buffer[(NodeInfo shr COUNTER_OFFSET) and $f];
+    PBufferHigh := @{$ifdef CPUX86}Store.{$endif}Buffer[(NodeFlags shr COUNTER_OFFSET) and $f];
     PBufferBase := @{$ifdef CPUX86}Store.{$endif}Buffer[1];
     PBufferCurrent := @{$ifdef CPUX86}Store.{$endif}Buffer[0];
     while (PBufferBase <> PBufferHigh) do
@@ -5096,9 +5505,9 @@ begin
     Node := Store.Current.Node.Next;
   current_initialize:
     // cell
-    NodeInfo{XY} := Cardinal(Node.Coordinates);
-    Cardinal(Store.Current.Coordinates) := NodeInfo{XY};
-    Cell := @Store.Info.CellArray[(NativeInt(NodeInfo) shr 16){X} + Store.Info.MapWidth * {Y}Word(NodeInfo)];
+    NodeFlags{XY} := Cardinal(Node.Coordinates);
+    Cardinal(Store.Current.Coordinates) := NodeFlags{XY};
+    Cell := @Store.Info.CellArray[(NativeInt(NodeFlags) shr 16){X} + Store.Info.MapWidth * {Y}Word(NodeFlags)];
     Store.Current.Cell := Cell;
 
     // store pointer and path
@@ -5108,8 +5517,8 @@ begin
     Store.Current.SortValue := ChildSortValue;
 
     // node info
-    NodeInfo := Cardinal(Node.NodeInfo);
-    if (NodeInfo and FLAG_KNOWN_PATH <> 0) then Break;
+    NodeFlags := Cardinal(Node.NodeInfo);
+    if (NodeFlags and FLAG_KNOWN_PATH <> 0) then Break;
   until (False);
 
   // Result
@@ -5675,7 +6084,6 @@ begin
 
   Result := DoFindPath(NativeUInt(@Params) + NativeUInt(FullPath) shl HIGH_NATIVE_BIT);
 end;
-
 
 initialization
   {$ifdef CPF_GENERATE_LOOKUPS}
