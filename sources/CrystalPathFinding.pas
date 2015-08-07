@@ -534,6 +534,96 @@ const
   HALF: Double = 0.5;
 
 
+{$ifdef CPFDBG}
+var
+  MAP_INFO: ^TCPFInfo;
+
+function MaskToString(const Mask: Byte): string;
+var
+  i: Integer;
+begin
+  if (Mask = 0) then Result := 'none'
+  else
+  if (Mask = $FF) then Result := 'all'
+  else
+  begin
+    Result := '';
+    for i := 0 to 7 do
+    if (Mask and (1 shl i) <> 0) then
+      Result := Result + IntToStr(i);
+  end;
+end;
+
+function MapCellIndex(Cell: PCPFCell): Integer;
+begin
+  if (MAP_INFO = nil) or (Cell = nil) then
+  begin
+    Result := 0;
+  end else
+  begin
+    Result := (NativeInt(Cell) - NativeInt(MAP_INFO.CellArray)) div SizeOf(TCPFCell);
+  end;
+end;
+
+function MapCellX(Cell: PCPFCell): Integer;
+begin
+  Result := MapCellIndex(Cell);
+
+  if (Result <> 0) then
+    Result := Result mod MAP_INFO.MapWidth;
+end;
+
+function MapCellY(Cell: PCPFCell): Integer;
+begin
+  Result := MapCellIndex(Cell);
+
+  if (Result <> 0) then
+    Result := Result div MAP_INFO.MapWidth;
+end;
+
+function MapCellPoint(Cell: PCPFCell): TPoint;
+var
+  Index: Integer;
+begin
+  Index := MapCellIndex(Cell);
+
+  if (Index = 0) then
+  begin
+    Result := Point(0, 0);
+  end else
+  begin
+    Result.X := Index mod MAP_INFO.MapWidth;
+    Result.Y := Index div MAP_INFO.MapWidth;
+  end;
+end;
+{$endif}
+
+{$ifdef CPFLOG}
+const
+  BOM_UTF8: array[0..2] of Byte = ($EF, $BB, $BF);
+  CRLF: Word = 13 + (10 shl 8);
+
+var
+  CpfLogFile: TFileStream;
+
+procedure Log(const S: {$ifdef UNICODE}string{$else}WideString{$endif}); overload;
+var
+  UTF8: {$ifdef UNICODE}RawByteString{$else}AnsiString{$endif};
+begin
+  UTF8 := UTF8Encode(S);
+
+  CpfLogFile.Write(Pointer(UTF8)^, Length(UTF8));
+  CpfLogFile.Write(CRLF, SizeOf(CRLF));
+end;
+
+procedure Log(const FmtStr: {$ifdef UNICODE}string{$else}WideString{$endif}; const Args: array of const); overload;
+begin
+  Log({$ifdef UNICODE}Format{$else}WideFormat{$endif}(FmtStr, Args));
+end;
+{$endif}
+
+
+
 { ECrystalPathFinding }
 
 {$if Defined(KOL) and (not Defined(CPFLIB)))}
@@ -2360,6 +2450,10 @@ begin
     inherited Create;
   {$endif}
 
+  {$ifdef CPFDBG}
+    MAP_INFO := @FInfo;
+  {$endif}
+
   // arguments test
   begin
     FCellCount := NativeUInt(AWidth) * NativeUInt(AHeight);
@@ -2522,23 +2616,6 @@ var
   {$ifdef LARGEINT}
     NodeBuffers: PCPFNodeBuffers;
   {$endif}
-
-  function MaskToString(const Mask: Byte): string;
-  var
-    i: Integer;
-  begin
-    if (Mask = 0) then Result := 'none'
-    else
-    if (Mask = $FF) then Result := 'all'
-    else
-    begin
-      Result := '';
-      for i := 0 to 7 do
-      if (Mask and (1 shl i) <> 0) then
-        Result := Result + IntToStr(i);
-    end;
-  end;
-
 begin
   if (X >= Self.Width) or (Y >= Self.Height) then
   begin
@@ -3702,9 +3779,9 @@ begin
 end;
 
 type
-  PFloodSectorRec = ^TFloodSectorRec;
-  TFloodSectorRec = record
-    Next: PFloodSectorRec;
+  PFloodLineRec = ^TFloodLineRec;
+  TFloodLineRec = record
+    Next: PFloodLineRec;
     FirstSector: PByte;
     FirstCell: PCPFCell;
   case Boolean of
@@ -3712,19 +3789,15 @@ type
     False:(SectorValues: NativeUInt);
   end;
 
-  TFloodSectorStorage = record
+  TFloodLineStorage = record
     Offsets: TCPFOffsets;
-    QueueLast: PFloodSectorRec;
-    Pool: PFloodSectorRec;
-    PoolMarker: PFloodSectorRec;
+    QueueLast: PFloodLineRec;
+    Pool: PFloodLineRec;
     SectorValues: NativeUInt;
   end;
 
-const
-  SECTORS_MAX_CHILDS = 4;
-  
 
-procedure FillFloodSectorRec(var Result: TFloodSectorRec;
+procedure FillFloodLineRec(var Result: TFloodLineRec;
   Cell: PCPFCell; Sector: PByte{$ifdef LARGEINT}; NodeBuffers: PCPFNodeBuffers{$endif});
 label
   _2, done;
@@ -3834,44 +3907,46 @@ begin
 done:
 end;
 
-procedure FloodTileMapSectors(var _Storage: TFloodSectorStorage;
-  BaseSectorRec: PFloodSectorRec
+procedure FloodTileMapSectors(var _Storage: TFloodLineStorage;
+  BaseLineRec: PFloodLineRec
   {$ifdef LARGEINT}; NodeBuffers: PCPFNodeBuffers{$endif}); overload;
 type
   TByteList = array[0..0] of Byte;
   PByteList = ^TByteList;
 var
-  CurrentSectorRec: PFloodSectorRec;
-  SectorRec: PFloodSectorRec;
+  CurrentLineRec: PFloodLineRec;
+  LineRec: PFloodLineRec;
 
   Cell: PCPFCell;
   Sector: PByte;
   Mask, Flags, ChildMask: NativeUInt;
   Offset: NativeInt;
 
-  Storage: TFloodSectorStorage;
+  Storage: TFloodLineStorage;
   Store: record
     {$ifdef CPUX86}
-    CurrentSectorRec: PFloodSectorRec;
+    CurrentLineRec: PFloodLineRec;
     {$endif}
     LastCell: PCPFCell;
     Cell: PCPFCell;
+    BufferInitialized: Boolean;
   end;
-  Buffer: array[0..127] of TFloodSectorRec;
+  Buffer: array[0..127] of TFloodLineRec;
 begin
   // stack parameters
   {$ifdef CPUX86}
-  Store.CurrentSectorRec := BaseSectorRec;
+  Store.CurrentLineRec := BaseLineRec;
   {$endif}
   Storage := _Storage;
+  Store.BufferInitialized := False;
 
-  // each sector rec loop
-  CurrentSectorRec := {$ifdef CPUX86}Store.CurrentSectorRec{$else}BaseSectorRec{$endif};
+  // each line rec loop
+  CurrentLineRec := {$ifdef CPUX86}Store.CurrentLineRec{$else}BaseLineRec{$endif};
   repeat
     // each cell loop
-    Store.LastCell := CurrentSectorRec.LastCell;
-    Cell := CurrentSectorRec.FirstCell;
-    Sector := CurrentSectorRec.FirstSector;
+    Store.LastCell := CurrentLineRec.LastCell;
+    Cell := CurrentLineRec.FirstCell;
+    Sector := CurrentLineRec.FirstSector;
     Dec(Cell);
     Dec(Sector);
     repeat
@@ -3911,8 +3986,8 @@ begin
           begin
             ChildMask := PCPFNode
               (
-                {$ifdef LARGEINT}NodeBuffers[Offset shr LARGE_NODEPTR_OFFSET] +{$endif}
-                Offset and NODEPTR_CLEAN_MASK
+                {$ifdef LARGEINT}NodeBuffers[ChildMask shr LARGE_NODEPTR_OFFSET] +{$endif}
+                ChildMask and NODEPTR_CLEAN_MASK
               ).NodeInfo;
           end;
 
@@ -3924,16 +3999,43 @@ begin
              (ChildMask and $ff00{Mask} <> 0) then
           begin
             // take new item and push to hot queue
+            // initialize buffer or call next function iteration (with new buffer)
             Store.Cell := Cell;
+            LineRec := Storage.Pool;
+            if (LineRec = nil) then
             begin
-              SectorRec := Storage.Pool;
-              Storage.Pool := SectorRec.Next;
-              Storage.QueueLast.Next := SectorRec;
-              Storage.QueueLast := SectorRec;
-              SectorRec.Next := nil{hot queue end};
+              if (Store.BufferInitialized) then
+              begin
+                // call next function iteration (allocate new buffer items)
+                {$ifdef CPUX86}
+                CurrentLineRec := Store.CurrentLineRec;
+                {$endif}
+                CurrentLineRec.FirstCell := Store.Cell;
+                FloodTileMapSectors(Storage, CurrentLineRec{$ifdef LARGEINT}, NodeBuffers{$endif});
+                Exit;
+              end else
+              begin
+                // add buffer items to the pool
+                CurrentLineRec := @Buffer[0];
+                LineRec := @Buffer[1 - 1];
+                Dec(CurrentLineRec);
+                repeat
+                  Inc(CurrentLineRec);
+                  Inc(LineRec);
+                  CurrentLineRec.Next := LineRec;
+                until (CurrentLineRec = @Buffer[High(Buffer)]);
+                CurrentLineRec.Next := nil;
+                LineRec := @Buffer[0];
+                Store.BufferInitialized := True;
+              end;
             end;
-            SectorRec.SectorValues := Storage.SectorValues;
-            FillFloodSectorRec(SectorRec^, @PCPFCellArray(Store.Cell)[Offset],
+
+            Storage.Pool := LineRec.Next;
+            Storage.QueueLast.Next := LineRec;
+            Storage.QueueLast := LineRec;
+            LineRec.Next := nil{hot queue end};
+            LineRec.SectorValues := Storage.SectorValues;
+            FillFloodLineRec(LineRec^, @PCPFCellArray(Store.Cell)[Offset],
               @PByteList(Sector)[Offset]{$ifdef LARGEINT}, NodeBuffers{$endif});
             Cell := Store.Cell;
           end else
@@ -3951,85 +4053,51 @@ begin
 
     // take next queue item
     {$ifdef CPUX86}
-    CurrentSectorRec := Store.CurrentSectorRec;
+    CurrentLineRec := Store.CurrentLineRec;
     {$endif}
-    SectorRec := CurrentSectorRec.Next;
-    if (SectorRec = nil) then Exit;
+    LineRec := CurrentLineRec.Next;
+    if (LineRec = nil) then Exit;
 
     // add empty item to pool
-    CurrentSectorRec.Next := Storage.Pool;
-    Storage.Pool := CurrentSectorRec;
+    CurrentLineRec.Next := Storage.Pool;
+    Storage.Pool := CurrentLineRec;
 
-    // check a few pool items
-    if (NativeUInt(CurrentSectorRec.Next{last pool}) >= NativeUInt(Storage.PoolMarker)) then
-    begin
-      // next interation
-      {$ifdef CPUX86}
-      Store.CurrentSectorRec := SectorRec;
-      {$endif}
-      CurrentSectorRec := SectorRec;
-    end else
-    if (Storage.PoolMarker = @Buffer[SECTORS_MAX_CHILDS]) then
-    begin
-      // allocate new pool items
-      FloodTileMapSectors(Storage, SectorRec{$ifdef LARGEINT}, NodeBuffers{$endif});
-      Exit;
-    end else
-    begin
-      // pool last item
-      PFloodSectorRec(NativeUInt(Storage.PoolMarker) -
-        SECTORS_MAX_CHILDS * SizeOf(TFloodSectorRec)).Next := @Buffer[High(Buffer)];
-
-      // add buffer items to the pool
-      {$ifdef CPUX86}
-      Store.CurrentSectorRec := SectorRec;
-      {$endif}
-      Storage.PoolMarker := SectorRec;
-      begin
-        CurrentSectorRec := @Buffer[High(Buffer)];
-        SectorRec := @Buffer[High(Buffer) - 1];
-        repeat
-          CurrentSectorRec.Next := SectorRec;
-          Dec(CurrentSectorRec);
-          Dec(SectorRec);
-        until (CurrentSectorRec = @Buffer[0]);
-        CurrentSectorRec.Next := nil;
-      end;
-      CurrentSectorRec := Storage.PoolMarker;
-      Storage.PoolMarker := @Buffer[SECTORS_MAX_CHILDS];
-    end;
+    // next interation
+    {$ifdef CPUX86}
+    Store.CurrentLineRec := LineRec;
+    {$endif}
+    CurrentLineRec := LineRec;
   until (False);
 end;
 
-procedure FloodTileMapSectors(var Storage: TFloodSectorStorage;
+procedure FloodTileMapSectors(var Storage: TFloodLineStorage;
   const Cell: PCPFCell; const Sector: PByte
   {$ifdef LARGEINT}; NodeBuffers: PCPFNodeBuffers{$endif}); overload;
 var
-  FloodSectorRec: TFloodSectorRec;
-  Buffer: array[0..7] of TFloodSectorRec;
+  FloodLineRec: TFloodLineRec;
+  Buffer: array[0..7] of TFloodLineRec;
 begin
   // initialize sector rec
-  FloodSectorRec.SectorValues := Storage.SectorValues;
-  FillFloodSectorRec(FloodSectorRec, Cell, Sector{$ifdef LARGEINT}, NodeBuffers{$endif});
+  FloodLineRec.SectorValues := Storage.SectorValues;
+  FillFloodLineRec(FloodLineRec, Cell, Sector{$ifdef LARGEINT}, NodeBuffers{$endif});
 
   // initialize queue
-  Storage.QueueLast := @FloodSectorRec;
-  FloodSectorRec.Next := nil;
+  Storage.QueueLast := @FloodLineRec;
+  FloodLineRec.Next := nil;
 
   // initialize basic pool
-  Buffer[0].Next := nil;
-  Buffer[1].Next := @Buffer[0];
-  Buffer[2].Next := @Buffer[1];
-  Buffer[3].Next := @Buffer[2];
-  Buffer[4].Next := @Buffer[3];
-  Buffer[5].Next := @Buffer[4];
-  Buffer[6].Next := @Buffer[5];
-  Buffer[7].Next := @Buffer[6];
-  Storage.Pool := @Buffer[High(Buffer)];
-  Storage.PoolMarker := @Buffer[SECTORS_MAX_CHILDS];
+  Buffer[0].Next := @Buffer[1];
+  Buffer[1].Next := @Buffer[2];
+  Buffer[2].Next := @Buffer[3];
+  Buffer[3].Next := @Buffer[4];
+  Buffer[4].Next := @Buffer[5];
+  Buffer[5].Next := @Buffer[6];
+  Buffer[6].Next := @Buffer[7];
+  Buffer[7].Next := nil;
+  Storage.Pool := @Buffer[0];
 
   // call flood recursion
-  FloodTileMapSectors(Storage, @FloodSectorRec{$ifdef LARGEINT}, NodeBuffers{$endif});
+  FloodTileMapSectors(Storage, @FloodLineRec{$ifdef LARGEINT}, NodeBuffers{$endif});
 end;
 
 procedure TTileMap.ActualizeSectors;
@@ -4040,7 +4108,7 @@ var
   Cell: PCPFCell;
   CellInfo: NativeUInt;
   Sector: PByte;
-  Storage: TFloodSectorStorage;
+  Storage: TFloodLineStorage;
   {$ifdef LARGEINT}
     NodeBuffers: PCPFNodeBuffers;
   {$endif}
@@ -6090,9 +6158,18 @@ initialization
     GenerateLookups;
     Halt;
   {$endif}
+  {$ifdef CPFLOG}
+    CpfLogFile := TFileStream.Create('CpfLog.txt', fmCreate);
+    CpfLogFile.Write(BOM_UTF8, SizeOf(BOM_UTF8));
+  {$endif}
   {$ifNdef CPFLIB}
     {$WARNINGS OFF} // deprecated warning bug fix (like Delphi 2010 compiler)
     System.GetMemoryManager(MemoryManager);
+  {$endif}
+
+finalization
+  {$ifdef CPFLOG}
+    CpfLogFile.Free;
   {$endif}
 
 end.
