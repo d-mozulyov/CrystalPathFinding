@@ -228,6 +228,7 @@ type
   {$endif}
   public
     {$ifdef CPFLIB}procedure{$else}constructor{$endif} Create;
+    procedure Clear;
 
     property Values[const Tile: Byte]: Single read GetValue write SetValue; default;
   end;
@@ -467,7 +468,7 @@ type
   public
     {$ifdef CPFLIB}procedure{$else}constructor{$endif}
       Create(const AWidth, AHeight: Word; const AKind: TTileMapKind; const ASameDiagonalWeight: Boolean = False);
-    procedure Clear();
+    procedure Clear;
     procedure Update(const ATiles: PByte; const X, Y, AWidth, AHeight: Word; const Pitch: NativeInt = 0);
 
     property Width: Word read FWidth;
@@ -508,10 +509,11 @@ type
   procedure cpfInitialize(const Callbacks: TCPFCallbacks); cdecl;
   {$endif}
 
-  function  cpfCreateWeights(): TCPFHandle; cdecl;
+  function  cpfCreateWeights: TCPFHandle; cdecl;
   procedure cpfDestroyWeights(var HWeights: TCPFHandle); cdecl;
   function  cpfWeightGet(HWeights: TCPFHandle; Tile: Byte): Single; cdecl;
   procedure cpfWeightSet(HWeights: TCPFHandle; Tile: Byte; Value: Single); cdecl;
+  procedure cpfWeightsClear(HWeights: TCPFHandle); cdecl;
   function  cpfCreateMap(Width, Height: Word; Kind: TTileMapKind; SameDiagonalWeight: Boolean = False): TCPFHandle; cdecl;
   procedure cpfDestroyMap(var HMap: TCPFHandle); cdecl;
   procedure cpfMapClear(HMap: TCPFHandle); cdecl;
@@ -1134,7 +1136,7 @@ begin
   TCPFClassPtr(Result).FCallAddress := Address;
 end;
 
-function  cpfCreateWeights(): TCPFHandle; cdecl;
+function  cpfCreateWeights: TCPFHandle; cdecl;
 var
   Address: Pointer;
 begin
@@ -1186,6 +1188,23 @@ begin
   TCPFClassPtr(HWeights).FCallAddress := Address;
 
   TTileMapWeightsPtr(HWeights).Values[Tile] := Value;
+end;
+
+procedure cpfWeightsClear(HWeights: TCPFHandle); cdecl;
+var
+  Address: Pointer;
+begin
+  Address := ReturnAddress;
+
+  if (HWeights <= $ffff) then
+  begin
+    RaiseInvalidPointer(Address);
+  end else
+  with TTileMapWeightsPtr(HWeights){$ifdef CPFLIB}^{$endif} do
+  begin
+    FCallAddress := Address;
+    Clear;
+  end;
 end;
 
 function  cpfCreateMap(Width, Height: Word; Kind: TTileMapKind;
@@ -1555,9 +1574,9 @@ const
   );
 
   MIN_WEIGHT_VALUE_LINE = Cardinal($3DCCCCCD){0.1};
-  MAX_WEIGHT_VALUE_LINE = Cardinal($42480000){50.0};
+  MAX_WEIGHT_VALUE_LINE = Cardinal($42C80000){100.0};
   DEFAULT_WEIGHT_VALUE_LINE = Cardinal($3F800000){1.0};
-  ERROR_WEIGHT_VALUE = 'Invalid weight value. 0,0..0,1 - pathless, 0,1..50 - correct';
+  ERROR_WEIGHT_VALUE = 'Invalid weight value. 0,0..0,1 - pathless, 0,1..100,0 - correct';
 
   FLAGS_MOVE_LEFT_DOWN: array[0..15{way:3;clockwise:1}] of Byte = (
     $00, $18, $10, $10, $18, $08, $00, $08, $10, $08, $18, $10, $18, $00, $00, $08
@@ -2139,7 +2158,7 @@ end;
 procedure GenerateLookups;
 const
   MIN_WEIGHT_VALUE_LINE: Single = 0.1;
-  MAX_WEIGHT_VALUE_LINE: Single = 50;
+  MAX_WEIGHT_VALUE_LINE: Single = 100.0;
   DEFAULT_WEIGHT_VALUE_LINE: Single = 1;
 var
   Way: Integer;
@@ -2168,7 +2187,7 @@ begin
     LookupLineFmt('MAX_WEIGHT_VALUE_LINE = Cardinal($%8x){%0.1f};', [PCardinal(@MAX_WEIGHT_VALUE_LINE)^, MAX_WEIGHT_VALUE_LINE]);
     LookupLineFmt('DEFAULT_WEIGHT_VALUE_LINE = Cardinal($%8x){%0.1f};', [PCardinal(@DEFAULT_WEIGHT_VALUE_LINE)^, DEFAULT_WEIGHT_VALUE_LINE]);
     FormatSettings.DecimalSeparator := ',';
-    LookupLineFmt('ERROR_WEIGHT_VALUE = ''Invalid weight value. 0,0..%0.1f - pathless, %0.1f..%0.0f - correct'';',
+    LookupLineFmt('ERROR_WEIGHT_VALUE = ''Invalid weight value. 0,0..%0.1f - pathless, %0.1f..%0.1f - correct'';',
       [MIN_WEIGHT_VALUE_LINE, MIN_WEIGHT_VALUE_LINE, MAX_WEIGHT_VALUE_LINE]);
 
     // FLAGS_MOVE_LEFT_DOWN
@@ -2431,6 +2450,20 @@ begin
         Info.Count := Index;
       end;
     end;
+  end;
+end;
+
+procedure TTileMapWeights.Clear;
+begin
+  {$ifNdef CPFLIB}
+    FCallAddress := ReturnAddress;
+  {$endif}
+
+  if (FInfo.Count <> 0) then
+  begin
+    FillCardinal(@FInfo.Singles[1], FInfo.Count, DEFAULT_WEIGHT_VALUE_LINE);
+    FInfo.Count := 0;
+    Inc(FInfo.UpdateId);
   end;
 end;
 
@@ -5819,7 +5852,7 @@ begin
       end;
     end else
     if (FActualInfo.Weights.Current <> Params.Weights.FInfo) or
-      (FActualInfo.Weights.UpdateId <> Params.Weights.FInfo.PrepareId) then
+      (FActualInfo.Weights.UpdateId <> Params.Weights.FInfo.UpdateId) then
     begin
       Store.HLine := FInfo.HeuristicsLine;
       Store.HDiagonal := FInfo.HeuristicsDiagonal;

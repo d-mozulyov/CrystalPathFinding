@@ -3,7 +3,7 @@ object MainForm: TMainForm
   Top = 134
   BorderIcons = [biSystemMenu, biMinimize]
   BorderStyle = bsSingle
-  Caption = 'CrystalPathFinding (cpf) library test'
+  Caption = 'CrystalPathFinding (CPF) library test'
   ClientHeight = 647
   ClientWidth = 1064
   Color = clBtnFace
@@ -156,6 +156,7 @@ object MainForm: TMainForm
       Height = 10
       Max = 200
       PageSize = 0
+      Position = 20
       TabOrder = 0
       OnChange = OnTileWeightChange
     end
@@ -180,6 +181,7 @@ object MainForm: TMainForm
       Height = 10
       Max = 200
       PageSize = 0
+      Position = 20
       TabOrder = 2
       OnChange = OnTileWeightChange
     end
@@ -191,6 +193,7 @@ object MainForm: TMainForm
       Height = 10
       Max = 200
       PageSize = 0
+      Position = 20
       TabOrder = 3
       OnChange = OnTileWeightChange
     end
@@ -202,6 +205,7 @@ object MainForm: TMainForm
       Height = 10
       Max = 200
       PageSize = 0
+      Position = 20
       TabOrder = 4
       OnChange = OnTileWeightChange
     end

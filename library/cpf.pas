@@ -130,6 +130,7 @@ type
     destructor Destroy; override;
   public
     constructor Create;
+	procedure Clear;
 
     property Handle: TCPFHandle read FHandle;
     property Values[const Tile: Byte]: Single read GetValue write SetValue; default;
@@ -151,7 +152,7 @@ type
     destructor Destroy; override;
   public
     constructor Create(const AWidth, AHeight: Word; const AKind: TTileMapKind; const ASameDiagonalWeight: Boolean = False);
-    procedure Clear(); {$ifdef INLINESUPPORT}inline;{$endif}
+    procedure Clear; {$ifdef INLINESUPPORT}inline;{$endif}
     procedure Update(const ATiles: PByte; const X, Y, AWidth, AHeight: Word; const Pitch: NativeInt = 0); {$ifdef INLINESUPPORT}inline;{$endif}
 
     property Width: Word read FWidth;
@@ -182,6 +183,7 @@ function  cpfCreateWeights: TCPFHandle; cdecl; external cpf_lib;
 procedure cpfDestroyWeights(var HWeights: TCPFHandle); cdecl; external cpf_lib;
 function  cpfWeightGet(HWeights: TCPFHandle; Tile: Byte): Single; cdecl; external cpf_lib;
 procedure cpfWeightSet(HWeights: TCPFHandle; Tile: Byte; Value: Single); cdecl; external cpf_lib;
+procedure cpfWeightsClear(HWeights: TCPFHandle); cdecl; external cpf_lib;
 function  cpfCreateMap(Width, Height: Word; Kind: TTileMapKind; SameDiagonalWeight: Boolean = False): TCPFHandle; cdecl; external cpf_lib;
 procedure cpfDestroyMap(var HMap: TCPFHandle); cdecl; external cpf_lib;
 procedure cpfMapClear(HMap: TCPFHandle); cdecl; external cpf_lib;
@@ -291,6 +293,11 @@ procedure TTileMapWeights.SetValue(const Tile: Byte;
   const Value: Single);
 begin
   cpfWeightSet(FHandle, Tile, Value);
+end;
+
+constructor TTileMapWeights.Clear;
+begin
+  cpfWeightClear(FHandle);
 end;
 
 
