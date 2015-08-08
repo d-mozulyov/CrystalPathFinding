@@ -49,7 +49,7 @@ uses
   SysUtils,
   Classes,
   Graphics,
-  cpf in '..\library\cpf.pas';
+  CrystalPathFinding in '..\sources\CrystalPathFinding.pas';
 
 function MessageBox(const Caption: string; const Fmt: string;
   const Args: array of const; const Flags: Integer): Integer;
@@ -98,7 +98,7 @@ var
   BitmapPitch: Integer;
   CellCount: Integer;
 
-  Map: TCPFHandle;
+  Map: TTileMap;
   Time: Cardinal;
   Found: Boolean;
   Start, Finish: TPoint;
@@ -124,7 +124,7 @@ begin
   end;
 
 Bitmap := TBitmap.Create;
-Map := 0;
+Map := nil;
 try
   // loading
   Bitmap.LoadFromFile(FileName);
@@ -152,17 +152,17 @@ try
   Pix := BitmapData;
   for i := 1 to BitmapHeight * BitmapPitch do
   begin
-    if (Pix^ <> 0) then Pix^ := 1;
+    if (Pix^ <> 0) then Pix^ := 255;
     Inc(Pix);
   end;
-  Map := cpfCreateMap(BitmapWidth, BitmapHeight, mkSimple);
-  cpfMapUpdate(Map, BitmapPixel(0, 0), 0, 0, BitmapWidth, BitmapHeight, -BitmapPitch);
+  Map := TTileMap.Create(BitmapWidth, BitmapHeight, mkSimple);
+  Map.Update(BitmapPixel(0, 0), 0, 0, BitmapWidth, BitmapHeight, -BitmapPitch);
   
   // take Start/Finish points
   Found := False;
   Start.Y := 0;
   for i := 0 to BitmapWidth - 1 do
-  if (BitmapPixel(i, Start.Y)^ = 0) then
+  if (BitmapPixel(i, Start.Y)^ <> 0) then
   begin
     Start.X := i;
     Found := True;
@@ -176,7 +176,7 @@ try
   Found := false;
   Finish.Y := BitmapHeight - 1;
   for i := BitmapWidth - 1 downto 0 do
-  if (BitmapPixel(i, Finish.Y)^ = 0) then
+  if (BitmapPixel(i, Finish.Y)^ <> 0) then
   begin
     Finish.X := i;
     Found := True;
@@ -193,10 +193,12 @@ try
     Params.Starts := @Start;
     Params.StartsCount := 1;
     Params.Finish := Finish;
-    Params.Weights := 0;
+    Params.Weights := nil;
     Params.Excludes := nil;
     Params.ExcludesCount := 0;
-    Path := cpfFindPath(Map, @Params, False, False);
+    Map.SectorTest := False;
+    Map.Caching := False;
+    Path := Map.FindPath(Params);
   Time := GetTickCount - Time;
 
   // result
@@ -218,7 +220,7 @@ try
                     [Time, DestFileName, Path.Distance, Path.Count]);
   end;
 finally
-  cpfDestroyMap(Map);
+  Map.Free;
   Bitmap.Free;
 end;
 

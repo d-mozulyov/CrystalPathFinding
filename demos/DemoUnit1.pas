@@ -179,9 +179,9 @@ var
   MaskHexagonal: TBitmap;
 
   // main CPF library objects: map and tile weights
-  HWeights: TCPFHandle;
-  HMap: TCPFHandle;
-  
+  Weights: TTileMapWeights;
+  Map: TTileMap;
+
 implementation
 
 {$R *.dfm}
@@ -400,7 +400,7 @@ begin
   Randomize;
   Application.Title := 'CrystalPathFinding (CPF)';
   ProjectPath := IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0)));
-  HWeights := cpfCreateWeights;
+  Weights := TTileMapWeights.Create;
 
   // bitmaps
   for i := 0 to TILES_COUNT - 1 do
@@ -487,8 +487,8 @@ begin
   SaveMap;
 
   // remove allocated instances
-  cpfDestroyWeights(HWeights);
-  cpfDestroyMap(HMap);
+  Weights.Free;
+  Map.Free;
 
   for i := 0 to TILES_COUNT * 3 - 1 do
   TileBitmaps[i].Free;
@@ -516,7 +516,6 @@ end;
 // and repaint map
 procedure TMainForm.TryUpdate;
 var
-  Weights: TCPFHandle;
   Path: TTileMapPath;
   Params: TTileMapParams;
 begin
@@ -526,28 +525,24 @@ begin
   if (not FActualMap) then
   begin
     FActualMap := True;
-    if (HMap <> 0) then cpfDestroyMap(HMap);
-    HMap := cpfCreateMap(MAP_WIDTH, MAP_HEIGHT, FMapKind);
-    cpfMapUpdate(HMap, @TILE_MAP[0, 0], 0, 0, MAP_WIDTH, MAP_HEIGHT);
+    FreeAndNil(Map);
+    Map := TTileMap.Create(MAP_WIDTH, MAP_HEIGHT, FMapKind);
+    Map.Update(@TILE_MAP[0, 0], 0, 0, MAP_WIDTH, MAP_HEIGHT);
   end;
 
   // find path
-  if (FUseWeights) then
-  begin
-    Weights := HWeights;
-  end else
-  begin
-    Weights := 0;
-  end;
   try
     Params.Starts := @StartPoint;
     Params.StartsCount := 1;
     Params.Finish := FinishPoint;
-    Params.Weights := {$ifNdef USECPFDLL}TTileMapWeights{$endif}(Weights);
+    if (FUseWeights) then Params.Weights := Weights
+    else Params.Weights := nil;
     Params.Excludes := PPoint(FExcludedPoints);
     Params.ExcludesCount := Length(FExcludedPoints);
 
-    Path := cpfFindPath(HMap, @Params, FSectorTest, FCaching);
+    Map.SectorTest := FSectorTest;
+    Map.Caching := FCaching;
+    Path := Map.FindPath(Params);
   except
     SaveMap;
     Path.Count := 0;
@@ -626,7 +621,7 @@ var
 begin
   // analize pathless tiles
   for Index := 1 to TILES_COUNT do
-  UsedTiles[Index] := (not FUseWeights) or (cpfWeightGet(HWeights, Index) >= 0.1);
+  UsedTiles[Index] := (not FUseWeights) or (Weights[Index] >= 0.1);
 
   // hexagonal mask
   BitmapMask := nil;
@@ -969,7 +964,7 @@ var
     if (TILE_MAP[Y, X] <> Value) then
     begin
       TILE_MAP[Y, X] := Value;
-      cpfMapSetTile(HMap, X, Y, Value);
+      Map[X, Y] := Value;
       FActualMap := False;
       TryUpdate;
     end;
@@ -981,7 +976,7 @@ begin
   {$ifdef CPFDBG}
     {$WARN SYMBOL_PLATFORM OFF}
     if (System.DebugHook > 0) then
-      Caption := TTileMapPtr(HMap).CellInformation(P.X, P.Y);
+      Caption := Map.CellInformation(P.X, P.Y);
   {$endif}
   LastCursorPoint := FCursorPoint;
   FCursorPoint := P;
@@ -1052,7 +1047,7 @@ begin
 
   if (Index > 0) then
   begin
-    if (cpfWeightGet(HWeights, Index) < 0.1) then Color := clWhite;
+    if (Weights[Index] < 0.1) then Color := clWhite;
     Active := (TileMode = Index);
   end else
   begin
@@ -1097,7 +1092,7 @@ begin
   Weight := TScrollBar(Sender).Position / 20;
   TLabel(FindComponent('lbTile' + IntToStr(Index))).Caption := Format('%0.2f', [Weight]);
 
-  cpfWeightSet(HWeights, Index, Weight);
+  Weights[Index] := Weight;
   RepaintBoxes([TPaintBox(FindComponent('pbTile' + IntToStr(Index)))]);
   if (FUseWeights) then TryUpdate;
 end;
@@ -1204,24 +1199,24 @@ procedure TMainForm.btnSpeedTestClick(Sender: TObject);
 var
   i, Count: Integer;
   Time: Cardinal;
-  Weights: TCPFHandle;
   Params: TTileMapParams;
 begin
-  Weights := HWeights;
-  if (not FUseWeights) then Weights := 0;
-
   Count := seIterationsCount.Value;
   Time := GetTickCount;
   begin
     Params.Starts := @StartPoint;
     Params.StartsCount := 1;
     Params.Finish := FinishPoint;
-    Params.Weights := {$ifNdef USECPFDLL}TTileMapWeights{$endif}(Weights);
+    if (FUseWeights) then Params.Weights := Weights
+    else Params.Weights := nil;
     Params.Excludes := PPoint(FExcludedPoints);
     Params.ExcludesCount := Length(FExcludedPoints);
 
+    // Execute path finding
+    Map.SectorTest := FSectorTest;
+    Map.Caching := FCaching;
     for i := 1 to Count do
-      cpfFindPath(HMap, @Params, FSectorTest, FCaching){ExecutePathFinding(Show = False)};
+      Map.FindPath(Params);
   end;
   Time := GetTickCount - Time;
 

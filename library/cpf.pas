@@ -130,7 +130,7 @@ type
     destructor Destroy; override;
   public
     constructor Create;
-	procedure Clear;
+    procedure Clear;
 
     property Handle: TCPFHandle read FHandle;
     property Values[const Tile: Byte]: Single read GetValue write SetValue; default;
@@ -295,9 +295,9 @@ begin
   cpfWeightSet(FHandle, Tile, Value);
 end;
 
-constructor TTileMapWeights.Clear;
+procedure TTileMapWeights.Clear;
 begin
-  cpfWeightClear(FHandle);
+  cpfWeightsClear(FHandle);
 end;
 
 
