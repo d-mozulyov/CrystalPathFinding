@@ -4,13 +4,13 @@ object MainForm: TMainForm
   BorderIcons = [biSystemMenu, biMinimize]
   BorderStyle = bsSingle
   Caption = 'CrystalPathFinding (CPF) library test'
-  ClientHeight = 647
-  ClientWidth = 1064
+  ClientHeight = 652
+  ClientWidth = 1072
   Color = clBtnFace
-  Font.Charset = DEFAULT_CHARSET
+  Font.Charset = RUSSIAN_CHARSET
   Font.Color = clWindowText
   Font.Height = -11
-  Font.Name = 'MS Sans Serif'
+  Font.Name = 'Tahoma'
   Font.Style = []
   KeyPreview = True
   OldCreateOrder = False
@@ -22,72 +22,34 @@ object MainForm: TMainForm
   TextHeight = 13
   object pbMap: TPaintBox
     Left = 8
-    Top = 40
+    Top = 44
     Width = 900
     Height = 600
+    Font.Charset = RUSSIAN_CHARSET
+    Font.Color = clWindowText
+    Font.Height = -11
+    Font.Name = 'Tahoma'
+    Font.Style = []
+    ParentFont = False
     OnDblClick = pbMapDblClick
     OnMouseDown = pbMapMouseDown
     OnMouseMove = pbMapMouseMove
     OnMouseUp = pbMapMouseUp
     OnPaint = pbMapPaint
   end
-  object lbDistance: TLabel
-    Left = 8
-    Top = 16
-    Width = 123
-    Height = 21
-    Caption = 'Distance: 100.01'
-    Font.Charset = RUSSIAN_CHARSET
-    Font.Color = clRed
-    Font.Height = -19
-    Font.Name = 'Times New Roman'
-    Font.Style = []
-    ParentFont = False
-  end
-  object gbOptions: TGroupBox
-    Left = 916
-    Top = 532
-    Width = 140
-    Height = 40
-    TabOrder = 6
-    object cbSectorTest: TCheckBox
-      Left = 8
-      Top = 20
-      Width = 97
-      Height = 17
-      Caption = ' SectorTest'
-      Checked = True
-      State = cbChecked
-      TabOrder = 0
-      OnClick = cbSectorTestClick
-    end
-    object cbCaching: TCheckBox
-      Left = 8
-      Top = 4
-      Width = 97
-      Height = 17
-      Caption = ' Caching'
-      Checked = True
-      ParentShowHint = False
-      ShowHint = True
-      State = cbChecked
-      TabOrder = 1
-      OnClick = OnMapOptionChanged
-    end
-  end
   object gbTileWeigths: TGroupBox
     Left = 916
-    Top = 108
-    Width = 140
-    Height = 333
-    Caption = '      Tile weights  '
+    Top = 91
+    Width = 149
+    Height = 380
+    Caption = '        Tile weights '
     ParentShowHint = False
     ShowHint = False
-    TabOrder = 0
+    TabOrder = 6
     object pbTile1: TPaintBox
       Tag = 1
-      Left = 10
-      Top = 16
+      Left = 11
+      Top = 21
       Width = 60
       Height = 60
       OnClick = OnTileClick
@@ -95,8 +57,8 @@ object MainForm: TMainForm
     end
     object pbTile2: TPaintBox
       Tag = 2
-      Left = 10
-      Top = 95
+      Left = 11
+      Top = 111
       Width = 60
       Height = 60
       OnClick = OnTileClick
@@ -104,8 +66,8 @@ object MainForm: TMainForm
     end
     object pbTile3: TPaintBox
       Tag = 3
-      Left = 10
-      Top = 174
+      Left = 11
+      Top = 201
       Width = 60
       Height = 60
       OnClick = OnTileClick
@@ -113,72 +75,72 @@ object MainForm: TMainForm
     end
     object pbTile4: TPaintBox
       Tag = 4
-      Left = 10
-      Top = 253
+      Left = 11
+      Top = 291
       Width = 60
       Height = 60
       OnClick = OnTileClick
       OnPaint = OnTilePaint
     end
     object lbTile1: TLabel
-      Left = 75
-      Top = 66
-      Width = 17
+      Left = 76
+      Top = 70
+      Width = 22
       Height = 13
-      Caption = 'text'
+      Caption = '1.00'
     end
     object lbTile2: TLabel
-      Left = 75
-      Top = 144
-      Width = 17
+      Left = 76
+      Top = 160
+      Width = 22
       Height = 13
-      Caption = 'text'
+      Caption = '1.00'
     end
     object lbTile3: TLabel
-      Left = 75
-      Top = 223
-      Width = 17
+      Left = 76
+      Top = 250
+      Width = 22
       Height = 13
-      Caption = 'text'
+      Caption = '1.00'
     end
     object lbTile4: TLabel
-      Left = 75
-      Top = 303
-      Width = 17
+      Left = 76
+      Top = 340
+      Width = 22
       Height = 13
-      Caption = 'text'
+      Caption = '1.00'
     end
     object sbTile1: TScrollBar
       Tag = 1
-      Left = 11
-      Top = 80
-      Width = 120
-      Height = 10
+      Left = 12
+      Top = 88
+      Width = 125
+      Height = 13
       Max = 200
       PageSize = 0
       Position = 20
-      TabOrder = 0
+      TabOrder = 1
       OnChange = OnTileWeightChange
     end
     object cbUseWeights: TCheckBox
-      Left = 8
-      Top = -2
-      Width = 62
+      Left = 13
+      Top = -1
+      Width = 84
       Height = 17
       Hint = 'Custom tile weights'
       Checked = True
       ParentShowHint = False
       ShowHint = True
       State = cbChecked
-      TabOrder = 1
+      TabOrder = 0
       OnClick = cbUseWeightsClick
     end
     object sbTile2: TScrollBar
       Tag = 2
-      Left = 11
-      Top = 158
-      Width = 120
-      Height = 10
+      Left = 12
+      Top = 178
+      Width = 125
+      Height = 13
       Max = 200
       PageSize = 0
       Position = 20
@@ -187,10 +149,10 @@ object MainForm: TMainForm
     end
     object sbTile3: TScrollBar
       Tag = 3
-      Left = 11
-      Top = 237
-      Width = 120
-      Height = 10
+      Left = 12
+      Top = 268
+      Width = 125
+      Height = 13
       Max = 200
       PageSize = 0
       Position = 20
@@ -199,10 +161,10 @@ object MainForm: TMainForm
     end
     object sbTile4: TScrollBar
       Tag = 4
-      Left = 11
-      Top = 317
-      Width = 120
-      Height = 10
+      Left = 12
+      Top = 358
+      Width = 125
+      Height = 13
       Max = 200
       PageSize = 0
       Position = 20
@@ -212,11 +174,17 @@ object MainForm: TMainForm
   end
   object gbBarrierMode: TGroupBox
     Left = 916
-    Top = 34
-    Width = 140
-    Height = 73
+    Top = 10
+    Width = 149
+    Height = 77
     Caption = ' Barrier mode (right button) '
-    TabOrder = 1
+    Font.Charset = RUSSIAN_CHARSET
+    Font.Color = clWindowText
+    Font.Height = -11
+    Font.Name = 'Tahoma'
+    Font.Style = []
+    ParentFont = False
+    TabOrder = 5
     object pbBarrier: TPaintBox
       Left = 19
       Top = 21
@@ -230,7 +198,7 @@ object MainForm: TMainForm
     end
     object pbExclude: TPaintBox
       Tag = -1
-      Left = 70
+      Left = 77
       Top = 21
       Width = 45
       Height = 45
@@ -241,17 +209,23 @@ object MainForm: TMainForm
       OnPaint = OnTilePaint
     end
   end
-  object gbSpeedTest: TGroupBox
+  object gbPerformanceTest: TGroupBox
     Left = 916
-    Top = 574
-    Width = 140
-    Height = 67
-    Caption = ' Speed test '
-    TabOrder = 2
+    Top = 554
+    Width = 149
+    Height = 92
+    Caption = ' Performance test '
+    Font.Charset = RUSSIAN_CHARSET
+    Font.Color = clWindowText
+    Font.Height = -11
+    Font.Name = 'Tahoma'
+    Font.Style = []
+    ParentFont = False
+    TabOrder = 7
     object seIterationsCount: TSpinEdit
       Left = 11
-      Top = 18
-      Width = 120
+      Top = 33
+      Width = 126
       Height = 22
       Hint = 'Count of times'
       MaxValue = 1000000
@@ -259,21 +233,81 @@ object MainForm: TMainForm
       ParentShowHint = False
       ShowHint = True
       TabOrder = 0
-      Value = 1000
+      Value = 10000
     end
-    object btnSpeedTest: TButton
+    object btnPerformanceTest: TButton
       Left = 10
-      Top = 42
-      Width = 122
-      Height = 22
+      Top = 61
+      Width = 128
+      Height = 25
       Caption = 'Run'
       TabOrder = 1
-      OnClick = btnSpeedTestClick
+      OnClick = btnPerformanceTestClick
     end
+  end
+  object cbTestingMode: TComboBox
+    Left = 139
+    Top = 16
+    Width = 224
+    Height = 22
+    Hint = 'Start points and caching'
+    Style = csDropDownList
+    Font.Charset = RUSSIAN_CHARSET
+    Font.Color = clWindowText
+    Font.Height = -12
+    Font.Name = 'Tahoma'
+    Font.Style = []
+    ItemIndex = 0
+    ParentFont = False
+    ParentShowHint = False
+    ShowHint = True
+    TabOrder = 1
+    Text = 'One start point'
+    OnChange = cbTestingModeChange
+    Items.Strings = (
+      'One start point'
+      'One start point - caching'
+      'Many start points'
+      'Many start points (standard)'
+      'Many start points (standard) - caching')
+  end
+  object cbMapKind: TComboBox
+    Left = 8
+    Top = 16
+    Width = 125
+    Height = 22
+    Hint = 'Map kind'
+    Style = csDropDownList
+    Font.Charset = RUSSIAN_CHARSET
+    Font.Color = clWindowText
+    Font.Height = -12
+    Font.Name = 'Tahoma'
+    Font.Style = []
+    ItemIndex = 0
+    ParentFont = False
+    ParentShowHint = False
+    ShowHint = True
+    TabOrder = 0
+    Text = 'mkSimple'
+    OnChange = cbMapKindChange
+    Items.Strings = (
+      'mkSimple'
+      'mkDiagonal'
+      'mkDiagonalEx'
+      'mkHexagonal')
+  end
+  object btnSave: TButton
+    Left = 834
+    Top = 15
+    Width = 75
+    Height = 25
+    Caption = 'Save'
+    TabOrder = 4
+    OnClick = btnSaveClick
   end
   object btnRandom: TButton
     Left = 755
-    Top = 13
+    Top = 15
     Width = 75
     Height = 25
     Caption = 'Random'
@@ -282,37 +316,11 @@ object MainForm: TMainForm
   end
   object btnClear: TButton
     Left = 676
-    Top = 13
+    Top = 15
     Width = 75
     Height = 25
     Caption = 'Clear'
-    TabOrder = 4
+    TabOrder = 2
     OnClick = btnClearClick
-  end
-  object rgMapKind: TRadioGroup
-    Left = 916
-    Top = 442
-    Width = 140
-    Height = 88
-    Caption = ' Map mode'
-    ItemIndex = 0
-    Items.Strings = (
-      'mmSimple'
-      'mmDiagonal'
-      'mmDiagonalEx'
-      'mmHexagonal')
-    ParentShowHint = False
-    ShowHint = False
-    TabOrder = 5
-    OnClick = rgMapKindClick
-  end
-  object btnSave: TButton
-    Left = 834
-    Top = 13
-    Width = 75
-    Height = 25
-    Caption = 'Save'
-    TabOrder = 7
-    OnClick = btnSaveClick
   end
 end
