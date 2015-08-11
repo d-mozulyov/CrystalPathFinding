@@ -90,6 +90,9 @@ type
     btnSave: TButton;
     btnRandom: TButton;
     btnClear: TButton;
+    gpOptions: TGroupBox;
+    cbSectorTest: TCheckBox;
+    cbSameDiagonalWeight: TCheckBox;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
@@ -108,12 +111,16 @@ type
     procedure btnSaveClick(Sender: TObject);
     procedure cbTestingModeChange(Sender: TObject);
     procedure cbMapKindChange(Sender: TObject);
+    procedure cbSectorTestClick(Sender: TObject);
+    procedure cbSameDiagonalWeightClick(Sender: TObject);
   private
     // update/repaint/execute
     FUpdateCounter: Integer;
     FActualMap: Boolean;
     FCursorPoint: TPoint;
     FMousePressed: TMouseButton;
+    FPathPointBuffer: array of TPoint;
+    FCachedPoints: array of TPoint;
 
     function ScreenToMap(X, Y: Integer): TPoint;
     function MapToScreen(X, Y: Integer; Center: Boolean = True): TPoint;
@@ -123,6 +130,7 @@ type
     procedure BeginUpdate;
     procedure EndUpdate;
     procedure TryUpdate;
+    function ExecutePathFinding: TTileMapPath;
     procedure FillMapBitmap(const Path: TTileMapPath; const JpgFileName: string = '');
     procedure SaveMap;
   private
@@ -133,16 +141,22 @@ type
     FBarrierMode: Byte;
     FMapKind: TTileMapKind;
     FUseWeights: Boolean;
-    FTestingMode: TTestingMode;
+    FSectorTest: Boolean;
     FExcludedPoints: array of TPoint;
+    FTestingMode: TTestingMode;
+    FSameDiagonalWeight: Boolean;
+    FManyStartPoints: array of TPoint;
 
+    procedure InitializeManyStartPoints;
     procedure SetStartPoint(const Value: TPoint);
     procedure SetFinishPoint(const Value: TPoint);
     procedure SetTileMode(const Value: Byte);
     procedure SetBarrierMode(const Value: Byte);
     procedure SetMapKind(const Value: TTileMapKind);
     procedure SetUseWeights(const Value: Boolean);
+    procedure SetSectorTest(const Value: Boolean);
     procedure SetTestingMode(const Value: TTestingMode);
+    procedure SetSameDiagonalWeight(const Value: Boolean);
     function ExcludePointPos(const Value: TPoint): Integer;
     procedure AddExcludedPoint(const Value: TPoint);
     procedure DeleteExcludedPoint(const Value: TPoint);
@@ -153,7 +167,9 @@ type
     property BarrierMode: Byte read FBarrierMode write SetBarrierMode;
     property MapKind: TTileMapKind read FMapKind write SetMapKind;
     property UseWeights: Boolean read FUseWeights write SetUseWeights;
+    property SectorTest: Boolean read FSectorTest write SetSectorTest;
     property TestingMode: TTestingMode read FTestingMode write SetTestingMode;
+    property SameDiagonalWeight: Boolean read FSameDiagonalWeight write SetSameDiagonalWeight;
   end;
 
 
@@ -389,6 +405,7 @@ var
   FileName: string;
   F: TFileStream;
   GreyTile, SmallCell: TBitmap;
+  MapKindValue: Byte;
 
   function LoadBitmap(const FileName: string): TBitmap;
   begin
@@ -427,9 +444,10 @@ var
     F.ReadBuffer(Result, SizeOf(Result));
   end;
 
-  function ReadByte: Byte;
+  function ReadByte(const DefaultValue: Byte): Byte;
   begin
-    F.ReadBuffer(Result, SizeOf(Result));
+    if (F.Read(Result, SizeOf(Result)) <> SizeOf(Result)) then
+      Result := DefaultValue;
   end;
 
   function ReadBool: Boolean;
@@ -490,13 +508,13 @@ begin
         F.Read(FTileMode, SizeOf(FTileMode));
         Inc(FTileMode);
         F.Read(FBarrierMode, SizeOf(FBarrierMode));
-        F.Read(FMapKind, SizeOf(FMapKind));
-        if (Byte(FMapKind) > Byte(High(TTileMapKind))) then FMapKind := High(TTileMapKind);
-        cbMapKind.ItemIndex := Byte(FMapKind);
+        F.Read(MapKindValue, SizeOf(MapKindValue));
+        if (MapKindValue > Byte(High(TTileMapKind))) then MapKindValue := Byte(High(TTileMapKind));
+        MapKind := TTileMapKind(MapKindValue);
 
         UseWeights := ReadBool;
-        ReadBool{compatibility skip only};
-        TestingMode := TTestingMode(ReadByte);
+        ReadBool{SmartWeight: compatibility skip only};
+        SectorTest := ReadBool;
 
         sbTile1.Position := ReadInt;
         sbTile2.Position := ReadInt;
@@ -513,6 +531,9 @@ begin
           for i := 0 to Len - 1 do
             MapPointCorrect(FExcludedPoints[i]);
         end;
+
+        TestingMode := TTestingMode(ReadByte(0));
+        SameDiagonalWeight := (ReadByte(0) <> 0);
       finally
         F.Free;
       end;
@@ -567,7 +588,6 @@ end;
 procedure TMainForm.TryUpdate;
 var
   Path: TTileMapPath;
-  Params: TTileMapParams;
 begin
   if (FUpdateCounter <> 0) then Exit;
 
@@ -576,23 +596,13 @@ begin
   begin
     FActualMap := True;
     FreeAndNil(Map);
-    Map := TTileMap.Create(MAP_WIDTH, MAP_HEIGHT, FMapKind);
+    Map := TTileMap.Create(MAP_WIDTH, MAP_HEIGHT, FMapKind, FSameDiagonalWeight);
     Map.Update(@TILE_MAP[0, 0], 0, 0, MAP_WIDTH, MAP_HEIGHT);
   end;
 
   // find path
   try
-    Params.Starts := @StartPoint;
-    Params.StartsCount := 1;
-    Params.Finish := FinishPoint;
-    if (FUseWeights) then Params.Weights := Weights
-    else Params.Weights := nil;
-    Params.Excludes := PPoint(FExcludedPoints);
-    Params.ExcludesCount := Length(FExcludedPoints);
-
-    Map.SectorTest := True;
-    Map.Caching := FTestingMode in [tmOneCaching, tmManyStandardCaching];
-    Path := Map.FindPath(Params);
+    Path := ExecutePathFinding;
   except
     SaveMap;
     Path.Count := 0;
@@ -603,6 +613,67 @@ begin
   // repaint map
   FillMapBitmap(Path);
   RepaintBoxes([pbMap]);
+end;
+
+function TMainForm.ExecutePathFinding: TTileMapPath;
+var
+  Params: TTileMapParams;
+  Buffer: TTileMapPath;
+  Size, i: Integer;
+begin
+  // basic parameters
+  Map.Caching := FTestingMode in [tmOneCaching, tmManyStandardCaching];
+  Map.SectorTest := FSectorTest;
+  Params.Finish := FinishPoint;
+  if (FUseWeights) then Params.Weights := Weights
+  else Params.Weights := nil;
+  Params.Excludes := PPoint(FExcludedPoints);
+  Params.ExcludesCount := Length(FExcludedPoints);
+
+  // find path
+  if (FTestingMode <> tmMany) then
+  begin
+    if (FTestingMode in [tmOne, tmOneCaching]) then
+    begin
+      Params.Starts := @StartPoint;
+      Params.StartsCount := 1;
+    end else
+    begin
+      Params.Starts := Pointer(FManyStartPoints);
+      Params.StartsCount := Length(FPathPointBuffer);
+    end;
+
+    Result := Map.FindPath(Params{$ifdef SHORTPATH}, False{$endif});
+  end else
+  begin
+    // emulate many start points finding (tmMany)
+    Result.Count := 0;
+    Result.Distance := MaxDouble;
+    Params.StartsCount := 1;
+    Size := Length(FPathPointBuffer);
+
+    for i := 0 to Length(FManyStartPoints) - 1 do
+    begin
+      Params.Starts := @FManyStartPoints[i];
+      Buffer := Map.FindPath(Params);
+
+      if (Buffer.Count <> 0) and (Buffer.Distance < Result.Distance) then
+      begin
+        Result.Index := Buffer.Index;
+        Result.Count := Buffer.Count;
+        Result.Distance := Buffer.Distance;
+
+        if (Size < Buffer.Count) then
+        begin
+          Size := Buffer.Count;
+          SetLength(FPathPointBuffer, Size);
+        end;
+
+        Result.Points := Pointer(FPathPointBuffer);
+        Move(Buffer.Points^, Result.Points^, SizeOf(TPoint) * Buffer.Count);
+      end;
+    end;
+  end;
 end;
 
 procedure TMainForm.FillMapBitmap(const Path: TTileMapPath; const JpgFileName: string = '');
@@ -746,10 +817,17 @@ begin
       Canvas.LineTo(X, Y);
   end;
 
-  // start point, finish point
+  // start points, finish point
   Canvas.Brush.Style := bsSolid;
-  Canvas.Pen.Width := 2;
+  Canvas.Pen.Style := psClear;
   Canvas.Brush.Color := clBlue;
+  for i := 1 to Length(FManyStartPoints) - 1 do
+  begin
+    P := MapToScreen(FManyStartPoints[i].X, FManyStartPoints[i].Y);
+    Canvas.Ellipse(Bounds(P.X - 4, P.Y - 4, 10, 10));
+  end;
+  Canvas.Pen.Style := psSolid;
+  Canvas.Pen.Width := 2;
   if (FMousePressed = mbLeft) and (FCursorPoint.X = FStartPoint.X) and
     (FCursorPoint.Y = FStartPoint.Y) then Canvas.Brush.Color := clAqua;
   Canvas.Pen.Color := clRed;
@@ -839,8 +917,8 @@ begin
     F.Write(MapKind{modified}, SizeOf(MapKind));
 
     WriteBool(FUseWeights);
-    WriteBool(True{smartweight compatibility only});
-    WriteByte(Byte(FTestingMode));
+    WriteBool(True{SmartWeight: compatibility skip only});
+    WriteBool(FSectorTest);
 
     WriteInt(sbTile1.Position);
     WriteInt(sbTile2.Position);
@@ -851,10 +929,47 @@ begin
     Len := Length(FExcludedPoints);
     WriteInt(Len);
     if (Len <> 0) then F.Write(Pointer(FExcludedPoints)^, Len * SizeOf(TPoint));
+
+    WriteByte(Byte(FTestingMode));
+    WriteBool(FSameDiagonalWeight);
   finally
     F.Free;
   end;
 end;  
+
+procedure TMainForm.InitializeManyStartPoints;
+const
+  OFFSETS: array[0..4] of TPoint =
+   ((X: 0; Y: 0), (X: -2; Y: -2), (X: 2; Y: -2), (X: 2; Y: 2), (X: -2; Y: 2));
+var
+  i: Integer;
+
+  procedure AddPoint(const X, Y: Integer);
+  var
+    P: TPoint;
+    Len: Integer;
+  begin
+    P.X := X;
+    P.Y := Y;
+    MapPointCorrect(P);
+
+    if (P.X = X) and (P.Y = Y) then
+    begin
+      Len := Length(FManyStartPoints);
+      SetLength(FManyStartPoints, Len + 1);
+      FManyStartPoints[Len] := P;
+    end;
+  end;
+
+begin
+  FManyStartPoints := nil;
+
+  if (FTestingMode in [tmMany, tmManyStandard, tmManyStandardCaching]) then
+  begin
+    for i := Low(OFFSETS) to High(OFFSETS) do
+      AddPoint(FStartPoint.X + OFFSETS[i].X, FStartPoint.Y + OFFSETS[i].Y);
+  end;
+end;
 
 procedure TMainForm.SetStartPoint(const Value: TPoint);
 var
@@ -865,6 +980,7 @@ begin
   if (FStartPoint.X <> P.X) or (FStartPoint.Y <> P.Y) then
   begin
     FStartPoint := P;
+    InitializeManyStartPoints;
     TryUpdate;
   end;
 end;
@@ -903,6 +1019,8 @@ begin
   if (FMapKind = Value) then Exit;
   FMapKind := Value;
   cbMapKind.ItemIndex := Byte(Value);
+  cbSameDiagonalWeight.Enabled := (Value in [mkDiagonal, mkDiagonalEx]);
+  InitializeManyStartPoints;
 
   // points correction
   MapPointCorrect(FStartPoint);
@@ -924,11 +1042,29 @@ begin
   TryUpdate;
 end;
 
+procedure TMainForm.SetSectorTest(const Value: Boolean);
+begin
+  if (FSectorTest = Value) then Exit;
+  FSectorTest := Value;
+  cbSectorTest.Checked := Value;
+  TryUpdate;
+end;
+
 procedure TMainForm.SetTestingMode(const Value: TTestingMode);
 begin
   if (FTestingMode = Value) then Exit;
   FTestingMode := Value;
   cbTestingMode.ItemIndex := Byte(Value);
+  InitializeManyStartPoints;
+  TryUpdate;
+end;
+
+procedure TMainForm.SetSameDiagonalWeight(const Value: Boolean);
+begin
+  if (FSameDiagonalWeight = Value) then Exit;
+  FSameDiagonalWeight := Value;
+  cbSameDiagonalWeight.Checked := Value;
+  FActualMap := False;
   TryUpdate;
 end;
 
@@ -1152,14 +1288,24 @@ begin
   MapKind := TTileMapKind(cbMapKind.ItemIndex);
 end;
 
-procedure TMainForm.cbTestingModeChange(Sender: TObject);
+procedure TMainForm.cbSectorTestClick(Sender: TObject);
 begin
-  TestingMode := TTestingMode(cbTestingMode.ItemIndex);
+  SectorTest := cbSectorTest.Checked;
 end;
 
 procedure TMainForm.cbUseWeightsClick(Sender: TObject);
 begin
   UseWeights := cbUseWeights.Checked;
+end;
+
+procedure TMainForm.cbTestingModeChange(Sender: TObject);
+begin
+  TestingMode := TTestingMode(cbTestingMode.ItemIndex);
+end;
+
+procedure TMainForm.cbSameDiagonalWeightClick(Sender: TObject);
+begin
+  SameDiagonalWeight := cbSameDiagonalWeight.Checked;
 end;
 
 procedure TMainForm.OnTileWeightChange(Sender: TObject);
@@ -1188,7 +1334,7 @@ begin
     BarrierMode := 0;
     MapKind := mkSimple;
     UseWeights := True;
-    TestingMode := tmOne;
+    SectorTest := True;
     FExcludedPoints := nil;
 
     sbTile1.Position := Round(1.0 * 20);
@@ -1196,6 +1342,9 @@ begin
     sbTile3.Position := Round(2.5 * 20);
     sbTile4.Position := Round(6.0 * 20);
     seIterationsCount.Value := 10000;
+
+    TestingMode := tmOne;
+    SameDiagonalWeight := False;
   finally
     EndUpdate;
   end;
@@ -1256,24 +1405,12 @@ procedure TMainForm.btnPerformanceTestClick(Sender: TObject);
 var
   i, Count: Integer;
   Time: Cardinal;
-  Params: TTileMapParams;
 begin
   Count := seIterationsCount.Value;
   Time := GetTickCount;
   begin
-    Params.Starts := @StartPoint;
-    Params.StartsCount := 1;
-    Params.Finish := FinishPoint;
-    if (FUseWeights) then Params.Weights := Weights
-    else Params.Weights := nil;
-    Params.Excludes := PPoint(FExcludedPoints);
-    Params.ExcludesCount := Length(FExcludedPoints);
-
-    // Execute path finding
-    Map.SectorTest := True;
-    Map.Caching := FTestingMode in [tmOneCaching, tmManyStandardCaching];
     for i := 1 to Count do
-      Map.FindPath(Params);
+      ExecutePathFinding;
   end;
   Time := GetTickCount - Time;
 

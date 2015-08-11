@@ -128,10 +128,8 @@ object MainForm: TMainForm
       Width = 84
       Height = 17
       Hint = 'Custom tile weights'
-      Checked = True
       ParentShowHint = False
       ShowHint = True
-      State = cbChecked
       TabOrder = 0
       OnClick = cbUseWeightsClick
     end
@@ -211,9 +209,9 @@ object MainForm: TMainForm
   end
   object gbPerformanceTest: TGroupBox
     Left = 916
-    Top = 554
+    Top = 556
     Width = 149
-    Height = 92
+    Height = 90
     Caption = ' Performance test '
     Font.Charset = RUSSIAN_CHARSET
     Font.Color = clWindowText
@@ -221,10 +219,10 @@ object MainForm: TMainForm
     Font.Name = 'Tahoma'
     Font.Style = []
     ParentFont = False
-    TabOrder = 7
+    TabOrder = 8
     object seIterationsCount: TSpinEdit
       Left = 11
-      Top = 33
+      Top = 32
       Width = 126
       Height = 22
       Hint = 'Count of times'
@@ -237,7 +235,7 @@ object MainForm: TMainForm
     end
     object btnPerformanceTest: TButton
       Left = 10
-      Top = 61
+      Top = 60
       Width = 128
       Height = 25
       Caption = 'Run'
@@ -322,5 +320,31 @@ object MainForm: TMainForm
     Caption = 'Clear'
     TabOrder = 2
     OnClick = btnClearClick
+  end
+  object gpOptions: TGroupBox
+    Left = 916
+    Top = 475
+    Width = 149
+    Height = 66
+    TabOrder = 7
+    object cbSectorTest: TCheckBox
+      Left = 11
+      Top = 14
+      Width = 126
+      Height = 17
+      Caption = 'SectorTest'
+      TabOrder = 0
+      OnClick = cbSectorTestClick
+    end
+    object cbSameDiagonalWeight: TCheckBox
+      Left = 11
+      Top = 35
+      Width = 126
+      Height = 17
+      Caption = 'SameDiagonalWeight'
+      Enabled = False
+      TabOrder = 1
+      OnClick = cbSameDiagonalWeightClick
+    end
   end
 end
