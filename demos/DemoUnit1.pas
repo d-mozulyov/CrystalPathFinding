@@ -113,14 +113,16 @@ type
     procedure cbMapKindChange(Sender: TObject);
     procedure cbSectorTestClick(Sender: TObject);
     procedure cbSameDiagonalWeightClick(Sender: TObject);
+    procedure FormShow(Sender: TObject);
   private
     // update/repaint/execute
     FUpdateCounter: Integer;
     FActualMap: Boolean;
     FCursorPoint: TPoint;
     FMousePressed: TMouseButton;
-    FPathPointBuffer: array of TPoint;
-    FCachedPoints: array of TPoint;
+    FPathPointBuffer: TPointDynArray;
+    FCachedAttainablePoints: TPointDynArray;
+    FCachedUnattainablePoints: TPointDynArray;
 
     function ScreenToMap(X, Y: Integer): TPoint;
     function MapToScreen(X, Y: Integer; Center: Boolean = True): TPoint;
@@ -142,10 +144,10 @@ type
     FMapKind: TTileMapKind;
     FUseWeights: Boolean;
     FSectorTest: Boolean;
-    FExcludedPoints: array of TPoint;
+    FExcludedPoints: TPointDynArray;
     FTestingMode: TTestingMode;
     FSameDiagonalWeight: Boolean;
-    FManyStartPoints: array of TPoint;
+    FManyStartPoints: TPointDynArray;
 
     procedure InitializeManyStartPoints;
     procedure SetStartPoint(const Value: TPoint);
@@ -157,7 +159,6 @@ type
     procedure SetSectorTest(const Value: Boolean);
     procedure SetTestingMode(const Value: TTestingMode);
     procedure SetSameDiagonalWeight(const Value: Boolean);
-    function ExcludePointPos(const Value: TPoint): Integer;
     procedure AddExcludedPoint(const Value: TPoint);
     procedure DeleteExcludedPoint(const Value: TPoint);
   public
@@ -179,6 +180,7 @@ const
   FULL_TILE_SIZE = TILE_SIZE + TILE_SIZE div 3;
   MAP_WIDTH = 30;
   MAP_HEIGHT = 20;
+  DISTANCE_TEXT_COLOR = {Deeppink}TColor($009314FF);
 
 var
   MainForm: TMainForm;
@@ -233,6 +235,16 @@ var
 begin
   Str(F:0:2, Buffer);
   Result := string(Buffer);
+end;
+
+// dynamic array index of point
+function PointIndex(const P: TPoint; const Points: TPointDynArray): Integer;
+begin
+  for Result := 0 to Length(Points) - 1 do
+  with Points[Result] do
+  if (X = P.X) and (Y = P.Y) then Exit;
+
+  Result := -1;
 end;
 
 // use dialog form to edit point coordinates
@@ -434,8 +446,8 @@ var
         Inc(Src);
       end;
 
-      Inc(Integer(Dest), Gap);
-      Inc(Integer(Src), Gap);
+      Inc(NativeInt(Dest), Gap);
+      Inc(NativeInt(Src), Gap);
     end;
   end;
 
@@ -550,6 +562,15 @@ begin
   end;
 end;
 
+procedure TMainForm.FormShow(Sender: TObject);
+begin
+  // force enable/disable scrollbars (VCL bug fix)
+  sbTile1.Enabled := FUseWeights;
+  sbTile2.Enabled := FUseWeights;
+  sbTile3.Enabled := FUseWeights;
+  sbTile4.Enabled := FUseWeights;
+end;
+
 procedure TMainForm.FormDestroy(Sender: TObject);
 var
   i: Integer;
@@ -603,6 +624,8 @@ begin
   // find path
   try
     Path := ExecutePathFinding;
+    FCachedAttainablePoints := Map.CachedAttainablePoints;
+    FCachedUnattainablePoints := Map.CachedUnattainablePoints;
   except
     SaveMap;
     Path.Count := 0;
@@ -737,6 +760,35 @@ var
     Canvas.LineTo(P.X, P.Y);
   end;
 
+  procedure DrawCellGrid(const X, Y: Integer);
+  begin
+    if (not Hexagonal) then
+    begin
+      // basic coordinates
+      P := MapToScreen(X, Y, False);
+      Canvas.MoveTo(P.X, P.Y);
+
+      // 4 lines around
+      LineTo(TILE_SIZE, 0);
+      LineTo(0, TILE_SIZE);
+      LineTo(-TILE_SIZE, 0);
+      LineTo(0, -TILE_SIZE);
+    end else
+    begin
+      P := MapToScreen(X, Y, False);
+      Inc(P.X, TILE_SIZE div 2);
+      Canvas.MoveTo(P.X, P.Y);
+
+      // 6 lines around
+      LineTo(TILE_SIZE div 2, TILE_SIZE div 3);
+      LineTo(0, (TILE_SIZE div 3) * 2);
+      LineTo(-TILE_SIZE div 2, TILE_SIZE div 3);
+      LineTo(-TILE_SIZE div 2, -TILE_SIZE div 3);
+      LineTo(0, -(TILE_SIZE div 3) * 2);
+      LineTo(TILE_SIZE div 2, -TILE_SIZE div 3);
+    end;
+  end;
+
 begin
   // analize pathless tiles
   for Index := 1 to TILES_COUNT do
@@ -767,7 +819,7 @@ begin
   with FExcludedPoints[i] do
   DrawTile(X, Y, TILE_BARRIER);
 
-  // lines
+  // standird grid lines
   Canvas.Pen.Width := 1;
   if (not Hexagonal) then
   begin
@@ -784,24 +836,26 @@ begin
       Canvas.LineTo(MAP_WIDTH * TILE_SIZE, j * TILE_SIZE);
     end;
   end else
-  for i := 0 to MAP_WIDTH - 1 do
-  for j := 0 to MAP_HEIGHT - 1 do
+  // each hexagonal tile render
   begin
-    // each hexagonal tile render
     Canvas.Pen.Color := TColor($B0B0B0);
-    P := MapToScreen(i, j, false);
 
-    // basic coordinates
-    Inc(P.X, TILE_SIZE div 2);
-    Canvas.MoveTo(P.X, P.Y);
+    for i := 0 to MAP_WIDTH - 1 do
+    for j := 0 to MAP_HEIGHT - 1 do
+      DrawCellGrid(i, j);
+  end;
 
-    // 6 lines around
-    LineTo(TILE_SIZE div 2, TILE_SIZE div 3);
-    LineTo(0, (TILE_SIZE div 3) * 2);
-    LineTo(-TILE_SIZE div 2, TILE_SIZE div 3);
-    LineTo(-TILE_SIZE div 2, -TILE_SIZE div 3);
-    LineTo(0, -(TILE_SIZE div 3) * 2);
-    LineTo(TILE_SIZE div 2, -TILE_SIZE div 3);
+  // cached grid lines
+  begin
+    Canvas.Pen.Color := clMaroon;
+    for i := 0 to Length(FCachedUnattainablePoints) - 1 do
+    with FCachedUnattainablePoints[i] do
+      DrawCellGrid(X, Y);
+
+    Canvas.Pen.Color := DISTANCE_TEXT_COLOR;
+    for i := 0 to Length(FCachedAttainablePoints) - 1 do
+    with FCachedAttainablePoints[i] do
+      DrawCellGrid(X, Y);
   end;
 
   // path
@@ -845,7 +899,7 @@ begin
   if (Path.Count <> 0) then
   begin
     Canvas.Brush.Style := bsClear;
-    Canvas.Font.Color := {Deeppink}$9314FF;
+    Canvas.Font.Color := DISTANCE_TEXT_COLOR;
     Canvas.Font.Style := [fsBold];
     Text := LocalFloatToStr(Path.Distance);
     TextWidth := Canvas.TextWidth(Text);
@@ -1002,6 +1056,7 @@ procedure TMainForm.SetTileMode(const Value: Byte);
 begin
   if (FTileMode = Value) then Exit;
   FTileMode := Value;
+  Windows.SetFocus(TScrollBar(FindComponent('sbTile' + IntToStr(TileMode))).Handle);
   RepaintBoxes([pbTile1, pbTile2, pbTile3, pbTile4]);
 end;
 
@@ -1038,6 +1093,11 @@ begin
   if (FUseWeights = Value) then Exit;
   FUseWeights := Value;
   cbUseWeights.Checked := Value;
+  sbTile1.Enabled := Value;
+  sbTile2.Enabled := Value;
+  sbTile3.Enabled := Value;
+  sbTile4.Enabled := Value;
+  Windows.SetFocus(TScrollBar(FindComponent('sbTile' + IntToStr(TileMode))).Handle);
   RepaintBoxes([pbTile1, pbTile2, pbTile3, pbTile4]);
   TryUpdate;
 end;
@@ -1053,6 +1113,8 @@ end;
 procedure TMainForm.SetTestingMode(const Value: TTestingMode);
 begin
   if (FTestingMode = Value) then Exit;
+  if (FTestingMode in [tmOneCaching, tmManyStandardCaching]) <>
+    (Value in [tmOneCaching, tmManyStandardCaching]) then FActualMap := False;
   FTestingMode := Value;
   cbTestingMode.ItemIndex := Byte(Value);
   InitializeManyStartPoints;
@@ -1068,20 +1130,11 @@ begin
   TryUpdate;
 end;
 
-function TMainForm.ExcludePointPos(const Value: TPoint): integer;
-begin
-  for Result := 0 to Length(FExcludedPoints) - 1 do
-  with FExcludedPoints[Result] do
-  if (X = Value.X) and (Y = Value.Y) then Exit;
-
-  Result := -1;
-end;
-
 procedure TMainForm.AddExcludedPoint(const Value: TPoint);
 var
   Len: integer;
 begin
-  if (ExcludePointPos(Value) >= 0) then Exit;
+  if (PointIndex(Value, FExcludedPoints) >= 0) then Exit;
 
   Len := Length(FExcludedPoints);
   SetLength(FExcludedPoints, Len + 1);
@@ -1094,7 +1147,7 @@ procedure TMainForm.DeleteExcludedPoint(const Value: TPoint);
 var
   P, Len: integer;
 begin
-  P := ExcludePointPos(Value);
+  P := PointIndex(Value, FExcludedPoints);
   if (P < 0) then Exit;
 
   Len := Length(FExcludedPoints) - 1;
@@ -1209,7 +1262,7 @@ begin
     end else
     // excluded point (call TryUpdate automatically)
     begin
-      if (ExcludePointPos(P) >= 0) then DeleteExcludedPoint(P)
+      if (PointIndex(P, FExcludedPoints) >= 0) then DeleteExcludedPoint(P)
       else AddExcludedPoint(P);
     end;
   end;
@@ -1269,6 +1322,11 @@ begin
 
   if (Active) then
   begin
+    PaintBox.Canvas.Pen.Width := 4;
+    PaintBox.Canvas.Brush.Style := bsClear;
+    PaintBox.Canvas.Pen.Color := clBlue;
+    if (Index > 0) and (not FUseWeights) then PaintBox.Canvas.Pen.Color := clSilver;
+
     with PaintBoxRect do
     begin
       Inc(Left, 2);
@@ -1276,9 +1334,7 @@ begin
       Dec(Right, 1);
       Dec(Bottom, 1);
     end;
-    PaintBox.Canvas.Pen.Width := 4;
-    PaintBox.Canvas.Pen.Color := clBlue;
-    PaintBox.Canvas.Brush.Style := bsClear;
+
     PaintBox.Canvas.Rectangle(PaintBoxRect);
   end;
 end;
@@ -1318,6 +1374,7 @@ begin
   TLabel(FindComponent('lbTile' + IntToStr(Index))).Caption := LocalFloatToStr(Weight);
 
   Weights[Index] := Weight;
+  TileMode := Index;
   RepaintBoxes([TPaintBox(FindComponent('pbTile' + IntToStr(Index)))]);
   if (FUseWeights) then TryUpdate;
 end;

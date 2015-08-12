@@ -18,6 +18,7 @@ object MainForm: TMainForm
   OnCreate = FormCreate
   OnDestroy = FormDestroy
   OnKeyDown = FormKeyDown
+  OnShow = FormShow
   PixelsPerInch = 96
   TextHeight = 13
   object pbMap: TPaintBox
@@ -175,7 +176,7 @@ object MainForm: TMainForm
     Top = 10
     Width = 149
     Height = 77
-    Caption = ' Barrier mode (right button) '
+    Caption = 'Barrier (right mouse button)'
     Font.Charset = RUSSIAN_CHARSET
     Font.Color = clWindowText
     Font.Height = -11
@@ -338,7 +339,7 @@ object MainForm: TMainForm
     end
     object cbSameDiagonalWeight: TCheckBox
       Left = 11
-      Top = 35
+      Top = 36
       Width = 126
       Height = 17
       Caption = 'SameDiagonalWeight'
