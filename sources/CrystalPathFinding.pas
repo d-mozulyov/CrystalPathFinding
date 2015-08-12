@@ -36,12 +36,6 @@ unit CrystalPathFinding;
 {.$define CPFDBG}
 {.$define CPFLOG}
 
-{$ifdef CPFLIB}
-  {$define CPFAPI}
-  {$undef CPFDBG}
-  {$undef CPFLOG}
-{$endif}
-
 // compiler directives
 {$ifdef FPC}
   {$mode Delphi}
@@ -88,9 +82,19 @@ unit CrystalPathFinding;
   {$undef CPFLIB}
 {$endif}
 
+{$ifdef CPFLIB}
+  {$define CPFAPI}
+  {$undef CPFDBG}
+  {$undef CPFLOG}
+{$endif}
+
 {$ifdef CPFLOG}
   {$define CPFDBG}
 {$endif}
+
+{$if Defined(FPC) and Defined(CPFLIB)}
+  {$define FPCLIBRARY}
+{$ifend}
 
 interface
   uses Types
@@ -705,8 +709,8 @@ end;
 {$ifend}
 
 
-{$if Defined(FPC) or (CompilerVersion < 23)}
-// todo PFC
+// todo PFC?
+{$if (Defined(FPC) or (CompilerVersion < 23)) and (not Defined(FPCLIBRARY))}
 function ReturnAddress: Pointer;
 asm
   mov eax, [ebp+4]
@@ -920,9 +924,11 @@ begin
       CPFCallbacks.Exception(Message, Address);
 
      // guaranteed halt (Assert)
-     System.ErrorAddr := Address;
-     if (System.ExitCode = 0) then System.ExitCode := 207{reInvalidOp};
-     System.Halt;
+     {$ifNdef FPC}
+       System.ErrorAddr := Address;
+       if (System.ExitCode = 0) then System.ExitCode := 207{reInvalidOp};
+       System.Halt;
+     {$endif}
   {$else}
      raise ECrystalPathFinding.Create(Message) at Address;
   {$endif}
@@ -1014,7 +1020,9 @@ end;
 procedure RaiseOutOfMemory(const Address: Pointer);
 begin
 {$ifdef CPFLIB}
-  System.ExitCode := 203{reOutOfMemory};
+  {$ifNdef FPC}
+    System.ExitCode := 203{reOutOfMemory};
+  {$endif}
   CPFException('Out of memory', Address);
 {$else}
   {$ifdef KOL}
@@ -1028,7 +1036,9 @@ end;
 procedure RaiseInvalidPointer(const Address: Pointer);
 begin
 {$ifdef CPFLIB}
-  System.ExitCode := 204{reInvalidPtr};
+  {$ifNdef FPC}
+    System.ExitCode := 204{reInvalidPtr};
+  {$endif}
   CPFException('Invalid pointer operation', Address);
 {$else}
   {$ifdef KOL}
@@ -1105,7 +1115,12 @@ end;
 
 
 {$ifdef CPFLIB}
+
+{$ifdef FPCLIBRARY}
+procedure __cpfInitialize(const Callbacks: TCPFCallbacks; ReturnAddress: Pointer); cdecl;
+{$else}
 procedure cpfInitialize(const Callbacks: TCPFCallbacks); cdecl;
+{$endif}
 var
   Address: Pointer;
   Done: Boolean;
@@ -1125,11 +1140,17 @@ begin
 
   CPFCallbacks := Callbacks;
 end;
+
+{$ifdef FPCLIBRARY}
+procedure cpfInitialize(const Callbacks: TCPFCallbacks); cdecl;
+begin
+  __cpfInitialize(Callbacks, {todo}@cpfInitialize);
+end;
+{$endif}
 {$endif .CPFLIB}
 
 
 {$ifdef CPFAPI}
-
 function NewCPFClassInstance(AClass: {$ifNdef CPFLIB}TClass{$else}NativeUInt{$endif};
   Address: Pointer): TCPFHandle;
 begin
@@ -1142,7 +1163,11 @@ begin
   TCPFClassPtr(Result).FCallAddress := Address;
 end;
 
+{$ifdef FPCLIBRARY}
+function  __cpfCreateWeights(ReturnAddress: Pointer): TCPFHandle; cdecl;
+{$else}
 function  cpfCreateWeights: TCPFHandle; cdecl;
+{$endif}
 var
   Address: Pointer;
 begin
@@ -1151,7 +1176,18 @@ begin
   TTileMapWeightsPtr(Result).Create;
 end;
 
+{$ifdef FPCLIBRARY}
+function  cpfCreateWeights: TCPFHandle; cdecl;
+begin
+  Result := __cpfCreateWeights({todo}@cpfCreateWeights);
+end;
+{$endif}
+
+{$ifdef FPCLIBRARY}
+procedure __cpfDestroyWeights(var HWeights: TCPFHandle; ReturnAddress: Pointer); cdecl;
+{$else}
 procedure cpfDestroyWeights(var HWeights: TCPFHandle); cdecl;
+{$endif}
 var
   Address: Pointer;
   Weights: Pointer;
@@ -1174,7 +1210,18 @@ begin
   end;
 end;
 
+{$ifdef FPCLIBRARY}
+procedure cpfDestroyWeights(var HWeights: TCPFHandle); cdecl;
+begin
+  __cpfDestroyWeights(HWeights, {todo}@cpfDestroyWeights);
+end;
+{$endif}
+
+{$ifdef FPCLIBRARY}
+function  __cpfWeightGet(HWeights: TCPFHandle; Tile: Byte; ReturnAddress: Pointer): Single; cdecl;
+{$else}
 function  cpfWeightGet(HWeights: TCPFHandle; Tile: Byte): Single; cdecl;
+{$endif}
 var
   Address: Pointer;
 begin
@@ -1185,7 +1232,18 @@ begin
   Result := TTileMapWeightsPtr(HWeights).Values[Tile];
 end;
 
+{$ifdef FPCLIBRARY}
+function  cpfWeightGet(HWeights: TCPFHandle; Tile: Byte): Single; cdecl;
+begin
+  Result := __cpfWeightGet(HWeights, Tile, {todo}@cpfWeightGet);
+end;
+{$endif}
+
+{$ifdef FPCLIBRARY}
+procedure __cpfWeightSet(HWeights: TCPFHandle; Tile: Byte; Value: Single; ReturnAddress: Pointer); cdecl;
+{$else}
 procedure cpfWeightSet(HWeights: TCPFHandle; Tile: Byte; Value: Single); cdecl;
+{$endif}
 var
   Address: Pointer;
 begin
@@ -1196,7 +1254,18 @@ begin
   TTileMapWeightsPtr(HWeights).Values[Tile] := Value;
 end;
 
+{$ifdef FPCLIBRARY}
+procedure cpfWeightSet(HWeights: TCPFHandle; Tile: Byte; Value: Single); cdecl;
+begin
+  __cpfWeightSet(HWeights, Tile, Value, {todo}@cpfWeightSet);
+end;
+{$endif}
+
+{$ifdef FPCLIBRARY}
+procedure __cpfWeightsClear(HWeights: TCPFHandle; ReturnAddress: Pointer); cdecl;
+{$else}
 procedure cpfWeightsClear(HWeights: TCPFHandle); cdecl;
+{$endif}
 var
   Address: Pointer;
 begin
@@ -1213,8 +1282,20 @@ begin
   end;
 end;
 
+{$ifdef FPCLIBRARY}
+procedure cpfWeightsClear(HWeights: TCPFHandle); cdecl;
+begin
+  __cpfWeightsClear(HWeights, {todo}@cpfWeightsClear);
+end;
+{$endif}
+
+{$ifdef FPCLIBRARY}
+function  __cpfCreateMap(Width, Height: Word; Kind: TTileMapKind;
+  SameDiagonalWeight: Boolean; ReturnAddress: Pointer): TCPFHandle; cdecl;
+{$else}
 function  cpfCreateMap(Width, Height: Word; Kind: TTileMapKind;
   SameDiagonalWeight: Boolean): TCPFHandle; cdecl;
+{$endif}
 var
   Address: Pointer;
 begin
@@ -1223,7 +1304,19 @@ begin
   TTileMapPtr(Result).Create(Width, Height, Kind, SameDiagonalWeight);
 end;
 
+{$ifdef FPCLIBRARY}
+function  cpfCreateMap(Width, Height: Word; Kind: TTileMapKind;
+  SameDiagonalWeight: Boolean): TCPFHandle; cdecl;
+begin
+  __cpfCreateMap(Width, Height, Kind, SameDiagonalWeight, {todo}@cpfCreateMap);
+end;
+{$endif}
+
+{$ifdef FPCLIBRARY}
+procedure __cpfDestroyMap(var HMap: TCPFHandle; ReturnAddress: Pointer); cdecl;
+{$else}
 procedure cpfDestroyMap(var HMap: TCPFHandle); cdecl;
+{$endif}
 var
   Address: Pointer;
   Map: Pointer;
@@ -1246,7 +1339,18 @@ begin
   end;
 end;
 
+{$ifdef FPCLIBRARY}
+procedure cpfDestroyMap(var HMap: TCPFHandle); cdecl;
+begin
+  __cpfDestroyMap(HMap, {todo}@cpfDestroyMap);
+end;
+{$endif}
+
+{$ifdef FPCLIBRARY}
+procedure __cpfMapClear(HMap: TCPFHandle; ReturnAddress: Pointer); cdecl;
+{$else}
 procedure cpfMapClear(HMap: TCPFHandle); cdecl;
+{$endif}
 var
   Address: Pointer;
 begin
@@ -1257,7 +1361,18 @@ begin
   TTileMapPtr(HMap).Clear;
 end;
 
-procedure cpfMapUpdate(HMap: TCPFHandle; Tiles: PByte; X, Y, Width, Height: Word; Pitch: NativeInt = 0); cdecl;
+{$ifdef FPCLIBRARY}
+procedure cpfMapClear(HMap: TCPFHandle); cdecl;
+begin
+  __cpfMapClear(HMap, {todo}@cpfMapClear);
+end;
+{$endif}
+
+{$ifdef FPCLIBRARY}
+procedure __cpfMapUpdate(HMap: TCPFHandle; Tiles: PByte; X, Y, Width, Height: Word; Pitch: NativeInt; ReturnAddress: Pointer); cdecl;
+{$else}
+procedure cpfMapUpdate(HMap: TCPFHandle; Tiles: PByte; X, Y, Width, Height: Word; Pitch: NativeInt); cdecl;
+{$endif}
 var
   Address: Pointer;
 begin
@@ -1268,7 +1383,18 @@ begin
   TTileMapPtr(HMap).Update(Tiles, X, Y, Width, Height, Pitch);
 end;
 
+{$ifdef FPCLIBRARY}
+procedure cpfMapUpdate(HMap: TCPFHandle; Tiles: PByte; X, Y, Width, Height: Word; Pitch: NativeInt); cdecl;
+begin
+  __cpfMapUpdate(HMap, Tiles, X, Y, Width, Height, Pitch, {todo}@cpfMapUpdate);
+end;
+{$endif}
+
+{$ifdef FPCLIBRARY}
+function  __cpfMapGetTile(HMap: TCPFHandle; X, Y: Word; ReturnAddress: Pointer): Byte; cdecl;
+{$else}
 function  cpfMapGetTile(HMap: TCPFHandle; X, Y: Word): Byte; cdecl;
+{$endif}
 var
   Address: Pointer;
 begin
@@ -1279,7 +1405,18 @@ begin
   Result := TTileMapPtr(HMap).Tiles[X, Y];
 end;
 
+{$ifdef FPCLIBRARY}
+function  cpfMapGetTile(HMap: TCPFHandle; X, Y: Word): Byte; cdecl;
+begin
+  __cpfMapGetTile(HMap, X, Y, {todo}@cpfMapGetTile);
+end;
+{$endif}
+
+{$ifdef FPCLIBRARY}
+procedure __cpfMapSetTile(HMap: TCPFHandle; X, Y: Word; Value: Byte; ReturnAddress: Pointer); cdecl;
+{$else}
 procedure cpfMapSetTile(HMap: TCPFHandle; X, Y: Word; Value: Byte); cdecl;
+{$endif}
 var
   Address: Pointer;
 begin
@@ -1290,7 +1427,18 @@ begin
   TTileMapPtr(HMap).Tiles[X, Y] := Value;
 end;
 
-function  cpfFindPath(HMap: TCPFHandle; Params: PTileMapParams; SectorTest: Boolean = False; Caching: Boolean = True; FullPath: Boolean = True): TTileMapPath; cdecl;
+{$ifdef FPCLIBRARY}
+procedure cpfMapSetTile(HMap: TCPFHandle; X, Y: Word; Value: Byte); cdecl;
+begin
+  __cpfMapSetTile(HMap, X, Y, Value, {todo}@cpfMapSetTile);
+end;
+{$endif}
+
+{$ifdef FPCLIBRARY}
+function  __cpfFindPath(HMap: TCPFHandle; Params: PTileMapParams; SectorTest, Caching, FullPath: Boolean; ReturnAddress: Pointer): TTileMapPath; cdecl;
+{$else}
+function  cpfFindPath(HMap: TCPFHandle; Params: PTileMapParams; SectorTest, Caching, FullPath: Boolean): TTileMapPath; cdecl;
+{$endif}
 var
   Address: Pointer;
 begin
@@ -1311,6 +1459,14 @@ begin
   TTileMapPtr(HMap).Caching := Caching;
   Result := TTileMapPtr(HMap).DoFindPath(NativeUInt(Params) + NativeUInt(FullPath) shl {HIGH_NATIVE_BIT}{$ifdef LARGEINT}63{$else}31{$endif});
 end;
+
+{$ifdef FPCLIBRARY}
+function  cpfFindPath(HMap: TCPFHandle; Params: PTileMapParams; SectorTest, Caching, FullPath: Boolean): TTileMapPath; cdecl;
+begin
+  __cpfFindPath(HMap, Params, SectorTest, Caching, FullPath, {todo}@cpfFindPath);
+end;
+{$endif}
+
 {$endif .CPFAPI}
 
 
