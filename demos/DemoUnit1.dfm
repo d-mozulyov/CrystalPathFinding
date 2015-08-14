@@ -16,6 +16,7 @@ object MainForm: TMainForm
   OldCreateOrder = False
   Position = poScreenCenter
   OnCreate = FormCreate
+  OnDblClick = FormDblClick
   OnDestroy = FormDestroy
   OnKeyDown = FormKeyDown
   OnShow = FormShow

@@ -114,6 +114,7 @@ type
     procedure cbSectorTestClick(Sender: TObject);
     procedure cbSameDiagonalWeightClick(Sender: TObject);
     procedure FormShow(Sender: TObject);
+    procedure FormDblClick(Sender: TObject);
   private
     // update/repaint/execute
     FUpdateCounter: Integer;
@@ -592,6 +593,13 @@ begin
   MaskHexagonal.Free;
 end;
 
+procedure TMainForm.FormDblClick(Sender: TObject);
+begin
+  {$ifdef DEBUG}
+  Map.SaveHotPoolToFile;
+  {$endif}
+end;
+
 procedure TMainForm.BeginUpdate;
 begin
   Inc(FUpdateCounter);
@@ -663,7 +671,7 @@ begin
     end else
     begin
       Params.Starts := Pointer(FManyStartPoints);
-      Params.StartsCount := Length(FPathPointBuffer);
+      Params.StartsCount := Length(FManyStartPoints);
     end;
 
     Result := Map.FindPath(Params{$ifdef SHORTPATH}, False{$endif});
