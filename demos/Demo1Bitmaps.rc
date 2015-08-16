@@ -1,0 +1,11 @@
+bmp0 RCDATA 0.bmp
+bmp0_ RCDATA 0_.bmp
+bmp1 RCDATA 1.bmp
+bmp1_ RCDATA 1_.bmp
+bmp2 RCDATA 2.bmp
+bmp2_ RCDATA 2_.bmp
+bmp3 RCDATA 3.bmp
+bmp3_ RCDATA 3_.bmp
+bmpgrey RCDATA grey.bmp
+bmphex60 RCDATA hex60.bmp
+bmpwhite RCDATA white.bmp

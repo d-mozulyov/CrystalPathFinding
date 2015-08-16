@@ -190,6 +190,9 @@
         <DelphiCompile Include="$(MainSource)">
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
+        <RcCompile Include="Demo1Bitmaps.rc">
+            <Form>Demo1Bitmaps.res</Form>
+        </RcCompile>
         <DCCReference Include="DemoUnit1.pas">
             <Form>MainForm</Form>
         </DCCReference>

@@ -421,9 +421,20 @@ var
   MapKindValue: Byte;
 
   function LoadBitmap(const FileName: string): TBitmap;
+  var
+    F: TStream;
   begin
     Result := TBitmap.Create;
-    Result.LoadFromFile(FileName);
+    {$ifdef DEBUG}
+      F := TFileStream.Create(FileName, fmOpenRead or fmShareDenyNone);
+    {$else}
+      F := TResourceStream.Create(hInstance, 'bmp' + ChangeFileExt(FileName, ''), RT_RCDATA);
+    {$endif}
+    try
+      Result.LoadFromStream(F);
+    finally
+      F.Free;
+    end;
   end;
 
   procedure MixGreyBitmap(Dest, Src: PBGR; const Width, Height: Integer);

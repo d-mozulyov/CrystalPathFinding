@@ -1,5 +1,7 @@
 program Demo1;
 
+{$R 'Demo1Bitmaps.res' 'Demo1Bitmaps.rc'}
+
 uses
   Forms,
   DemoUnit1 in 'DemoUnit1.pas' {MainForm},
