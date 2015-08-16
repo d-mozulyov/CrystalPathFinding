@@ -3834,11 +3834,11 @@ begin
 
       // include bits
       NodeInfo := NodeInfo + NativeUInt((Y and 1) shl 1);
-      NodeInfo := NodeInfo + NativeUInt(((X - Y) shr (HIGH_NATIVE_BIT - 4)) and 4);
+      NodeInfo := NodeInfo + NativeUInt(((X - Y) shr (HIGH_NATIVE_BIT - 2)) and 4);
 
       // total way bits/heuristics
       Mask := Mask xor NativeInt(NodeInfo);
-      Node.NodeInfo := Node.NodeInfo or HEXAGONAL_WAY_BITS[NodeInfo];
+      Node.NodeInfo := Node.NodeInfo or HEXAGONAL_WAY_BITS[NodeInfo - 2{node info flag hexagonal}];
       X := X - (Mask and Y and 1) - (Y shr 1);
       Node.Path := SORTVALUE_LIMIT -
          Cardinal(FInfo.HeuristicsLine * (Y + (X and ((X shr HIGH_NATIVE_BIT) - 1))));
@@ -4033,41 +4033,55 @@ return_false:
 end;
 
 function TTileMap.ActualizeStarts(const Params: TTileMapParams{; Compare: Boolean}): Boolean;
+label
+  done;
 var
-  Count: NativeUInt;
-  Size: NativeUInt;
-  CompareBits, XY: Integer;
-  X, Y, Mask: NativeInt;
+  CompareBits: Integer;
   Point: PPoint;
+  Count: NativeUInt;
+  XY: Integer;
+  X, Y, Mask: NativeInt;
   Start: PCPFStart;
 
+  {$ifdef CPUX86}
   Store: record
-    FinishPoint: TCPFPoint;
+    FinishCoordinates: Integer;
+    HighPoint: PPoint;
   end;
+  {$else}
+  FinishCoordinates: NativeInt;
+  HighPoint: PPoint;
+  {$endif}
 begin
-  Store.FinishPoint.X := Params.Finish.X;
-  Store.FinishPoint.Y := Params.Finish.Y;
+  {$ifdef CPUX86}Store.{$endif}FinishCoordinates := (Params.Finish.Y shl 16) + Params.Finish.X;
   Point := Params.Starts;
   Count := Params.StartsCount;
+
   CompareBits := Byte(FActualInfo.Starts.Count <> Count){0 if the same};
   FActualInfo.Starts.Count := Count;
+  if (Count = 0) then goto done;
 
-  Size := SizeOf(TCPFStart) * Count;
-  if (FActualInfo.Starts.Buffer.FAllocatedSize < Size) then FActualInfo.Starts.Buffer.Realloc(Size);
+  {$ifdef CPUX86}Store.{$endif}HighPoint := @PPointList(Point)[Count];
+  Count := SizeOf(TCPFStart) * Count;
+  if (FActualInfo.Starts.Buffer.FAllocatedSize < Count) then FActualInfo.Starts.Buffer.Realloc(Count);
   Start := FActualInfo.Starts.Buffer.FMemory;
 
-  while (Count <> 0) do
-  begin
+  repeat
     XY := (Point.Y shl 16) + Point.X;
     CompareBits := CompareBits or (Start.XY - XY);
     Start.XY := XY;
 
-    X := Cardinal(XY);
+    X := XY;
     Y := Word(X);
     X := X shr 16;
-    Mask := Cardinal(Store.FinishPoint);
+    {$ifdef CPUX86}
+    Mask := Store.FinishCoordinates;
     Y := Y - Word(Mask);
     X := X - (Mask shr 16);
+    {$else}
+    Y := Y - Word(FinishCoordinates);
+    X := X - (FinishCoordinates shr 16);
+    {$endif}
 
     // Y := Abs(dY)
     Mask := -(Y shr HIGH_NATIVE_BIT);
@@ -4079,13 +4093,23 @@ begin
     X := X xor Mask;
     Dec(X, Mask);
 
-    Start.XYDistance := X*X + Y*Y;
+    if (X or Y >= (1 shl 15)) then
+    begin
+      Start.XYDistance := High(Integer);
+    end else
+    begin
+      // Start.XYDistance := X*X + Y*Y;
+      Y := Y * Y;
+      X := X * X;
+      Inc(Y, X);
+      Start.XYDistance := Y;
+    end;
 
-    Dec(Count);
     Inc(Point);
     Inc(Start);
-  end;
+  until (Point = {$ifdef CPUX86}Store.{$endif}HighPoint);
 
+done:
   Result := (CompareBits = 0);
 end;
 
@@ -5437,7 +5461,7 @@ begin
   X := NativeInt(Self.FKind);
   Store.Flags := ((X - 1) and 4) + (((X + 1) and 4) shr 1) +
     (PNativeInt(@Self.FInfo.FinishPoint)^ and 1) +
-    FLAGS_MOVE_LEFT_DOWN[(StartNode.NodeInfo shr 4) and $f];
+    FLAGS_MOVE_LEFT_DOWN[(StartNode.NodeInfo shr 4) and $f]{!!!} and not(1 shl 3);
 
   // information copy
   Move(Self.FInfo, Store.Info,
@@ -5677,7 +5701,7 @@ begin
             // hexagonal
             ChildNode.NodeInfo := ChildNode.NodeInfo or HEXAGONAL_WAY_BITS[
               NativeInt(NodeFlags and ((31 shl 3) or 1)) +
-              (((X - Y) shr (HIGH_NATIVE_BIT - 4)) and 4) +
+              (((X - Y) shr (HIGH_NATIVE_BIT - 2)) and 4) +
               ((Y and 1) shl 1)
             ];
             X := X - ((Mask xor NativeInt(NodeFlags)) and Y and 1) - (Y shr 1);
@@ -5899,7 +5923,8 @@ const
 
   CHANGED_FINISH_INTERVAL = 8;
 label
-  weights_flags, nodes_initialized, path_found, path_not_found, fill_result;
+  weights_flags, nodes_initialized, path_found, path_not_found,
+  change_beststart, next_start, fill_result;
 var
   i: NativeUInt;
   MapWidth, MapHeight: Cardinal;
@@ -6123,19 +6148,18 @@ begin
     if (Params.StartsCount = 1) and (FActualInfo.Starts.Count = 1) then
     begin
       S := Params.Starts;
-      FinishX := S.X;
-      FinishY := S.Y;
+      FinishX{XY} := (S.Y shl 16) + S.X;
 
       StartPoint := FActualInfo.Starts.Buffer.Memory;
-      if (0 <> (StartPoint.X - FinishX) or (StartPoint.Y - FinishY)) then
+      if (StartPoint.XY <> FinishX{XY}) then
       begin
-        StartPoint.X := FinishX;
-        StartPoint.Y := FinishY;
+        StartPoint.XY := FinishX{XY};
+        // StartPoint.XYDistance := any value;
         Flags := Flags or FLAG_STARTS;
       end;
     end else
     begin
-      if (not ActualizeStarts(Params{Params.Starts, Params.StartsCount, 0 = Flags})) then
+      if (not ActualizeStarts(Params{, 0 = Flags})) then
         Flags := Flags or FLAG_STARTS;
     end;
   end;
@@ -6326,6 +6350,7 @@ nodes_initialized:
   end;
 
   // find the best start point (attainable algorithm)
+  // distance and distanceXY
   if (FoundPaths = 0) then goto fill_result;
   StartPoint := FActualInfo.Starts.Buffer.Memory;
   BestStartPoint := StartPoint;
@@ -6333,15 +6358,24 @@ nodes_initialized:
   for i := Params.StartsCount downto 2 do
   begin
     {$ifdef LARGEINT}
-      if (StartPoint.DistanceAsInt64 < BestStartPoint.DistanceAsInt64) then
+      NodeInfo := StartPoint.DistanceAsInt64;
+      Dec(NodeInfo, BestStartPoint.DistanceAsInt64);
+      if (NativeInt(NodeInfo) < 0) then goto change_beststart;
+      if (NativeInt(NodeInfo) > 0) then goto next_start;
+      if (StartPoint.XYDistance >= BestStartPoint.XYDistance) then goto next_start;
     {$else}
       FinishX := StartPoint.DistanceHighDword - BestStartPoint.DistanceHighDword;
-      if (FinishX <= 0) then
-      if (FinishX < 0) or
-        (StartPoint.DistanceLowDword < BestStartPoint.DistanceLowDword) then
+      if (FinishX < 0) then goto change_beststart;
+      if (FinishX > 0) then goto next_start;
+      FinishX := StartPoint.DistanceLowDword;
+      if (Cardinal(FinishX) < BestStartPoint.DistanceLowDword) then goto change_beststart;
+      if (Cardinal(FinishX) > BestStartPoint.DistanceLowDword) then goto next_start;
+      if (StartPoint.XYDistance >= BestStartPoint.XYDistance) then goto next_start;
     {$endif}
-      BestStartPoint := StartPoint;
+  change_beststart:
+     BestStartPoint := StartPoint;
 
+  next_start:
     Inc(StartPoint);
   end;
 
@@ -6452,7 +6486,6 @@ initialization
     System.GetMemoryManager(MemoryManager);
   {$endif}
 
-  TTileMap(nil).ActualizeStarts(TTileMapParams(nil^));
 
 finalization
   {$ifdef CPFLOG}
