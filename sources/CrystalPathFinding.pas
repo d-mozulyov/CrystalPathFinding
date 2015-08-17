@@ -3037,7 +3037,6 @@ var
   {$endif}
 begin
   Result := nil;
-  if (not FNodes.AttainableTree) then Exit;
   Len := 0;
   {$ifdef LARGEINT}
   NodeBuffers := Pointer(@FInfo.NodeAllocator.Buffers);
@@ -4572,101 +4571,155 @@ begin
   GrowNodeAllocator(FInfo);
 end;
 
-procedure ReleaseAroundAttainableNodes(const Self: TTileMapPtr; const Cell: PCPFCell
+
+type
+  PCellRec = ^TCellRec;
+  TCellRec = record
+    Next: PCellRec;
+    Cell: PCPFCell;
+  end;
+
+  TCellRecStorage = record
+    Offsets: TCPFOffsets;
+    QueueLast: PCellRec;
+    Pool: PCellRec;
+  end;
+
+procedure ReleaseAroundAttainableNodes(var _Storage: TCellRecStorage;
+  BasicCellRec: PCellRec
   {$ifdef LARGEINT}; NodeBuffers: PCPFNodeBuffers{$endif});
-label
-  clearbit;
 var
-  Offsets: PCPFOffsets;
-  NodeInfo: NativeUInt;
-  Node, Left, Right: PCPFNode;
+  CurrentRec: PCellRec;
+  Cell: PCPFCell;
   Mask, Flags: NativeUInt;
+  NodeInfo: NativeUInt;
+
+  NextRec: PCellRec;
+  Node, Left, Right: PCPFNode;
 
   Store: record
-    Self: Pointer;
+    Storage: TCellRecStorage;
+    CurrentRec: PCellRec;
+    Cell: PCPFCell;
+    Buffer: array[0..127] of TCellRec;
+    BufferInitialized: Boolean;
   end;
 begin
-  // store parameters
-  Offsets := @Self.FInfo.CellOffsets;
-  Store.Self := Self;
+  // stack parameters
+  Store.Storage := _Storage;
+  Store.BufferInitialized := False;
 
-  NodeInfo := Cell.NodePtr;
-  Mask := PCPFNode
-      (
-        {$ifdef LARGEINT}NodeBuffers[NodeInfo shr LARGE_NODEPTR_OFFSET] +{$endif}
-        NodeInfo and NODEPTR_CLEAN_MASK
-      ).NodeInfo;
-  Mask := Mask and $ff00;
-
-  // check loop
-  Flags := (1 shl 8){bit} + 0{child};
-  if (Mask <> 0) then
+  // each cell loop
+  CurrentRec := BasicCellRec;
   repeat
-    // skip not childs
-    while (Mask and Flags = 0) do
-    begin
-      NodeInfo := Flags and -8;
-      Inc(Flags);
-      Inc(Flags, NodeInfo);
-    end;
+    Cell := CurrentRec.Cell;
 
-    // look attainable (knownpath) child
-    NodeInfo := PCPFCell(NativeInt(Cell) + Offsets[Flags and 7]).NodePtr;
-    if (NodeInfo and NODEPTR_FLAG_HEURISTED <> 0) then
-    begin
-      Node := PCPFNode
-          (
+    // mask
+    Mask := Cell.NodePtr;
+    Mask := PCPFNode(
+        {$ifdef LARGEINT}NodeBuffers[Mask shr LARGE_NODEPTR_OFFSET] +{$endif}
+        Mask and NODEPTR_CLEAN_MASK
+      ).NodeInfo and $ff00;
+
+    // each child loop
+    Flags := (1 shl 8){bit} + 0{child};
+    if (Mask <> 0) then
+    repeat
+      // skip not childs
+      while (Mask and Flags = 0) do
+      begin
+        NodeInfo := Flags and -8;
+        Inc(Flags);
+        Inc(Flags, NodeInfo);
+      end;
+
+      // look attainable (knownpath) child
+      NodeInfo := PCPFCell(NativeInt(Cell) + Store.Storage.Offsets[Flags and 7]).NodePtr;
+      if (NodeInfo and NODEPTR_FLAG_HEURISTED <> 0) and
+         (PCPFNode(
+            {$ifdef LARGEINT}NodeBuffers[NodeInfo shr LARGE_NODEPTR_OFFSET] +{$endif}
+            NodeInfo and NODEPTR_CLEAN_MASK
+          ).NodeInfo and FLAG_KNOWN_PATH <> 0) then
+      begin
+        // store cell
+        Store.Cell := Cell;
+
+        // check available pool item
+        NextRec := Store.Storage.Pool;
+        if (NextRec{Store.Storage.Pool} = nil) then
+        begin
+          if (Store.BufferInitialized) then
+          begin
+            // call next function iteration (allocate new buffer items)
+            ReleaseAroundAttainableNodes(Store.Storage, CurrentRec{$ifdef LARGEINT}, NodeBuffers{$endif});
+            Exit;
+          end else
+          begin
+            Store.CurrentRec := CurrentRec;
+            begin
+              // add buffer items to the pool
+              CurrentRec := @Store.Buffer[0];
+              NextRec := @Store.Buffer[1 - 1];
+              Dec(CurrentRec);
+              repeat
+                Inc(CurrentRec);
+                Inc(NextRec);
+                CurrentRec.Next := NextRec;
+              until (CurrentRec = @Store.Buffer[High(Store.Buffer)]);
+              CurrentRec.Next := nil;
+              NextRec := @Store.Buffer[0];
+              Store.BufferInitialized := True;
+            end;
+            CurrentRec := Store.CurrentRec;
+          end;
+        end;
+
+        // cell, pool, queue
+        Inc(NativeInt(Cell), Store.Storage.Offsets[Flags and 7]);
+        Store.Storage.Pool := NextRec.Next;
+        Store.Storage.QueueLast.Next := NextRec;
+        Store.Storage.QueueLast := NextRec;
+        NextRec.Next := nil{hot queue end};
+        NextRec.Cell := Cell;
+
+        // mark as allocated only
+        NodeInfo := Cell.NodePtr and (not NODEPTR_FLAG_HEURISTED);
+        Cell.NodePtr := NodeInfo;
+
+        // remove from list
+        Node := PCPFNode(
             {$ifdef LARGEINT}NodeBuffers[NodeInfo shr LARGE_NODEPTR_OFFSET] +{$endif}
             NodeInfo and NODEPTR_CLEAN_MASK
           );
-      if (Node.NodeInfo and FLAG_KNOWN_PATH = 0) then goto clearbit;
+        if (Node.SortValue < NATTANABLE_LENGTH_LIMIT) then
+        begin
+          Left := Node.Prev;
+          Right := Node.Next;
+          Left.Next := Right;
+          Right.Prev := Left;
+        end;
 
-      // mark as allocated only
-      with PCPFCell(NativeInt(Cell) + Offsets[Flags and 7])^ do
-        NodePtr := NodePtr and (not NODEPTR_FLAG_HEURISTED);
-
-      // remove from list
-      if (Node.SortValue < NATTANABLE_LENGTH_LIMIT) then
-      begin
-        Left := Node.Prev;
-        Right := Node.Next;
-        Left.Next := Right;
-        Right.Prev := Left;
+        // retrieve cell
+        Cell := Store.Cell;
       end;
-    end else
-    begin
-      clearbit:
+
       Mask := (Mask xor Flags) and -8;
-    end;
-
-    // bit << 1, child++
-    NodeInfo := Flags and -8;
-    Inc(Flags);
-    Inc(Flags, NodeInfo);
-  until (Flags = (1 shl (8+8)) + 8);
-
-  // recursion loop
-  Flags := (1 shl 8){bit} + 0{child};
-  if (Mask <> 0) then
-  repeat
-    // skip not childs
-    while (Mask and Flags = 0) do
-    begin
       NodeInfo := Flags and -8;
       Inc(Flags);
       Inc(Flags, NodeInfo);
-    end;
+    until (Mask = 0);
 
-    // call
-    ReleaseAroundAttainableNodes(Store.Self, PCPFCell(NativeInt(Cell) + Offsets[Flags and 7])
-      {$ifdef LARGEINT}, NodeBuffers{$endif});
-    Mask := (Mask xor Flags) and -8;
 
-    // next iteration
-    NodeInfo := Flags and -8;
-    Inc(Flags);
-    Inc(Flags, NodeInfo);
-  until (Mask = 0);
+    // take next queue item
+    NextRec := CurrentRec.Next;
+
+    // add empty item to pool
+    CurrentRec.Next := Store.Storage.Pool;
+    Store.Storage.Pool := CurrentRec;
+
+    // next interation
+    CurrentRec := NextRec;
+  until (NextRec = nil);
 end;
 
 procedure TTileMap.ForgetAttainableTreeNodes;
@@ -4675,6 +4728,9 @@ var
   NodeInfo: NativeUInt;
   Node, Left, Right: PCPFNode;
 
+  Storage: TCellRecStorage;
+  CellRec: TCellRec;
+  Buffer: array[0..7] of TCellRec;
   {$ifdef LARGEINT}
     NodeBuffers: PCPFNodeBuffers;
   {$endif}
@@ -4703,9 +4759,23 @@ begin
     Right.Prev := Left;
   end;
 
+  // storage, pool, queue
+  CellRec.Cell := Cell;
+  Storage.Offsets := FInfo.CellOffsets;
+  Storage.QueueLast := @CellRec;
+  CellRec.Next := nil;
+  Buffer[0].Next := @Buffer[1];
+  Buffer[1].Next := @Buffer[2];
+  Buffer[2].Next := @Buffer[3];
+  Buffer[3].Next := @Buffer[4];
+  Buffer[4].Next := @Buffer[5];
+  Buffer[5].Next := @Buffer[6];
+  Buffer[6].Next := @Buffer[7];
+  Buffer[7].Next := nil;
+  Storage.Pool := @Buffer[0];
+
   // recursion call
-  ReleaseAroundAttainableNodes({$ifdef CPFLIB}@Self{$else}Self{$endif},
-    Cell{$ifdef LARGEINT}, NodeBuffers{$endif});
+  ReleaseAroundAttainableNodes(Storage, @CellRec{$ifdef LARGEINT}, NodeBuffers{$endif});
 end;
 
 procedure TTileMap.ReleasePoolNodes(var PoolFirst, PoolLast: TCPFNode);
