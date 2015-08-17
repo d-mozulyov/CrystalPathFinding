@@ -1739,10 +1739,6 @@ const
   DEFAULT_WEIGHT_VALUE_LINE = Cardinal($3F800000){1.0};
   ERROR_WEIGHT_VALUE = 'Invalid weight value. 0,0..0,1 - pathless, 0,1..100,0 - correct';
 
-  FLAGS_MOVE_LEFT_DOWN: array[0..15{way:3;clockwise:1}] of Byte = (
-    $00, $18, $10, $10, $18, $08, $00, $08, $10, $08, $18, $10, $18, $00, $00, $08
-  );
-
   CHILD_ARRAYS: array[0..31{way:3;clockwise:1;hexagonal:1}] of TChildList = (
    ($0864, $0440, $1080, $0220, $20A4, $0100, $40C0, $80E0),
    ($80E4, $40C0, $0100, $20A0, $0224, $1080, $0440, $0860),
@@ -1951,41 +1947,6 @@ begin
       Result := 4;
     end;
   end;
-end;
-
-procedure AddFlagMoveLeftDown(Result: PByte; WayChild: Byte; ClockWise: Boolean);
-var
-  FlagMoveLeft, FlagMoveDown: Boolean;
-begin
-  case WayChild of
-    1:
-    begin
-      FlagMoveLeft := not ClockWise;
-      FlagMoveDown := False;
-    end;
-    5:
-    begin
-      FlagMoveLeft := ClockWise;
-      FlagMoveDown := True;
-    end;
-    3:
-    begin
-      FlagMoveLeft := False;
-      FlagMoveDown := ClockWise;
-    end;
-    7:
-    begin
-      FlagMoveLeft := True;
-      FlagMoveDown := not ClockWise;
-    end;
-  else
-    // diagonal
-    FlagMoveLeft := WayChild in [0, 6];
-    FlagMoveDown := WayChild in [4, 6];
-  end;
-
-  Result^ := (Byte(FlagMoveLeft) shl 3) +
-             (Byte(FlagMoveDown) shl 4);
 end;
 
 procedure AddChildArray(WayChild: Integer; ClockWise, Hexagonal, Finalize: Boolean);
@@ -2350,18 +2311,6 @@ begin
     FormatSettings.DecimalSeparator := ',';
     LookupLineFmt('ERROR_WEIGHT_VALUE = ''Invalid weight value. 0,0..%0.1f - pathless, %0.1f..%0.1f - correct'';',
       [MIN_WEIGHT_VALUE_LINE, MIN_WEIGHT_VALUE_LINE, MAX_WEIGHT_VALUE_LINE]);
-
-    // FLAGS_MOVE_LEFT_DOWN
-    LookupLine;
-    LookupLine('FLAGS_MOVE_LEFT_DOWN: array[0..15{way:3;clockwise:1}] of Byte = (');
-    ByteValue := @BytesBuffer[0][0];
-    for Way := 0 to 15 do
-    begin
-      AddFlagMoveLeftDown(ByteValue, WayChildValue(Way and 7), Way >= 8);
-      Inc(ByteValue);
-    end;
-    LookupBytesBufferLines(1);
-    LookupLine(');');
 
     // CHILD_ARRAYS
     LookupLine;
@@ -5453,15 +5402,52 @@ var
     NodeBuffers: PCPFNodeBuffers;
     NODEPTR_MODIFIER: NativeInt;
   {$endif}
+
+  // flags: oddyfinish, hexagonal, simple, moveleft, movedown (see TTileMap.AllocateHeuristedNode()
+  function CalculateFlags(Kind, Start, Finish: NativeInt): NativeInt; far;
+  const
+    MOVELEFT_OFFSET = 3;
+    MOVELEFT_MASK = Integer(1 shl MOVELEFT_OFFSET);
+    MOVEDOWN_OFFSET = 4;
+    MOVEDOWN_MASK = Integer(1 shl MOVEDOWN_OFFSET);
+  var
+    X, Y, Mask: NativeInt;
+  begin
+    // oddyfinish, hexagonal, simple
+    Result := ((Kind - 1) and 4) + (((Kind + 1) and 4) shr 1) + (Finish and 1);
+
+    // (dX, dY) = Start.Coordinates - Finish.Coordinates;
+    Y := Word(Start);
+    X := (Start shr 16);
+    Y := Y - Word(Finish);
+    X := X - (Finish shr 16);
+
+    // Y := Abs(dY)
+    Mask := -(Y shr HIGH_NATIVE_BIT);
+    Y := Y xor Mask;
+    Dec(Y, Mask);
+    Result := Result or (Mask and MOVEDOWN_MASK);
+
+    // X := Abs(dX)
+    Mask := -(X shr HIGH_NATIVE_BIT);
+    X := X xor Mask;
+    Dec(X, Mask);
+    Result := Result or ((Mask and MOVELEFT_MASK) xor MOVELEFT_MASK);
+
+    // hexagonal correction
+    if (Result and 2{hexagonal} <> 0) and (X = 0) then
+    begin
+      Result := Result and (not MOVELEFT_MASK);
+      Result := Result or (((not Result) and Y and 1) shl MOVELEFT_OFFSET);
+    end;
+  end;
+
 begin
   // store Self
   Store.Self := Pointer({$ifdef CPFLIB}@Self{$else}Self{$endif});
 
   // flags: oddyfinish, hexagonal, simple, moveleft, movedown
-  X := NativeInt(Self.FKind);
-  Store.Flags := ((X - 1) and 4) + (((X + 1) and 4) shr 1) +
-    (PNativeInt(@Self.FInfo.FinishPoint)^ and 1) +
-    FLAGS_MOVE_LEFT_DOWN[(StartNode.NodeInfo shr 4) and $f]{!!!} and not(1 shl 3);
+  Store.Flags := CalculateFlags(NativeInt(FKind), Cardinal(StartNode.Coordinates), Cardinal(Self.FInfo.FinishPoint));
 
   // information copy
   Move(Self.FInfo, Store.Info,
