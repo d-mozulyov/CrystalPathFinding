@@ -46,12 +46,6 @@ unit DemoUnit1;
 
 interface
 
-{.$define USECPFDLL}
-
-{$ifdef CPFDBG}
-  {$undef USECPFDLL}
-{$endif}
-
 uses
   Windows, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
   Types, Dialogs, Math, ExtCtrls, StdCtrls, Spin, JPEG,
@@ -61,6 +55,9 @@ uses
 
 type
   TTestingMode = (tmOne, tmOneCaching, tmMany, tmManyStandard, tmManyStandardCaching);
+  {$ifdef USECPFDLL}
+  TPointDynArray = array of TPoint;
+  {$endif}
 
 type
   TMainForm = class(TForm)
@@ -122,8 +119,10 @@ type
     FCursorPoint: TPoint;
     FMousePressed: TMouseButton;
     FPathPointBuffer: TPointDynArray;
+    {$ifNdef USECPFDLL}
     FCachedAttainablePoints: TPointDynArray;
     FCachedUnattainablePoints: TPointDynArray;
+    {$endif}
 
     function ScreenToMap(X, Y: Integer): TPoint;
     function MapToScreen(X, Y: Integer; Center: Boolean = True): TPoint;
@@ -606,9 +605,9 @@ end;
 
 procedure TMainForm.FormDblClick(Sender: TObject);
 begin
-  {$ifdef DEBUG}
+  {$if Defined(DEBUG) and (not Defined(USECPFDLL))}
   Map.SaveHotPoolToFile;
-  {$endif}
+  {$ifend}
 end;
 
 procedure TMainForm.BeginUpdate;
@@ -643,8 +642,10 @@ begin
   // find path
   try
     Path := ExecutePathFinding;
+    {$ifNdef USECPFDLL}
     FCachedAttainablePoints := Map.CachedAttainablePoints;
     FCachedUnattainablePoints := Map.CachedUnattainablePoints;
+    {$endif}
   except
     SaveMap;
     Path.Count := 0;
@@ -667,8 +668,8 @@ begin
   Map.Caching := FTestingMode in [tmOneCaching, tmManyStandardCaching];
   Map.SectorTest := FSectorTest;
   Params.Finish := FinishPoint;
-  if (FUseWeights) then Params.Weights := Weights
-  else Params.Weights := nil;
+  if (FUseWeights) then Params.Weights := Weights{$ifdef USECPFDLL}.Handle{$endif}
+  else Params.Weights := {$ifNdef USECPFDLL}nil{$else}0{$endif};
   Params.Excludes := PPoint(FExcludedPoints);
   Params.ExcludesCount := Length(FExcludedPoints);
 
@@ -865,6 +866,7 @@ begin
   end;
 
   // cached grid lines
+  {$ifNdef USECPFDLL}
   begin
     Canvas.Pen.Color := clMaroon;
     for i := 0 to Length(FCachedUnattainablePoints) - 1 do
@@ -876,6 +878,7 @@ begin
     with FCachedAttainablePoints[i] do
       DrawCellGrid(X, Y);
   end;
+  {$endif}
 
   // path
   if (Path.Count > 1) then
@@ -1247,9 +1250,9 @@ begin
   P := ScreenToMap(X, Y);
   if (P.X < 0) or (P.X >= MAP_WIDTH) or (P.Y < 0) or (P.Y >= MAP_HEIGHT) then Exit;
   if (Sender <> nil) and (FCursorPoint.X = P.X) and (FCursorPoint.Y = P.Y) then Exit;
-  {$ifdef DEBUG}
+  {$if Defined(DEBUG) and (not Defined(USECPFDLL))}
     Caption := Map.CellInformation(P.X, P.Y);
-  {$endif}
+  {$ifend}
   LastCursorPoint := FCursorPoint;
   FCursorPoint := P;
   if (FMousePressed = mbMiddle) then Exit;
