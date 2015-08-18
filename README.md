@@ -1,101 +1,144 @@
 # CrystalPathFinding (CPF)
-The fastest and most simple A*/WA* library
+Эффективная и простая библиотека с открытым исходным кодом, предназначенная для поиска кратчайших путей по алгоритмам A*/WA* для карт, основанных на тайлах, с 4 (simple), 8 (diagonal/diagonalex) или 6 (hexagonal) соседями.
 
-При проектировании системы учитывались реальные игровые моменты, реальные условия простой библиотеки. Она кстати не ориентирована на мегасерьёзные проекты. Существует карта тайлов, каждый тайл имеет свой вес, необходимой найти кратчайшее расстояние из точки A в точку B. Существуют так же препятствия - клетки, прохождение через которые невозможно.
+Особенности библиотеки:
+* Кроссплатформенность: Windows x86/x64, Linux x86/x64, Mac OS, iOS, Android, Windows Mobile, а так же остальные платформы, доступные компиляторам Delphi и FreePascal 
+* Экстремально высокая производительность 
+* Умное построение пути 
+* Лимит 16млн ячеек (например 4000x4000) 
+* Секторальный тест 
+* На выбор: ООП или процедурный интерфейс 
+* Поддержка кеширования и поиска из нескольких стартовых точек 
+* До 255 разновидностей тайлов, вес от 0.1 до 100.0 
+* Содержит демонстрационные проекты
 
-В реальных играх приходится искать пути для многих игровых сущностей. Например танки одинаково хорошо идут по земле, асфальту, гальке. А прохождение по воде например или по горам - для них представляет большую сложность. Пехотинец хорошо идёт по асфальту, но очень плохо по болотам. Катера прекрасно перемещаются по воде и вообще не перемещаются по суше. Поэтому в библиотеке для поиска путей используется понятие массива весов. В реальных условиях для танка массив весов один, для пехотинца - второй, для катеров - третий.
+# Help
+Библиотека содержит 2 главных объекта: TTileMap (карта тайлов) и TTileMapWeights (массив весов тайлов). Тайл может принимать любое значение от 1 до 255. Вес тайла указывается в диапазоне от 0.1 до 100.0, если вес тайла от 0.0 до 0.1 - то тайл считается непроходимым. Если при поиске TTileMapWeights не указан, то все веса считаются единичными. Тайл с номером 0 (TILE_BARRIER) считается барьером, проход через который невозможен. Режимы карт mkDiagonal и mkDiagonalEx отличаются тем, как пути огибают тайлы-барьеры.
 
-API очень простое, привожу его на 2х распространённых языках: С/C++ и Pascal
+Параметр SectorTest (секторальный тест) позволяет существенно увеличить производительность поиска если карта поделена на "области", и построить путь из одной области в другую невозможно.
 
-typedef POINT TPoint;
-typedef unsigned char byte;
-typedef unsigned short word;
-typedef unsigned long THandle;
-typedef byte TPathMapMode; enum {mmSimple, mmDiagonal, mmDiagonalEx, mmHexagonal45, mmHexagonal60}; /*sizeof(TPathMapMode) = 1*/
+Параметр Caching (кеширование) рекомендуется всегда устанавливать в true, если некоторое время предполагается не менять целевую точку и массив весов.
 
-TPathMapMode = (mmSimple, mmDiagonal, mmDiagonalEx, mmHexagonal45, mmHexagonal60);
+Большое значение имеет массив исключаемых точек (Excludes). С помощью этого параметра можно организовать сложные поиски, в которых например одни игровые единицы не соприкасаются с другими. В таких случаях рекомендуется перестраивать пути при смене целевой точки, численного состава или местоположения хотя бы одной игровой единицы. Соответственно если интересует не весь путь игровой единицы, а только следующая точка - рекомендуется параметр поиска FullPath указывать false (см. пример ниже).
 
-Создание массива весов. (Weights). 
-HighTile - максимальный используемый номер тайла.
-   THandle cpfCreateWeights(byte HighTile);
-   function cpfCreateWeights(HighTile: byte): THandle; 
+##### Basic types and contants
+```c
+  // handle type
+  typedef size_t TCPFHandle;
+
+  // kind of map
+  typedef unsigned char TTileMapKind; enum {mkSimple, mkDiagonal, mkDiagonalEx, mkHexagonal}; 
+
+  // result of find path function
+  struct TTileMapPath
+  {
+      size_t  Index;  
+	  TPoint* Points;
+      size_t  Count;
+      double  Distance;
+  };
+
+  // path finding parameters
+  struct TTileMapParams
+  {
+      TPoint* Starts;
+      size_t StartsCount;
+      TPoint Finish;
+      TCPFHandle Weights;
+      TPoint* Excludes;
+      size_t ExcludesCount;
+  };
+
+  // map tile barrier
+  #define TILE_BARRIER 0  
+```
+##### Tile weights object
+```c
+  struct TTileMapWeights
+  {
+	// constructor and destructor
+	TTileMapWeights();
+	~TTileMapWeights();
+
+    // internal descriptor
+    TCPFHandle Handle; 
+
+    // tile weight values
+	float getValue(unsigned char Tile);
+	void setValue(unsigned char Tile, float Value);
+  }; 
+```
+
+##### Tile map object
+```c
+  struct TTileMap
+  {
+	// constructor and destructor
+	TTileMap(unsigned short MapWidth, unsigned short MapHeight, TTileMapKind MapKind, bool SameMapDiagonalWeight = false);
+	~TTileMap();
+
+    // internal descriptor
+    TCPFHandle Handle; 
+
+    // basic parameters
+    unsigned short Width;
+	unsigned short Height;
+	TTileMapKind Kind;
+	bool SameDiagonalWeight;
+
+    // important variable parameters!
+	bool SectorTest;
+	bool Caching;
+
+	// update methods
+	void Clear();
+	void Update(unsigned char* Tiles, unsigned short X, unsigned short Y, 
+	  unsigned short UpdateWidth, unsigned UpdateHeight, size_i Pitch = 0);
+	unsigned char getTile(unsigned short X, unsigned short Y);
+	void setTile(unsigned short X, unsigned short Y, unsigned char Value);
+
+	// path finding
+	TTileMapPath FindPath(const TTileMapParams Params, bool FullPath = true);
+	TTileMapPath FindPath(const TPoint Start, const TPoint Finish,
+	  TCPFHandle Weights = 0, TPoint* Excledes = NULL, size_t ExcludesCount = 0, bool FullPath = true);
+	TTileMapPath FindPath(TPoint* Starts, size_t StartsCount, const TPoint Finish,
+	  TCPFHandle Weights = 0, TPoint* Excledes = NULL, size_t ExcludesCount = 0, bool FullPath = true);
+  }; 
+```
+
+##### Example of many game units paths updating
+```c
+void Game::UpdateBotsPaths()
+{
+   // clear one point paths
+   for (int i = 0; i < Bots.Count; i++)
+     Bots[i].NextPoint = Bots.Point;
    
-Удаление массива весов. (Weights).
-   void cpfDestroyWeights(THandle& HWeights); 
-   procedure cpfDestroyWeights(var HWeights: THandle);    
-   
-Изменение веса для конкретного тайла. 
-Например веса танков могут быть следующие. Земля = 1.0, асфальт = 1.2, галька = 1.5, булыжники = 2.8, вода = 0.0 
-Все веса <= 0.1 считаются как непроходимые (0.0). В нашем примере непроходимыми считаются тайлы воды
-   float cpfWeightGet(THandle HWeights, byte Tile); 
-   void cpfWeightSet(THandle HWeights, byte Tile, float Value); 
-   function  cpfWeightGet(HWeights: THandle; Tile: byte): single; 
-   procedure cpfWeightSet(HWeights: THandle; Tile: byte; Value: single);    
-   
-Создание карты. 
-   Width - ширина карты 
-   Height - высота карты 
-   HighTile - максимальный используемый номер тайла. Значение 255 (0xFF) зарезервировано для препятствий 
-   SmartWeight - "умный расчёт весов". Стоимость перехода из тайла A в тайл B обычно равен весу A. Но в реальных игровых условиях соседствующие тайлы мешаются и стоимость перехода в таких "умных" случаях равен (весA + весB) / 2. 
-   Mode различает следующие значения: 
-   mmSimple - простая карта. Различаются ходы влево, вправо, вверх, вниз 
-   mmDiagonal - кроме простых переходов, добавляются ещё и диагональные 
-   mmDiagonalEx - диагональные переходы с огибанием препятствий 
-   mmHexagonal45 - гексагональное поле "с углом поворота" гекса 45° 
-   mmHexagonal60 - гексагональное поле "с углом поворота" гекса 60°
-
-   THandle cpfCreateMap(word Width, word Height, TPathMapMode Mode=mmSimple, byte HighTile=0, bool SmartWeight=true);
-   function  cpfCreateMap(Width, Height: word; Mode: TPathMapMode=mmSimple; HighTile: byte=0; SmartWeight: boolean=true): THandle;
-   
-Удаление карты
-   void cpfDestroyMap(THandle& HMap);
-   procedure cpfDestroyMap(var HMap: THandle);
-   
-Очистка карты (все тайлы становятся равными 0)
-   void cpfMapClear(THandle HMap); 
-   procedure cpfMapClear(HMap: THandle);   
-   
-Изменение тайлов карты
-   byte cpfMapGetTile(THandle HMap, word X, word Y); 
-   void cpfMapSetTile(THandle HMap, word X, word Y, byte Value); 
-   function  cpfMapGetTile(HMap: THandle; X, Y: word): byte; 
-   procedure cpfMapSetTile(HMap: THandle; X, Y: word; Value: byte);   
-   
-Изменение прямоугольной области карты 
-   Map - карта 
-   Tiles - массив тайлов, которые необходимо занести в карту 
-   X, Y, Width, Height - прямоугольная область карты, которую меняем 
-   pitch - смещение в массиве Tiles для каждой линии. Если pitch оставить 0, то он будет равен Width
-   void cpfMapUpdate(THandle HMap, byte* Tiles, word X, word Y, word Width, word Height, int pitch=0); 
-   procedure cpfMapUpdate(HMap: THandle; Tiles: pbyte; X, Y, Width, Height: word; pitch: integer=0);   
-  
-Самая главная функция библиотеки - это конечно cpfFindPath (поиск пути) 
-   HMap - карта, в которой производим поиск 
-   Start - стартовая точка пути 
-   Finish - конечная точка пути 
-   Weights - массив весов, для которого ищется кратчайший путь. Если указать 0, то вес каждого тайла будет считаться как 1.0 
-   ExcludePoints - исключаемые точки. Мощная особенность библиотеки, позволяющая дополнительно указывать "препятствия" во время расчёта пути. Например вы программируете алгоритм, в котором танки не могут проходить сквозь танки. В этом случае разумно не менять карту для каждого очередного расчёта, а указать "исключаемые точки" в параметре функции. 
-   ExcludePointsCount - количество исключаемых точек 
-   SectorTest - очень интересный флаг. Если карта представляет собой несколько "областей", причём из одной нельзя попасть в другую, то функция поиска в этом случае будет выполняться очень долго, т.к. алгоритм переберёт все возможные варианты. SectorTest проверяет принадлежность точек одному сектору и не запускает сложный алгоритм поиска если цель изначально недостижима. Но алгоритм требует анализа карты и разбиения на сектора, поэтому на больших картах и/или часто изменяющихся, алгоритм может дать провал производительности
-
-В качестве результата функции возвращается указатель на структуру TPathMapResult. 
-Если вернулся NULL - то путь не найден 
-   points - массив точек пути от стартовой до конечной 
-   points_count - размер массива точек 
-   distance - расстояние от стартовой точки до конечной, по найденному маршруту  
-   
-TPathMapResult* cpfFindPath(THandle HMap, TPoint Start, TPoint Finish, THandle Weights=0, TPoint* ExcludePoints=NULL, int ExcludePointsCount=0, bool SectorTest=true);
-function cpfFindPath(HMap: THandle; Start, Finish: TPoint; Weights: THandle=0; ExcludePoints: PPoint=nil; ExcludePointsCount: integer=0; SectorTest: boolean=true): PPathMapResult; 
-
-   struct TPathMapResult
+   // finding next path point for every unit
+   for (int i = 0; i < Bots.Count; i++)
    {
-     TPoint* points;
-     int points_count;
-     double distance;
-   };
+      // detect excluded points
+      vector<TPoint> Excludes;
+      for (int j = 0; j < Bots.Count; j++)
+      if (i != j)
+      {
+         Excludes.push_back(Bots[j].Point);
 
-   TPathMapResult = record
-     points: PPoint;
-     points_count: integer;
-     distance: double;
-   end;   
+         if (Bots[j].Point != Bots[j].NextPoint)
+           Excludes.push_back(Bots[j].NextPoint);
+      }
+    
+      // fill parameters, find path (one next point)
+      TTileMapParams Params;
+      Params.Starts = &Bots[i].Point;
+      Params.StartsCount = 1;
+      Params.Finish = this.TargetPoint;
+      Params.Weights = NULL/* this.Weights.Handle */;
+      Params.ExcludesCount = Excludes.size(); 
+      if (Params.ExcludesCount) Params.Excludes = &Excludes[0];
+      TTileMapPath Path = this.Map.FindPath(Params, false/* false means next point needed only */);
+      if (Path.Count > 1)
+        Bots[i].NextPoint = Path.Points[1];
+   }
+}
+```
