@@ -41,6 +41,12 @@ unit CrystalPathFinding;
   {$mode Delphi}
   {$asmmode Intel}
   {$define INLINESUPPORT}
+  {$ifdef CPU386}
+    {$define CPUX86}
+  {$endif}
+  {$ifdef CPUX86_64}
+    {$define CPUX64}
+  {$endif}
 {$else}
   {$if CompilerVersion >= 24}
     {$LEGACYIFEND ON}
@@ -5403,6 +5409,45 @@ begin
   end;
 end;
 
+// flags: oddyfinish, hexagonal, simple, moveleft, movedown (see TTileMap.AllocateHeuristedNode()
+function CalculatePathLoopFlags(Kind, Start, Finish: NativeInt): NativeInt;
+const
+  MOVELEFT_OFFSET = 3;
+  MOVELEFT_MASK = Integer(1 shl MOVELEFT_OFFSET);
+  MOVEDOWN_OFFSET = 4;
+  MOVEDOWN_MASK = Integer(1 shl MOVEDOWN_OFFSET);
+var
+  X, Y, Mask: NativeInt;
+begin
+  // oddyfinish, hexagonal, simple
+  Result := ((Kind - 1) and 4) + (((Kind + 1) and 4) shr 1) + (Finish and 1);
+
+  // (dX, dY) = Start.Coordinates - Finish.Coordinates;
+  Y := Word(Start);
+  X := (Start shr 16);
+  Y := Y - Word(Finish);
+  X := X - (Finish shr 16);
+
+  // Y := Abs(dY)
+  Mask := -(Y shr HIGH_NATIVE_BIT);
+  Y := Y xor Mask;
+  Dec(Y, Mask);
+  Result := Result or (Mask and MOVEDOWN_MASK);
+
+  // X := Abs(dX)
+  Mask := -(X shr HIGH_NATIVE_BIT);
+  X := X xor Mask;
+  Dec(X, Mask);
+  Result := Result or ((Mask and MOVELEFT_MASK) xor MOVELEFT_MASK);
+
+  // hexagonal correction
+  if (Result and 2{hexagonal} <> 0) and (X = 0) then
+  begin
+    Result := Result and (not MOVELEFT_MASK);
+    Result := Result or (((not Result) and Y and 1) shl MOVELEFT_OFFSET);
+  end;
+end;
+
 function TTileMap.DoFindPathLoop(StartNode: PCPFNode): PCPFNode;
 label
   nextchild_continue, nextchild,
@@ -5436,7 +5481,7 @@ var
   ChildSortValue: Cardinal;
   PBufferHigh, PBufferBase, PBufferCurrent: ^PCPFNode;
   Right: PCPFNode;
-  {$if (not Defined(CPUX86)) or Defined(FPC)}
+  {$if (not Defined(CPUX86)) (*or Defined(FPC)*)}
     Left: PCPFNode;
   {$ifend}
 
@@ -5473,52 +5518,12 @@ var
     NodeBuffers: PCPFNodeBuffers;
     NODEPTR_MODIFIER: NativeInt;
   {$endif}
-
-  // flags: oddyfinish, hexagonal, simple, moveleft, movedown (see TTileMap.AllocateHeuristedNode()
-  function CalculateFlags(Kind, Start, Finish: NativeInt): NativeInt; far;
-  const
-    MOVELEFT_OFFSET = 3;
-    MOVELEFT_MASK = Integer(1 shl MOVELEFT_OFFSET);
-    MOVEDOWN_OFFSET = 4;
-    MOVEDOWN_MASK = Integer(1 shl MOVEDOWN_OFFSET);
-  var
-    X, Y, Mask: NativeInt;
-  begin
-    // oddyfinish, hexagonal, simple
-    Result := ((Kind - 1) and 4) + (((Kind + 1) and 4) shr 1) + (Finish and 1);
-
-    // (dX, dY) = Start.Coordinates - Finish.Coordinates;
-    Y := Word(Start);
-    X := (Start shr 16);
-    Y := Y - Word(Finish);
-    X := X - (Finish shr 16);
-
-    // Y := Abs(dY)
-    Mask := -(Y shr HIGH_NATIVE_BIT);
-    Y := Y xor Mask;
-    Dec(Y, Mask);
-    Result := Result or (Mask and MOVEDOWN_MASK);
-
-    // X := Abs(dX)
-    Mask := -(X shr HIGH_NATIVE_BIT);
-    X := X xor Mask;
-    Dec(X, Mask);
-    Result := Result or ((Mask and MOVELEFT_MASK) xor MOVELEFT_MASK);
-
-    // hexagonal correction
-    if (Result and 2{hexagonal} <> 0) and (X = 0) then
-    begin
-      Result := Result and (not MOVELEFT_MASK);
-      Result := Result or (((not Result) and Y and 1) shl MOVELEFT_OFFSET);
-    end;
-  end;
-
 begin
   // store Self
   Store.Self := Pointer({$ifdef CPFLIB}@Self{$else}Self{$endif});
 
   // flags: oddyfinish, hexagonal, simple, moveleft, movedown
-  Store.Flags := CalculateFlags(NativeInt(FKind), Cardinal(StartNode.Coordinates), Cardinal(Self.FInfo.FinishPoint));
+  Store.Flags := CalculatePathLoopFlags(NativeInt(FKind), Cardinal(StartNode.Coordinates), Cardinal(Self.FInfo.FinishPoint));
 
   // information copy
   Move(Self.FInfo, Store.Info,
@@ -5540,7 +5545,25 @@ begin
 
   // finding loop from Start to Finish
   Node := StartNode;
-  goto current_initialize;
+  {$ifdef FPC}
+    (* current_initialize block copy *)
+    // cell
+    NodeFlags{XY} := Cardinal(Node.Coordinates);
+    Cardinal(Store.Current.Coordinates) := NodeFlags{XY};
+    Cell := @Store.Info.CellArray[(NativeInt(NodeFlags) shr 16){X} + Store.Info.MapWidth * {Y}Word(NodeFlags)];
+    Store.Current.Cell := Cell;
+
+    // store pointer and path
+    Store.Current.Node := Node;
+    Store.Current.Path := Node.Path;
+    ChildSortValue := Node.SortValue;
+    Store.Current.SortValue := ChildSortValue;
+
+    // node info
+    NodeFlags := Cardinal(Node.NodeInfo);
+  {$else}
+    goto current_initialize;
+  {$endif}
   repeat
     // lock
     Node.ParentMask := 0;
@@ -5917,7 +5940,7 @@ begin
       end;
 
       // insertion
-      {$if (not Defined(CPUX86)) or Defined(FPC)}
+      {$if (not Defined(CPUX86)) (*or Defined(FPC)*)}
         Left := Right.Prev;
         Node.Next := Right;
         ChildNode.Prev := Left;
