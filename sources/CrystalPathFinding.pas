@@ -515,7 +515,8 @@ type
     Realloc: TCPFRealloc;
     Exception: TCPFException;
   end;
-  procedure cpfInitialize(const Callbacks: TCPFCallbacks); cdecl;
+  PCPFCallbacks = ^TCPFCallbacks;
+  procedure cpfInitialize(const Callbacks: {$ifdef FPCLIBRARY}PCPFCallbacks{$else}TCPFCallbacks{$endif}); cdecl;
   {$endif}
 
   function  cpfCreateWeights: TCPFHandle; cdecl;
@@ -1116,7 +1117,7 @@ end;
 {$ifdef CPFLIB}
 
 {$ifdef FPCLIBRARY}
-procedure __cpfInitialize(const Callbacks: TCPFCallbacks; ReturnAddress: Pointer); cdecl;
+procedure __cpfInitialize(const Callbacks: PCPFCallbacks; ReturnAddress: Pointer); cdecl;
 {$else}
 procedure cpfInitialize(const Callbacks: TCPFCallbacks); cdecl;
 {$endif}
@@ -1126,7 +1127,7 @@ var
 begin
   Address := ReturnAddress;
 
-  with Callbacks do
+  with Callbacks{$ifdef FPCLIBRARY}^{$endif} do
   Done := Assigned(Alloc) and Assigned(Free) and Assigned(Realloc) and (Assigned(Exception));
 
   if (not Done) then
@@ -1137,11 +1138,11 @@ begin
     RaiseCallbacks(Address);
   end;
 
-  CPFCallbacks := Callbacks;
+  CPFCallbacks := Callbacks{$ifdef FPCLIBRARY}^{$endif};
 end;
 
 {$ifdef FPCLIBRARY}
-procedure cpfInitialize(const Callbacks: TCPFCallbacks); cdecl;
+procedure cpfInitialize(const Callbacks: PCPFCallbacks); cdecl;
 begin
   __cpfInitialize(Callbacks, {todo}@cpfInitialize);
 end;
@@ -1307,7 +1308,7 @@ end;
 function  cpfCreateMap(Width, Height: Word; Kind: TTileMapKind;
   SameDiagonalWeight: Boolean): TCPFHandle; cdecl;
 begin
-  __cpfCreateMap(Width, Height, Kind, SameDiagonalWeight, {todo}@cpfCreateMap);
+  Result := __cpfCreateMap(Width, Height, Kind, SameDiagonalWeight, {todo}@cpfCreateMap);
 end;
 {$endif}
 
@@ -1407,7 +1408,7 @@ end;
 {$ifdef FPCLIBRARY}
 function  cpfMapGetTile(HMap: TCPFHandle; X, Y: Word): Byte; cdecl;
 begin
-  __cpfMapGetTile(HMap, X, Y, {todo}@cpfMapGetTile);
+  Result := __cpfMapGetTile(HMap, X, Y, {todo}@cpfMapGetTile);
 end;
 {$endif}
 
@@ -1462,7 +1463,7 @@ end;
 {$ifdef FPCLIBRARY}
 function  cpfFindPath(HMap: TCPFHandle; Params: PTileMapParams; SectorTest, Caching, FullPath: Boolean): TTileMapPath; cdecl;
 begin
-  __cpfFindPath(HMap, Params, SectorTest, Caching, FullPath, {todo}@cpfFindPath);
+  Result := __cpfFindPath(HMap, Params, SectorTest, Caching, FullPath, {todo}@cpfFindPath);
 end;
 {$endif}
 
