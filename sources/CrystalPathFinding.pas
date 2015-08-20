@@ -312,7 +312,6 @@ type
     MapWidth: NativeInt;
     HeuristicsLine: NativeInt;
     HeuristicsDiagonal: NativeInt;
-    TileWeights: array[0..1] of Pointer;
     CellOffsets: TCPFOffsets;
     FinishPoint: TCPFPoint;
     NodeAllocator: record
@@ -422,15 +421,17 @@ type
 
         ScaleLine: Double;
         ScaleDiagonal: Double;
-        CardinalsDiagonal: array[0..255] of Cardinal;
-        CardinalsLine: array[0..255] of Cardinal;
         case Boolean of
         False: (
-                 {0,2,4,6 - Diagonal; 1,3,5,7 - Line}
                  SinglesDiagonal: array[0..255] of Single;
                  SinglesLine: array[0..255] of Single;
+                 CardinalsDiagonal: array[0..255] of Cardinal;
+                 CardinalsLine: array[0..255] of Cardinal;
                 );
-         True: (SingleValues: array[0..1, 0..255] of Single);
+         True: (
+                 SingleValues: array[0..1, 0..255] of Single;
+                 CardinalValues: array[0..1, 0..255] of Cardinal;
+               );
       end;
       Starts: record
         Buffer: TCPFBuffer;
@@ -2646,7 +2647,6 @@ begin
   PathLengthLimit := ((Min + 1) shr 1) * Max + (Min shr 1);
   FTileWeightScaleLine := SORTVALUE_LIMIT / PathLengthLimit;
   FTileWeightLimitLine := CPFRound(FTileWeightScaleLine) - 1;
-  FInfo.TileWeights[1] := @FActualInfo.Weights.CardinalsLine;
   if (FSameDiagonalWeight) then
   begin
     FTileWeightScaleDiagonal := FTileWeightScaleLine;
@@ -2654,7 +2654,6 @@ begin
     FTileWeightLimitDiagonal := FTileWeightLimitLine;
     FTileWeightMinimumLine := 1;
     FTileWeightMinimumDiagonal := 1;
-    FInfo.TileWeights[0] := FInfo.TileWeights[1];
   end else
   begin
     FTileWeightScaleDiagonal := SQRT2 * FTileWeightScaleLine;
@@ -2662,7 +2661,6 @@ begin
     FTileWeightLimitDiagonal := CPFRound(FTileWeightLimitLine * SQRT2);
     FTileWeightMinimumLine := 2;
     FTileWeightMinimumDiagonal := 3;
-    FInfo.TileWeights[0] := @FActualInfo.Weights.CardinalsDiagonal;
   end;
   FActualInfo.Weights.Count := 255;
 
@@ -5478,18 +5476,22 @@ var
   NodeXY, OffsetXY, ChildXY: Cardinal;
   X, Y, Mask: NativeInt;
 
+  Buffer: PMapNodeBuffer;
+  CellOffsets: ^TCPFOffsets;
+
   ChildSortValue: Cardinal;
   PBufferHigh, PBufferBase, PBufferCurrent: ^PCPFNode;
   Right: PCPFNode;
-  {$if (not Defined(CPUX86)) (*or Defined(FPC)*)}
+  {$ifNdef CPUX86}
     Left: PCPFNode;
-  {$ifend}
+  {$endif}
 
   Store: record
     Buffer: TMapNodeBuffer;
     Self: Pointer;
     Flags: NativeUInt;
     Info: TCPFInfo;
+    CardinalsDiagonal: Pointer;
 
     {$ifdef CPUX86}
     ChildList: PWord;
@@ -5510,7 +5512,6 @@ var
   end;
 
   {$ifNdef CPUX86}
-    Buffer: PMapNodeBuffer;
     TopGreatherNode: PCPFNode;
   {$endif}
 
@@ -5526,6 +5527,7 @@ begin
   Store.Flags := CalculatePathLoopFlags(NativeInt(FKind), Cardinal(StartNode.Coordinates), Cardinal(Self.FInfo.FinishPoint));
 
   // information copy
+  Store.CardinalsDiagonal := @Self.FActualInfo.Weights.CardinalsDiagonal;
   Move(Self.FInfo, Store.Info,
     (SizeOf(Store.Info) - 32 * SizeOf(Pointer)) +
     (Self.FInfo.NodeAllocator.Count * SizeOf(Pointer)) );
@@ -5546,7 +5548,6 @@ begin
   // finding loop from Start to Finish
   Node := StartNode;
   {$ifdef FPC}
-    (* current_initialize block copy *)
     // cell
     NodeFlags{XY} := Cardinal(Node.Coordinates);
     Cardinal(Store.Current.Coordinates) := NodeFlags{XY};
@@ -5633,7 +5634,8 @@ begin
 
       // child map cell
       Cell := Store.Current.Cell;
-      Inc(NativeInt(Cell), Store.Info.CellOffsets[Child]);
+      CellOffsets := @Store.Info.CellOffsets;
+      Inc(NativeInt(Cell), CellOffsets[Child]);
 
       // parent bits
       Child := Child shl 3;
@@ -5652,7 +5654,8 @@ begin
           if (ChildNodeInfo and $ff00 = 0) then goto nextchild_continue;
 
           // child path
-          TileWeights := Store.Info.TileWeights[ParentBits and 1];
+          TileWeights := Store.CardinalsDiagonal;
+          Inc(NativeInt(TileWeights), (ParentBits and 1) shl 10);
           Path := TileWeights[NodeFlags shr 24];
           Inc(Path, TileWeights[ParentBits shr 24]);
           if (Path > PATHLESS_TILE_WEIGHT) then goto nextchild_continue;
@@ -5716,7 +5719,8 @@ begin
           if (NativeUInt(TileWeights){ChildNodeInfo} and $ff00 = 0) then goto nextchild_continue;
 
           // child path
-          TileWeights := Store.Info.TileWeights[ParentBits and 1];
+          TileWeights := Store.CardinalsDiagonal;
+          Inc(NativeInt(TileWeights), (ParentBits and 1) shl 10);
           Path := TileWeights[NodeFlags shr 24];
           Inc(Path, TileWeights[ParentBits shr 24]);
           if (Path > PATHLESS_TILE_WEIGHT) then goto nextchild_continue;
@@ -5810,7 +5814,8 @@ begin
         if (ChildNodeInfo and $ff0000 = 0) then goto nextchild_continue;
 
         // child path
-        Cell{TileWeights} := Store.Info.TileWeights[ParentBits and 1];
+        Cell{TileWeights} := Store.CardinalsDiagonal;
+        Inc(NativeInt(Cell{TileWeights}), (ParentBits and 1) shl 10);
         Path := PCardinalList(Cell{TileWeights})[NodeFlags shr 24] +
                 PCardinalList(Cell{TileWeights})[ParentBits shr 24];
         Path := (Path shr 1) + Store.Current.Path;
@@ -5842,7 +5847,10 @@ begin
       end;
 
       // add child node to buffer
-      {$ifdef CPUX86}Store.{$endif}Buffer[(NodeFlags shr COUNTER_OFFSET) and 7] := ChildNode;
+      {$ifdef CPUX86}
+      Buffer := @Store.Buffer;
+      {$endif}
+      Buffer[(NodeFlags shr COUNTER_OFFSET) and 7] := ChildNode;
       Inc(NodeFlags, (1 shl COUNTER_OFFSET));
 
       // goto nextchild_continue;
@@ -5867,9 +5875,12 @@ begin
          end;
        end;
     }
-    PBufferHigh := @{$ifdef CPUX86}Store.{$endif}Buffer[(NodeFlags shr COUNTER_OFFSET) and $f];
-    PBufferBase := @{$ifdef CPUX86}Store.{$endif}Buffer[1];
-    PBufferCurrent := @{$ifdef CPUX86}Store.{$endif}Buffer[0];
+    {$ifdef CPUX86}
+    Buffer := @Store.Buffer;
+    {$endif}
+    PBufferHigh := @Buffer[(NodeFlags shr COUNTER_OFFSET) and $f];
+    PBufferBase := @Store.Buffer[1];
+    PBufferCurrent := @Store.Buffer[0];
     while (PBufferBase <> PBufferHigh) do
     begin
       ChildNode := PBufferBase^;
@@ -5940,7 +5951,7 @@ begin
       end;
 
       // insertion
-      {$if (not Defined(CPUX86)) (*or Defined(FPC)*)}
+      {$ifNdef CPUX86}
         Left := Right.Prev;
         Node.Next := Right;
         ChildNode.Prev := Left;
@@ -5954,7 +5965,7 @@ begin
           ChildNode.Prev{Left}.Next := ChildNode;
           Prev := Node;
         end;
-      {$ifend}
+      {$endif}
     until (PBufferCurrent = PBufferHigh);
 
     // next opened node
