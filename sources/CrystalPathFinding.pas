@@ -495,6 +495,7 @@ type
     property Width: Word read FWidth;
     property Height: Word read FHeight;
     property Kind: TTileMapKind read FKind;
+    property SameDiagonalWeight: Boolean read FSameDiagonalWeight;
     property SectorTest: Boolean read FSectorTest write FSectorTest;
     property Caching: Boolean read FCaching write FCaching;
     property Tiles[const X, Y: Word]: Byte read GetTile write SetTile; default;

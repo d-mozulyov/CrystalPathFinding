@@ -143,6 +143,7 @@ type
     FWidth: Word;
     FHeight: Word;
     FKind: TTileMapKind;
+    FSameDiagonalWeight: Boolean;
     FSectorTest: Boolean;
     FCaching: Boolean;
 
@@ -158,6 +159,7 @@ type
     property Width: Word read FWidth;
     property Height: Word read FHeight;
     property Kind: TTileMapKind read FKind;
+    property SameDiagonalWeight: Boolean read FSameDiagonalWeight;
     property SectorTest: Boolean read FSectorTest write FSectorTest;
     property Caching: Boolean read FCaching write FCaching;
     property Handle: TCPFHandle read FHandle;
@@ -311,6 +313,7 @@ begin
   FWidth := AWidth;
   FHeight := AHeight;
   FKind := AKind;
+  FSameDiagonalWeight := (not (AKind in [mkDiagonal, mkDiagonalEx])) or ASameDiagonalWeight;
   FSectorTest := False;
   FCaching := True;
 

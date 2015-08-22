@@ -9,29 +9,25 @@
 
 #ifndef CRYSTAL_PATH_FINDING_H
 #define CRYSTAL_PATH_FINDING_H
-
+ToDo: object oriented interface implementation & Memory/Exception callbacks (cpfInitialize)
 #include <Windows.h> // Cross Platform todo
 
   typedef POINT TPoint;
-  typedef unsigned short word;
-  typedef unsigned char byte;
-  typedef signed size_t size_i;
+  typedef unsigned short ushort;
+  typedef unsigned char uchar;
  
-  // map tile barrier
-  #define TILE_BARRIER 0  
-  
   // handle type
   typedef size_t TCPFHandle;
      
   // kind of map
-  typedef unsigned char TTileMapKind; enum {mkSimple, mkDiagonal, mkDiagonalEx, mkHexagonal}; 
- 
+  typedef uchar TTileMapKind; enum {mkSimple, mkDiagonal, mkDiagonalEx, mkHexagonal}; 
+
   // result of find path function
   struct TTileMapPath
   {
       size_t  Index;  
 	  TPoint* Points;
-      size_i  Count;
+      size_t  Count;
       double  Distance;
   };
 
@@ -45,9 +41,60 @@
       TPoint* Excludes;
       size_t ExcludesCount;
   };
+
+  // map tile barrier
+  #define TILE_BARRIER 0  
+
+  // object oriented Weights interface
+  struct TTileMapWeights
+  {
+	// constructor and destructor
+	TTileMapWeights();
+	~TTileMapWeights();
+
+    // internal descriptor
+    TCPFHandle Handle; 
+
+    // tile weight values
+	float getValue(uchar Tile);
+	void setValue(uchar Tile, float Value);
+  }; 
+
+  // object oriented Map interface
+  struct TTileMap
+  {
+	// constructor and destructor
+	TTileMap(ushort AWidth, ushort AHeight, TTileMapKind AKind, bool ASameDiagonalWeight = false);
+	~TTileMap();
+
+    // internal descriptor
+    TCPFHandle Handle; 
+
+    // basic parameters
+    ushort Width;
+	ushort Height;
+	TTileMapKind Kind;
+	bool SameDiagonalWeight;
+
+    // important variable parameters!
+	bool SectorTest;
+	bool Caching;
+
+	// update methods
+	void Clear();
+	void Update(uchar* ATiles, ushort X, ushort Y, ushort AWidth, ushort AHeight, ptrdiff_t Pitch = 0);
+	uchar getTile(ushort X, ushort Y);
+	void setTile(ushort X, ushort Y, uchar Value);
+
+	// path finding
+	TTileMapPath FindPath(const TTileMapParams Params, bool FullPath = true);
+	TTileMapPath FindPath(const TPoint Start, const TPoint Finish,
+	  TCPFHandle Weights = 0, TPoint* Excledes = NULL, size_t ExcludesCount = 0, bool FullPath = true);
+	TTileMapPath FindPath(TPoint* Starts, size_t StartsCount, const TPoint Finish,
+	  TCPFHandle Weights = 0, TPoint* Excledes = NULL, size_t ExcludesCount = 0, bool FullPath = true);
+  }; 
   
   
-ToDo: object oriented interface & Memory/Exception callbacks (cpfInitialize)
 
 //  initialization/finalization  routine
 namespace cpf_routine
