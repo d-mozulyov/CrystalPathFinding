@@ -58,10 +58,10 @@
           </Linking>
           <Other>
             <CompilerMessages>
-              <IgnoredMessages idx3005="True" idx4055="True" idx4056="True" idx4082="True" idx5023="True" idx5024="True" idx5028="True"/>
+              <IgnoredMessages idx3005="True" idx3036="True" idx4055="True" idx4056="True" idx4082="True" idx5023="True" idx5024="True" idx5028="True"/>
               <MsgFileName Value=""/>
             </CompilerMessages>
-            <CustomOptions Value="-dCPFLIB"/>
+            <CustomOptions Value="-dCPFLIBEX"/>
             <CompilerPath Value="$(CompPath)"/>
           </Other>
         </CompilerOptions>
@@ -116,13 +116,13 @@
     </Linking>
     <Other>
       <CompilerMessages>
-        <IgnoredMessages idx3005="True" idx4055="True" idx4056="True" idx4082="True" idx5023="True" idx5024="True" idx5028="True"/>
+        <IgnoredMessages idx3005="True" idx3036="True" idx4055="True" idx4056="True" idx4082="True" idx5023="True" idx5024="True" idx5028="True"/>
         <MsgFileName Value=""/>
       </CompilerMessages>
       <CustomOptions Value="-al
 -Anasmwin32
 -s
--dCPFLIB"/>
+-dCPFLIBEX"/>
       <CompilerPath Value="$(CompPath)"/>
     </Other>
   </CompilerOptions>

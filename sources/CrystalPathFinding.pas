@@ -86,6 +86,11 @@ unit CrystalPathFinding;
 
 {$ifdef CPF_GENERATE_LOOKUPS}
   {$undef CPFLIB}
+  {$undef CPFLIBEX}
+{$endif}
+
+{$ifdef CPFLIBEX}
+  {$define CPFLIB}
 {$endif}
 
 {$ifdef CPFLIB}
@@ -113,7 +118,7 @@ interface
          {$endif}
        {$endif};
 
-{$if Defined(FPC) or (CompilerVersion < 22) or Defined(CPFDBG) or (not Defined(NOEXCEPTIONS))}
+{$if Defined(FPC) or (CompilerVersion < 22) or Defined(CPFDBG) or (not Defined(CPFLIB))}
 type
 {$ifend}
   // standard types
@@ -744,7 +749,7 @@ begin
   {$ifdef LARGEINT}
   if (Length >= SizeOf(Cardinal)) then
   begin
-    Cardinal(P)^ := 0;
+    PCardinal(P)^ := 0;
 
     Dec(Length, SizeOf(Cardinal));
     Inc(P, SizeOf(Cardinal));
@@ -931,7 +936,7 @@ begin
       CPFCallbacks.Exception(Message, Address);
 
      // guaranteed halt (Assert)
-     {$ifNdef FPC}
+     {$ifNdef CPFLIBEX}
        System.ErrorAddr := Address;
        if (System.ExitCode = 0) then System.ExitCode := 207{reInvalidOp};
        System.Halt;
@@ -1027,7 +1032,7 @@ end;
 procedure RaiseOutOfMemory(const Address: Pointer);
 begin
 {$ifdef CPFLIB}
-  {$ifNdef FPC}
+  {$ifNdef CPFLIBEX}
     System.ExitCode := 203{reOutOfMemory};
   {$endif}
   CPFException('Out of memory', Address);
@@ -1043,7 +1048,7 @@ end;
 procedure RaiseInvalidPointer(const Address: Pointer);
 begin
 {$ifdef CPFLIB}
-  {$ifNdef FPC}
+  {$ifNdef CPFLIBEX}
     System.ExitCode := 204{reInvalidPtr};
   {$endif}
   CPFException('Invalid pointer operation', Address);

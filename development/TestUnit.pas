@@ -24,43 +24,8 @@ procedure ShowMessage(const StrFmt: string; const Args: array of const); overloa
 implementation
 
 procedure RUN;
-var
-  Map: TTileMap;
-  Weights: TTileMapWeights;
-  Start, Finish: TPoint;
-  Path: TTileMapPath;
-  i: Integer;
 begin
-  Weights := TTileMapWeights.Create;
-  try
-    Map := TTileMap.Create(10, 5, mkDiagonal);
-    try
-      Start := Point(0, 0);
-      Finish := Point(Map.Width - 1, Map.Height - 1);
 
-      Writeln(Format('Map find path from (%d,%d) to (%d,%d)...', [Start.X, Start.Y, Finish.X, Finish.Y]));
-      Path := Map.FindPath(Start, Finish, Weights);
-
-      if (Path.Count = 0) then
-      begin
-        Writeln('Path not found.');
-      end else
-      begin
-        Writeln(Format('Points: %d, Distance: %0.2f.', [Path.Count, Path.Distance]));
-
-        for i := 0 to Path.Count - 1 do
-        with Path.Points[i] do
-          Writeln(Format('%d)  [%d, %d]', [i, X, Y]));
-      end;
-
-    finally
-      Map.Free;
-    end;
-  finally
-    Weights.Free;
-  end;
-
-  ShowMessage('Done!');
 end;
 
 procedure ShowMessage(const S: string);
