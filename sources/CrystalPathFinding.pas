@@ -2674,6 +2674,7 @@ begin
   FActualInfo.Starts.Buffer.Initialize(Self);
   FActualInfo.Excludes.Buffer.Initialize(Self);
   FActualInfo.FoundPath.Buffer.Initialize(Self);
+  FActualInfo.FoundPath.Buffer.Alloc(2 * SizeOf(TPoint)){not FullPath};
 
   // failure hot node
   FNodes.HotPool.Last.Path := SORTVALUE_LIMIT;
@@ -5122,11 +5123,6 @@ attainable_cached:
   until (ParentNode = {$ifdef CPUX86}Store.{$endif}StartPointNode);
 
   // result length and distance
- (* with Store.StartPoint^ do
-  begin
-    Length := not {$ifdef CPUX86}{Parent}Node.nAttainableLength{$else}nLength{$endif};
-    Distance := {Parent}Node.AttainableDistance;
-  end;*)
 fill_result:
   _StartPoint := Store.StartPoint;
   _StartPoint.Length := not {$ifdef CPUX86}{Parent}Node.nAttainableLength{$else}nLength{$endif};
@@ -6490,10 +6486,6 @@ nodes_initialized:
   end else
   begin
     FActualInfo.FoundPath.FullPath := False;
-    // Alloc(2 * SizeOf(TPoint))
-    NodeInfo := 2 * SizeOf(TPoint);
-    if (NodeInfo > FActualInfo.FoundPath.Buffer.FAllocatedSize) then FActualInfo.FoundPath.Buffer.Realloc(NodeInfo);
-
     S := FActualInfo.FoundPath.Buffer.Memory;
     S.X := BestStartPoint.X;
     S.Y := BestStartPoint.Y;

@@ -62,56 +62,58 @@ type
 type
   TMainForm = class(TForm)
     pbMap: TPaintBox;
-    gbTileWeigths: TGroupBox;
-    pbTile1: TPaintBox;
-    pbTile2: TPaintBox;
-    pbTile3: TPaintBox;
-    pbTile4: TPaintBox;
-    sbTile1: TScrollBar;
-    lbTile1: TLabel;
-    cbUseWeights: TCheckBox;
-    sbTile2: TScrollBar;
-    lbTile2: TLabel;
-    sbTile3: TScrollBar;
-    lbTile3: TLabel;
-    sbTile4: TScrollBar;
-    lbTile4: TLabel;
+    cbMapKind: TComboBox;
+    cbTestingMode: TComboBox;
+    btnClear: TButton;
+    btnRandom: TButton;
+    btnSave: TButton;
     gbBarrierMode: TGroupBox;
     pbBarrier: TPaintBox;
     pbExclude: TPaintBox;
+    gbTileWeigths: TGroupBox;
+    cbUseWeights: TCheckBox;
+    pbTile1: TPaintBox;
+    lbTile1: TLabel;
+    sbTile1: TScrollBar;
+    pbTile2: TPaintBox;
+    lbTile2: TLabel;
+    sbTile2: TScrollBar;
+    pbTile3: TPaintBox;
+    lbTile3: TLabel;
+    sbTile3: TScrollBar;
+    pbTile4: TPaintBox;
+    lbTile4: TLabel;
+    sbTile4: TScrollBar;
+    gpOptions: TGroupBox;
+    cbSameDiagonalWeight: TCheckBox;
+    cbSectorTest: TCheckBox;
+    cbFullPath: TCheckBox;
     gbPerformanceTest: TGroupBox;
     seIterationsCount: TSpinEdit;
     btnPerformanceTest: TButton;
-    cbTestingMode: TComboBox;
-    cbMapKind: TComboBox;
-    btnSave: TButton;
-    btnRandom: TButton;
-    btnClear: TButton;
-    gpOptions: TGroupBox;
-    cbSectorTest: TCheckBox;
-    cbSameDiagonalWeight: TCheckBox;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
+    procedure FormShow(Sender: TObject);
+    procedure FormDblClick(Sender: TObject);
     procedure FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+    procedure pbMapPaint(Sender: TObject);
+    procedure pbMapDblClick(Sender: TObject);
+    procedure pbMapMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure pbMapMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure pbMapMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
     procedure OnTileClick(Sender: TObject);
     procedure OnTilePaint(Sender: TObject);
     procedure OnTileWeightChange(Sender: TObject);
-    procedure pbMapPaint(Sender: TObject);
-    procedure pbMapMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
-    procedure btnPerformanceTestClick(Sender: TObject);
-    procedure cbUseWeightsClick(Sender: TObject);
-    procedure pbMapMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
-    procedure pbMapMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
-    procedure btnClearClick(Sender: TObject);
-    procedure btnRandomClick(Sender: TObject);
-    procedure pbMapDblClick(Sender: TObject);
-    procedure btnSaveClick(Sender: TObject);
-    procedure cbTestingModeChange(Sender: TObject);
     procedure cbMapKindChange(Sender: TObject);
     procedure cbSectorTestClick(Sender: TObject);
+    procedure cbUseWeightsClick(Sender: TObject);
+    procedure cbTestingModeChange(Sender: TObject);
     procedure cbSameDiagonalWeightClick(Sender: TObject);
-    procedure FormShow(Sender: TObject);
-    procedure FormDblClick(Sender: TObject);
+    procedure cbFullPathClick(Sender: TObject);
+    procedure btnClearClick(Sender: TObject);
+    procedure btnRandomClick(Sender: TObject);
+    procedure btnSaveClick(Sender: TObject);
+    procedure btnPerformanceTestClick(Sender: TObject);
   private
     // update/repaint/execute
     FUpdateCounter: Integer;
@@ -147,6 +149,7 @@ type
     FExcludedPoints: TPointDynArray;
     FTestingMode: TTestingMode;
     FSameDiagonalWeight: Boolean;
+    FFullPath: Boolean;
     FManyStartPoints: TPointDynArray;
 
     procedure InitializeManyStartPoints;
@@ -159,6 +162,7 @@ type
     procedure SetSectorTest(const Value: Boolean);
     procedure SetTestingMode(const Value: TTestingMode);
     procedure SetSameDiagonalWeight(const Value: Boolean);
+    procedure SetFullPath(const Value: Boolean);
     procedure AddExcludedPoint(const Value: TPoint);
     procedure DeleteExcludedPoint(const Value: TPoint);
   public
@@ -171,6 +175,7 @@ type
     property SectorTest: Boolean read FSectorTest write SetSectorTest;
     property TestingMode: TTestingMode read FTestingMode write SetTestingMode;
     property SameDiagonalWeight: Boolean read FSameDiagonalWeight write SetSameDiagonalWeight;
+    property FullPath: Boolean read FFullPath write SetFullPath;
   end;
 
 
@@ -557,6 +562,7 @@ begin
 
         TestingMode := TTestingMode(ReadByte(0));
         SameDiagonalWeight := (ReadByte(0) <> 0);
+        FullPath := (ReadByte(1) <> 0);
       finally
         F.Free;
       end;
@@ -608,6 +614,11 @@ begin
   {$if Defined(DEBUG) and (not Defined(USECPFDLL))}
   Map.SaveHotPoolToFile;
   {$ifend}
+end;
+
+procedure TMainForm.FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+begin
+  if (Key = VK_ESCAPE) then Close;
 end;
 
 procedure TMainForm.BeginUpdate;
@@ -686,7 +697,7 @@ begin
       Params.StartsCount := Length(FManyStartPoints);
     end;
 
-    Result := Map.FindPath(Params{$ifdef SHORTPATH}, False{$endif});
+    Result := Map.FindPath(Params, FFullPath);
   end else
   begin
     // emulate many start points finding (tmMany)
@@ -698,7 +709,7 @@ begin
     for i := 0 to Length(FManyStartPoints) - 1 do
     begin
       Params.Starts := @FManyStartPoints[i];
-      Buffer := Map.FindPath(Params);
+      Buffer := Map.FindPath(Params, FFullPath);
 
       if (Buffer.Count <> 0) and (Buffer.Distance < Result.Distance) then
       begin
@@ -725,6 +736,7 @@ var
   Hexagonal: Boolean;
   BitmapMask: TBitmap;
   i, j: Integer;
+  PointsCount: Integer;
   P: TPoint;
   Canvas: TCanvas;
   Text: string;
@@ -881,14 +893,16 @@ begin
   {$endif}
 
   // path
-  if (Path.Count > 1) then
+  PointsCount := Path.Count;
+  if (not FullPath) and (PointsCount > 2) then PointsCount := 2;
+  if (PointsCount > 1) then
   begin
     Canvas.Pen.Width := 2;
     Canvas.Pen.Color := clRed;
     with MapToScreen(Path.Points[0].X, Path.Points[0].Y) do
       Canvas.MoveTo(X, Y);
 
-    for i := 1 to Path.Count - 1 do
+    for i := 1 to PointsCount - 1 do
     with MapToScreen(Path.Points[i].X, Path.Points[i].Y) do
       Canvas.LineTo(X, Y);
   end;
@@ -1008,6 +1022,7 @@ begin
 
     WriteByte(Byte(FTestingMode));
     WriteBool(FSameDiagonalWeight);
+    WriteBool(FFullPath);
   finally
     F.Free;
   end;
@@ -1152,6 +1167,14 @@ begin
   TryUpdate;
 end;
 
+procedure TMainForm.SetFullPath(const Value: Boolean);
+begin
+  if (FFullPath = Value) then Exit;
+  FFullPath := Value;
+  cbFullPath.Checked := Value;
+  TryUpdate;
+end;
+
 procedure TMainForm.AddExcludedPoint(const Value: TPoint);
 var
   Len: integer;
@@ -1177,11 +1200,6 @@ begin
   SetLength(FExcludedPoints, Len);
 
   TryUpdate;
-end;
-
-procedure TMainForm.FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
-begin
-  if (Key = VK_ESCAPE) then Close;
 end;
 
 procedure TMainForm.pbMapPaint(Sender: TObject);
@@ -1361,6 +1379,21 @@ begin
   end;
 end;
 
+procedure TMainForm.OnTileWeightChange(Sender: TObject);
+var
+  Index: Byte;
+  Weight: Single;
+begin
+  Index := TScrollBar(Sender).Tag;
+  Weight := TScrollBar(Sender).Position / 20;
+  TLabel(FindComponent('lbTile' + IntToStr(Index))).Caption := LocalFloatToStr(Weight);
+
+  Weights[Index] := Weight;
+  TileMode := Index;
+  RepaintBoxes([TPaintBox(FindComponent('pbTile' + IntToStr(Index)))]);
+  if (FUseWeights) then TryUpdate;
+end;
+
 procedure TMainForm.cbMapKindChange(Sender: TObject);
 begin
   MapKind := TTileMapKind(cbMapKind.ItemIndex);
@@ -1386,19 +1419,9 @@ begin
   SameDiagonalWeight := cbSameDiagonalWeight.Checked;
 end;
 
-procedure TMainForm.OnTileWeightChange(Sender: TObject);
-var
-  Index: Byte;
-  Weight: Single;
+procedure TMainForm.cbFullPathClick(Sender: TObject);
 begin
-  Index := TScrollBar(Sender).Tag;
-  Weight := TScrollBar(Sender).Position / 20;
-  TLabel(FindComponent('lbTile' + IntToStr(Index))).Caption := LocalFloatToStr(Weight);
-
-  Weights[Index] := Weight;
-  TileMode := Index;
-  RepaintBoxes([TPaintBox(FindComponent('pbTile' + IntToStr(Index)))]);
-  if (FUseWeights) then TryUpdate;
+  FullPath := cbFullPath.Checked;
 end;
 
 procedure TMainForm.btnClearClick(Sender: TObject);
@@ -1424,6 +1447,7 @@ begin
 
     TestingMode := tmOne;
     SameDiagonalWeight := False;
+    FullPath := True;
   finally
     EndUpdate;
   end;

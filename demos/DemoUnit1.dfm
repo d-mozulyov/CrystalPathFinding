@@ -325,13 +325,13 @@ object MainForm: TMainForm
   end
   object gpOptions: TGroupBox
     Left = 916
-    Top = 475
+    Top = 473
     Width = 149
-    Height = 66
+    Height = 69
     TabOrder = 7
     object cbSectorTest: TCheckBox
       Left = 11
-      Top = 14
+      Top = 26
       Width = 126
       Height = 17
       Caption = 'SectorTest'
@@ -340,13 +340,22 @@ object MainForm: TMainForm
     end
     object cbSameDiagonalWeight: TCheckBox
       Left = 11
-      Top = 36
+      Top = 6
       Width = 126
       Height = 17
       Caption = 'SameDiagonalWeight'
       Enabled = False
       TabOrder = 1
       OnClick = cbSameDiagonalWeightClick
+    end
+    object cbFullPath: TCheckBox
+      Left = 11
+      Top = 46
+      Width = 126
+      Height = 17
+      Caption = 'FullPath'
+      TabOrder = 2
+      OnClick = cbFullPathClick
     end
   end
 end

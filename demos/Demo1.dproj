@@ -96,19 +96,6 @@
         <Cfg_2>true</Cfg_2>
         <Base>true</Base>
     </PropertyGroup>
-    <PropertyGroup Condition="'$(Config)'=='SHORTPATH' or '$(Cfg_5)'!=''">
-        <Cfg_5>true</Cfg_5>
-        <CfgParent>Cfg_2</CfgParent>
-        <Cfg_2>true</Cfg_2>
-        <Base>true</Base>
-    </PropertyGroup>
-    <PropertyGroup Condition="('$(Platform)'=='Win32' and '$(Cfg_5)'=='true') or '$(Cfg_5_Win32)'!=''">
-        <Cfg_5_Win32>true</Cfg_5_Win32>
-        <CfgParent>Cfg_5</CfgParent>
-        <Cfg_5>true</Cfg_5>
-        <Cfg_2>true</Cfg_2>
-        <Base>true</Base>
-    </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='USECPFDLL' or '$(Cfg_8)'!=''">
         <Cfg_8>true</Cfg_8>
         <CfgParent>Cfg_2</CfgParent>
@@ -210,15 +197,6 @@
         <VerInfo_Locale>1033</VerInfo_Locale>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
     </PropertyGroup>
-    <PropertyGroup Condition="'$(Cfg_5)'!=''">
-        <Icon_MainIcon>$(BDS)\bin\delphi_PROJECTICON.ico</Icon_MainIcon>
-        <DCC_Define>SHORTPATH;$(DCC_Define)</DCC_Define>
-    </PropertyGroup>
-    <PropertyGroup Condition="'$(Cfg_5_Win32)'!=''">
-        <VerInfo_Locale>1033</VerInfo_Locale>
-        <Icon_MainIcon>$(BDS)\bin\delphi_PROJECTICON.ico</Icon_MainIcon>
-        <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
-    </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_8)'!=''">
         <DCC_Define>USECPFDLL;$(DCC_Define)</DCC_Define>
         <Icon_MainIcon>$(BDS)\bin\delphi_PROJECTICON.ico</Icon_MainIcon>
@@ -241,10 +219,6 @@
         <DCCReference Include="..\sources\CrystalPathFinding.pas"/>
         <BuildConfiguration Include="CPFLOG">
             <Key>Cfg_4</Key>
-            <CfgParent>Cfg_2</CfgParent>
-        </BuildConfiguration>
-        <BuildConfiguration Include="SHORTPATH">
-            <Key>Cfg_5</Key>
             <CfgParent>Cfg_2</CfgParent>
         </BuildConfiguration>
         <BuildConfiguration Include="USECPFDLL [Release]">
