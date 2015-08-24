@@ -1,11 +1,28 @@
-/* ******************************************************************* */
-/* "Crystal Path Finding" (cpf) is a very small part of CrystalEngine, */
-/* that helps to find the shortest paths with A*-WA* algorithms.       */
-/*                                                                     */
-/* email: softforyou@inbox.ru                                          */
-/* skype: dimandevil                                                   */
-/* repository: https://github.com/d-mozulyov/CrystalPathFinding        */
-/* ******************************************************************* */
+/********************************************************************************/
+/* Copyright (c) 2011-2015 Dmitry Mozulyov                                      */
+/*                                                                              */
+/* Permission is hereby granted, free of charge, to any person obtaining a copy */
+/* of this software and associated documentation files (the "Software"), to deal*/
+/* in the Software without restriction, including without limitation the rights */
+/* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell    */
+/* copies of the Software, and to permit persons to whom the Software is        */
+/* furnished to do so, subject to the following conditions:                     */
+/*                                                                              */
+/* The above copyright notice and this permission notice shall be included in   */
+/* all copies or substantial portions of the Software.                          */
+/*                                                                              */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR   */
+/* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,     */
+/* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE  */
+/* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER       */
+/* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,*/
+/* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN    */
+/* THE SOFTWARE.                                                                */
+/*                                                                              */
+/* email: softforyou@inbox.ru                                                   */
+/* skype: dimandevil                                                            */
+/* repository: https://github.com/d-mozulyov/CrystalPathFinding                 */
+/********************************************************************************/
 
 #ifndef CRYSTAL_PATH_FINDING_H
 #define CRYSTAL_PATH_FINDING_H
@@ -89,9 +106,9 @@ ToDo: object oriented interface implementation & Memory/Exception callbacks (cpf
 	// path finding
 	TTileMapPath FindPath(const TTileMapParams Params, bool FullPath = true);
 	TTileMapPath FindPath(const TPoint Start, const TPoint Finish,
-	  TCPFHandle Weights = 0, TPoint* Excledes = NULL, size_t ExcludesCount = 0, bool FullPath = true);
+	  TCPFHandle Weights = 0, TPoint* Excludes = NULL, size_t ExcludesCount = 0, bool FullPath = true);
 	TTileMapPath FindPath(TPoint* Starts, size_t StartsCount, const TPoint Finish,
-	  TCPFHandle Weights = 0, TPoint* Excledes = NULL, size_t ExcludesCount = 0, bool FullPath = true);
+	  TCPFHandle Weights = 0, TPoint* Excludes = NULL, size_t ExcludesCount = 0, bool FullPath = true);
   }; 
   
   

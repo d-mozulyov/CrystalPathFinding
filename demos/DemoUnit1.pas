@@ -6,6 +6,12 @@ unit DemoUnit1;
   {$mode Delphi}
   {$asmmode Intel}
   {$define INLINESUPPORT}
+  {$ifdef CPU386}
+    {$define CPUX86}
+  {$endif}
+  {$ifdef CPUX86_64}
+    {$define CPUX64}
+  {$endif}  
 {$else}
   {$if CompilerVersion >= 24}
     {$LEGACYIFEND ON}

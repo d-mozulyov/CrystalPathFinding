@@ -273,7 +273,7 @@ $(PostBuildEvent)]]></PostBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
-        <PostBuildEvent>del objs\$(Platform)\*.dcu&amp;&amp;del objs\$(Platform)\development.*&amp;&amp;del objs\$(Platform)\TestUnit.*</PostBuildEvent>
+        <PostBuildEvent>del objs\$(Platform)\*.dcu&amp;&amp;del objs\$(Platform)\development.*&amp;&amp;del objs\$(Platform)\TestUnit.*</PostBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='objs' And '$(Platform)'=='Win32'">
@@ -281,7 +281,7 @@ $(PostBuildEvent)]]></PostBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
-        <PostBuildEvent>del objs\$(Platform)\*.dcu&amp;&amp;del objs\$(Platform)\development.*&amp;&amp;del objs\$(Platform)\TestUnit.*</PostBuildEvent>
+        <PostBuildEvent>del objs\$(Platform)\*.dcu&amp;&amp;del objs\$(Platform)\development.*&amp;&amp;del objs\$(Platform)\TestUnit.*</PostBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='objs' And '$(Platform)'=='Win64'">
@@ -289,7 +289,7 @@ $(PostBuildEvent)]]></PostBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
-        <PostBuildEvent>del objs\$(Platform)\*.dcu&amp;&amp;del objs\$(Platform)\development.*&amp;&amp;del objs\$(Platform)\TestUnit.*</PostBuildEvent>
+        <PostBuildEvent>del objs\$(Platform)\*.dcu&amp;&amp;del objs\$(Platform)\development.*&amp;&amp;del objs\$(Platform)\TestUnit.*</PostBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
 </Project>
