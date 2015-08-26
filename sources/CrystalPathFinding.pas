@@ -280,7 +280,7 @@ type
               SortValue: Cardinal; // path + heuristics to finish point
               Path: Cardinal; // path from start point to the cell
               Prev, Next: PCPFNode;
-              Coordinates: TCPFPoint;
+              Coordinates: TCPFPoint; // coordinates or excluded packed index
               case Integer of
               0: (
                    ParentAndFlags: Byte
@@ -303,6 +303,36 @@ type
               AttainableDistance: Double;
            );
   end;
+
+  TCPFStart = packed record
+    XYDistance: Integer;
+    Node: PCPFNode;
+    {$ifNdef LARGEINT}
+      __Align: Int64;
+    {$endif}
+    case Boolean of
+      True: (KnownPathNode: PCPFNode; Distance: Double; X, Y: Word);
+      False:(
+        Length: NativeUInt;
+        case Boolean of
+          True: (DistanceAsInt64: Int64);
+         False: (DistanceLowDword: Cardinal; DistanceHighDword, XY: Integer);
+      );
+  end;
+  PCPFStart = ^TCPFStart;
+
+  TCPFExcluded = packed record
+    Attainables: array[0..3] of TCPFPoint;
+    Count: Cardinal; // 8 - flag unattainables, 4 - flag many attainables
+    Coordinates: TCPFPoint;
+    Node: PCPFNode;
+    {$ifNdef LARGEINT}
+      __Align: Integer;
+    {$endif}
+  end;
+  PCPFExcluded = ^TCPFExcluded;
+  PCPFExcludedList = ^TCPFExcludedList;
+  TCPFExcludedList = array[0..High(Integer) div SizeOf(TCPFExcluded) - 1] of TCPFExcluded;
 
   PCPFOffsets = ^TCPFOffsets;
   TCPFOffsets = array[0..7] of NativeInt;
@@ -327,22 +357,6 @@ type
   TCPFNodeBuffers = array[0..31] of NativeUInt;
   PCPFNodeBuffers = ^TCPFNodeBuffers;
 
-  TCPFStart = packed record
-    XYDistance: Integer;
-    Node: PCPFNode;
-    {$ifNdef LARGEINT}
-      __Align: Int64;
-    {$endif}
-    case Boolean of
-      True: (KnownPathNode: PCPFNode; Distance: Double; X, Y: Word);
-      False:(
-        Length: NativeUInt;
-        case Boolean of
-          True: (DistanceAsInt64: Int64);
-         False: (DistanceLowDword: Cardinal; DistanceHighDword, XY: Integer);
-      );
-  end;
-  PCPFStart = ^TCPFStart;
 
   // path finding parameters
   TTileMapParams = record
@@ -381,7 +395,7 @@ type
     procedure SetTile(const X, Y: Word; Value: Byte);
     procedure GrowNodeAllocator(var Buffer: TCPFInfo);
     function DoFindPathLoop(StartNode: PCPFNode): PCPFNode;
-    function DoFindPath(const ParamsPtr: NativeUInt{high bit is FullPath}): TTileMapPath;
+    function DoFindPath({const} ParamsPtr: NativeUInt{high bit is FullPath flag}): TTileMapPath;
   private
     FNodes: record
       Storage: record
@@ -389,14 +403,15 @@ type
         Count: NativeUInt;
       end;
       AttainableTree: Boolean;
+      //AttainableTreeBooked: Boolean;
+      //UnattainableSet: Boolean;
+      //UnattainableSetBooked: Boolean;
       HotPool: record
         First: TCPFNode;
         Last: TCPFNode;
+        LockedExcluded: Boolean;
         Unattainable: Boolean;
-      end;
-      ExcludedPool: record
-        First: TCPFNode;
-        Last: TCPFNode;
+        KnownPathNode: PCPFNode;
       end;
       HeuristedPool: record
         First: TCPFNode;
@@ -433,11 +448,12 @@ type
                  CardinalValues: array[0..1, 0..255] of Cardinal;
                );
       end;
-      Starts: record
-        Buffer: TCPFBuffer;
+      Excludes: record
+        Index: NativeInt;
+        Buffers: array[0..1] of TCPFBuffer;
         Count: NativeUInt;
       end;
-      Excludes: record
+      Starts: record
         Buffer: TCPFBuffer;
         Count: NativeUInt;
       end;
@@ -454,15 +470,15 @@ type
     function AllocateHeuristedNode(X, Y: NativeInt): PCPFNode;
     function ActualizeWeights(Weights: PCPFWeightsInfo; Compare: Boolean): Boolean;
     function ActualizeStarts(const Params: TTileMapParams{; Compare: Boolean}): Boolean;
-    function ActualizeExcludes(Points: PPoint; Count: NativeUInt; Compare: Boolean): Boolean;
+    procedure ActualizeExcludes(Points: PPoint; Count: NativeUInt);
     procedure ActualizeSectors;
     procedure FreeStorageTopBuffer;
-    procedure FreeAllocatedNodes(const ClearCells: Boolean);
+    procedure FreeAllocatedNodes(const RetrieveCells: Boolean);
     procedure ForgetAttainableNodes(const X, Y: NativeInt);
     procedure ForgetAttainableTreeNodes;
+    procedure ForgetExcludedNodes;
     procedure ReleasePoolNodes(var PoolFirst, PoolLast: TCPFNode);
     procedure FlushHotPoolNodes;
-    procedure UnlockExcludedNodes;
     procedure CacheAttainablePath(var StartPoint: TCPFStart; const FinishNode: PCPFNode);
     procedure FillAttainablePath(const StartNode, FinishNode: PCPFNode);
     procedure FillStandardPath(const StartNode, FinishNode: PCPFNode);
@@ -1680,7 +1696,9 @@ const
   SORTVALUE_LIMIT = NATTANABLE_LENGTH_LIMIT - 1;
   FLAG_KNOWN_PATH = 1 shl 3;
   FLAG_ATTAINABLE = 1 shl 7;
+  FLAGS_KNOWN_ATTAINABLE = FLAG_KNOWN_PATH or FLAG_ATTAINABLE;
   FLAGS_CLEAN_MASK = Integer(not ($1f shl 3));
+  FLAG_EXCLUDED_COORDINATES = NativeUInt((1 shl 31) + (1 shl 15));
   PATHLESS_TILE_WEIGHT = High(Cardinal) shr 1;
 
   {$ifdef LARGEINT}
@@ -2668,7 +2686,8 @@ begin
 
   // internal buffers
   FActualInfo.Starts.Buffer.Initialize(Self);
-  FActualInfo.Excludes.Buffer.Initialize(Self);
+  FActualInfo.Excludes.Buffers[0].Initialize(Self);
+  FActualInfo.Excludes.Buffers[1].Initialize(Self);
   FActualInfo.FoundPath.Buffer.Initialize(Self);
   FActualInfo.FoundPath.Buffer.Alloc(2 * SizeOf(TPoint)){not FullPath};
 
@@ -2677,6 +2696,9 @@ begin
   FNodes.HotPool.Last.SortValue := SORTVALUE_LIMIT;
   Cardinal(FNodes.HotPool.Last.Coordinates) := High(Cardinal);
   FNodes.HotPool.Last.NodeInfo := FLAG_KNOWN_PATH {+ not FLAG_ATTAINABLE};
+
+  // unlocked heuristed node
+  FNodes.HeuristedPool.Last.NodeInfo := High(Cardinal);
 
   // allocate and fill cells
   // node storage initialization
@@ -2699,7 +2721,8 @@ begin
 
   // internal buffers
   FActualInfo.Starts.Buffer.Free;
-  FActualInfo.Excludes.Buffer.Free;
+  FActualInfo.Excludes.Buffers[0].Free;
+  FActualInfo.Excludes.Buffers[1].Free;
   FActualInfo.FoundPath.Buffer.Free;
 
   // node storage
@@ -2754,6 +2777,8 @@ end;
 {$ifdef CPFDBG}
 function TTileMap.CellInformation(const X, Y: Word): string;
 const
+  MASK_BITS_15 = (1 shl 15) - 1;
+  MASK_BITS_16_30 = MASK_BITS_15 shl 16;
   STAR: array[Boolean] of string = ('', '*');
 var
   Cell: PCPFCell;
@@ -2764,6 +2789,9 @@ var
   IsSimple: Boolean;
   Sector: Byte;
   Heuristics: Cardinal;
+  Coordinates: TCPFPoint;
+  Index: NativeUInt;
+  ExcludeItem: PCPFExcluded;
 
   {$ifdef LARGEINT}
     NodeBuffers: PCPFNodeBuffers;
@@ -2852,8 +2880,6 @@ begin
           CellInfo := CellInfo + Format(', parent: %d', [Node.ParentAndFlags and 7]);
         end else
         begin
-          if (N = @FNodes.ExcludedPool.First) then CellKind := CellKind + ' [excluded]'
-          else
           if (N = @FNodes.HeuristedPool.First) then CellKind := CellKind + ' [heuristed]'
           else
           if (N = @FNodes.UnattainablePool.First) then CellKind := CellKind + ' [unattainable]'
@@ -2896,8 +2922,21 @@ begin
       CellInfo := CellInfo + ')';      
     end;
 
-    if (Node.Coordinates.X <> X) or (Node.Coordinates.Y <> Y) then
-      CellInfo := CellInfo + Format(' FIALURE COORDINATES [%d,%d]', [Node.Coordinates.X, Node.Coordinates.Y]);
+    Coordinates := Node.Coordinates;
+    if (Cardinal(Coordinates) and FLAG_EXCLUDED_COORDINATES = FLAG_EXCLUDED_COORDINATES) then
+    begin
+      Index := Cardinal(Coordinates);
+      Index := (Index and MASK_BITS_15) + (Index and MASK_BITS_16_30) shr 1;
+      ExcludeItem := @PCPFExcludedList(FActualInfo.Excludes.Buffers[FActualInfo.Excludes.Index].Memory)[Index];
+
+      Coordinates := ExcludeItem.Coordinates;
+      CellInfo := CellInfo + ' [excluded]';
+
+      if (ExcludeItem.Node <> Node) then
+        CellInfo := CellInfo + ' FAILURE NODE';
+    end;
+    if (Coordinates.X <> X) or (Coordinates.Y <> Y) then
+      CellInfo := CellInfo + Format(' FIALURE COORDINATES [%d,%d]', [Coordinates.X, Coordinates.Y]);
   end;
 
   Result := Format('[%d,%d] %s %s', [X, Y, CellKind, CellInfo]);
@@ -4069,24 +4108,184 @@ done:
   Result := (CompareBits = 0);
 end;
 
-function TTileMap.ActualizeExcludes(Points: PPoint; Count: NativeUInt; Compare: Boolean): Boolean;
+procedure TTileMap.ActualizeExcludes(Points: PPoint; Count: NativeUInt);
+label
+  fill_index, next_point, next_item;
+const
+  MASK_BITS_15 = (1 shl 15) - 1;
+  MASK_BITS_16_30 = MASK_BITS_15 shl 16;
 var
-  Size: NativeUInt;
+  Index: NativeUInt;
+  X, Y: NativeInt;
+  Buffer: PCPFBuffer;
+  NodeInfo: NativeUInt;
+  LastExcludesCount: NativeUInt;
+  LastExcludes, Excludes: PCPFExcludedList;
+  Item, HighItem: PCPFExcluded;
+  Node: PCPFNode;
+  Attainable: PCPFPoint;
+  Booked: NativeUInt;
+  StoreBooked: NativeUInt;
+
+  {$ifNdef CPUX86}
+    _Self: Pointer;
+  {$endif}
+  {$ifdef LARGEINT}
+    NodeBuffers: PCPFNodeBuffers;
+  {$endif}
 begin
-  Size := SizeOf(TPoint) * Count;
-
-  if (Compare) and (Count = FActualInfo.Excludes.Count) and
-    CompareMem(Points, FActualInfo.Excludes.Buffer.Memory, Size) then
-  begin
-    Result := True;
-    Exit;
-  end;
-
+  // memory and count initialization
+  LastExcludesCount := FActualInfo.Excludes.Count;
   FActualInfo.Excludes.Count := Count;
-  Move(Points^, FActualInfo.Excludes.Buffer.Alloc(Size)^, Size);
+  Index := FActualInfo.Excludes.Index;
+  LastExcludes := FActualInfo.Excludes.Buffers[Index].Memory;
+  Index := Index xor 1;
+  FActualInfo.Excludes.Index := Index;
+  Buffer := @FActualInfo.Excludes.Buffers[Index];
+  NodeInfo := FActualInfo.Excludes.Count * SizeOf(TCPFExcluded);
+  if (Buffer.FAllocatedSize < NodeInfo) then Buffer.Realloc(NodeInfo);
+  Excludes := Buffer.Memory;
 
-  Result := False;
+  // each point initialize
+  Item := Pointer(Excludes);
+  HighItem := @PCPFExcludedList(Item)[FActualInfo.Excludes.Count];
+{$ifNdef CPUX86}
+  _Self := Pointer({$ifdef CPFLIB}@Self{$else}Self{$endif});
+  with TTileMapPtr(_Self){$ifdef CPFLIB}^{$endif} do
+begin
+{$endif}
+  if (Item <> HighItem) then
+  repeat
+    Item.Count := 0;
+    X := Points.X;
+    Y := Points.Y;
+    Integer(Item.Coordinates) := (X shl 16) + Y;
+
+    NodeInfo := FInfo.CellArray[FInfo.MapWidth * Y + X].NodePtr;
+    if (NodeInfo and NODEPTR_FLAG_HEURISTED = 0) then
+    begin
+      // new heuristed node
+      Node := AllocateHeuristedNode(Points.X, Points.Y);
+    end else
+    begin
+      {$ifdef LARGEINT}
+      NodeBuffers := Pointer(@FInfo.NodeAllocator.Buffers);
+      {$endif}
+      Node := PCPFNode({$ifdef LARGEINT}NodeBuffers[NodeInfo shr LARGE_NODEPTR_OFFSET] +{$endif}
+              NodeInfo and NODEPTR_CLEAN_MASK);
+      if (Node.NodeInfo and FLAGS_KNOWN_ATTAINABLE = FLAGS_KNOWN_ATTAINABLE) then
+      begin
+        // exclude attainable
+        ForgetAttainableNodes(Points.X, Points.Y);
+        Node := AllocateHeuristedNode(Points.X, Points.Y);
+      end else
+      if (Cardinal(Node.Coordinates) and FLAG_EXCLUDED_COORDINATES = FLAG_EXCLUDED_COORDINATES) then
+      begin
+        // already marked as excluded
+        Item.Node := Node;
+        Index := Cardinal(Node.Coordinates);
+        Index := (Index and MASK_BITS_15) + (Index and MASK_BITS_16_30) shr 1;
+
+        if (Index < LastExcludesCount) then
+        begin
+          PCPFExcluded(Index){LastItem} := @LastExcludes[Index];
+          if (PCPFExcluded(Index){LastItem}.Node = Node) then
+          begin
+            PCPFExcluded(Index){LastItem}.Node := nil;
+
+            // copy last excluded node attainable info
+            NodeInfo := PCPFExcluded(Index){LastItem}.Count;
+            if (NodeInfo <> 0) then
+            begin
+              Item.Count := NodeInfo;
+              {$ifdef LARGEINT}
+                PInt64(@Item.Attainables[0])^ := PInt64(@PCPFExcluded(Index){LastItem}.Attainables[0])^;
+                PInt64(@Item.Attainables[2])^ := PInt64(@PCPFExcluded(Index){LastItem}.Attainables[2])^;
+              {$else}
+                Item.Attainables[0] := PCPFExcluded(Index){LastItem}.Attainables[0];
+                Item.Attainables[1] := PCPFExcluded(Index){LastItem}.Attainables[1];
+                Item.Attainables[2] := PCPFExcluded(Index){LastItem}.Attainables[2];
+                Item.Attainables[3] := PCPFExcluded(Index){LastItem}.Attainables[3];
+              {$endif}
+            end;
+
+            Node := Item.Node;
+            goto fill_index;
+          end;
+        end;
+
+        // local duplicate
+        Item.Node := nil;
+        goto next_point;
+      end;
+    end;
+
+    // node
+    Item.Node := Node;
+
+  fill_index:
+    Index := (NativeUInt(Item) - NativeUInt(Excludes)) shr 5{div SizeOf(TCPFExcluded)};
+    Index := (Index and MASK_BITS_15) + ((Index shl 1) and MASK_BITS_16_30) + FLAG_EXCLUDED_COORDINATES;
+    Cardinal(Node.Coordinates) := Index;
+
+  next_point:
+    Inc(Item);
+    Inc(Points);
+  until (Item = HighItem);
+
+  // retrieve removed excluded nodes coordinates
+  // forget attainable and release unattainable (if needed)
+  Item := Pointer(LastExcludes);
+  HighItem := @PCPFExcludedList(Item)[LastExcludesCount];
+  Booked := Byte(not FNodes.AttainableTree) + 2 * Byte(FNodes.UnattainablePool.First.Next = @FNodes.UnattainablePool.Last);
+  if (Item <> HighItem) then
+  repeat
+    Node := Item.Node;
+    if (Node = nil{local duplicate}) then goto next_item;
+
+    Cardinal(Node.Coordinates) := Cardinal(Item.Coordinates);
+    if (Booked = 3) then goto next_item;
+
+    NodeInfo := Item.Count;
+    if (NodeInfo = 0) then goto next_item;
+
+    if (NodeInfo and (8 or 4) <> 0) then
+    begin
+      if (NodeInfo and 8 <> 0) then Booked := Booked or 2;
+      if (NodeInfo and 4 <> 0) then Booked := Booked or 1;
+
+      NodeInfo := NodeInfo and 3;
+      if (NodeInfo = 0) then goto next_item;
+    end;
+
+    if (Booked and 1 <> 0) then goto next_item;
+    StoreBooked := Booked;
+    Attainable := @Item.Attainables[NodeInfo];
+    repeat
+      Dec(Attainable);
+
+      NodeInfo := FInfo.CellArray[FInfo.MapWidth * Attainable.Y + Attainable.X].NodePtr;
+      if (NodeInfo and NODEPTR_FLAG_HEURISTED <> 0) then
+        ForgetAttainableNodes(Attainable.X, Attainable.Y);
+    until (Attainable = @Item.Attainables[0]);
+    Booked := StoreBooked;
+
+  next_item:
+    Inc(Item);
+  until (Item = HighItem);
+
+  // cleanup all attainable nodes
+  if (Booked and 1 <> 0) and (FNodes.AttainableTree) then
+    ForgetAttainableTreeNodes;
+
+  // cleanup all unattainable nodes
+  if (Booked and 2 <> 0) and (FNodes.UnattainablePool.First.Next = @FNodes.UnattainablePool.Last) then
+    ReleasePoolNodes(FNodes.UnattainablePool.First, FNodes.UnattainablePool.Last);
+{$ifNdef CPUX86}
+  end;
+{$endif}
 end;
+
 
 type
   PFloodLineRec = ^TFloodLineRec;
@@ -4493,7 +4692,7 @@ begin
   end;
 end;
 
-procedure FreeAllocatedNodeArray(const Info: TCPFInfo; Node, HighNode: PCPFNode);
+procedure RetrieveNodeArrayCells(const Info: TCPFInfo; Node, HighNode: PCPFNode);
 var
   Cells: PCPFCellArray;
   MapWidth: NativeInt;
@@ -4502,7 +4701,7 @@ begin
   Cells := Info.CellArray;
   MapWidth := Info.MapWidth;
 
-  // while (Node <> HN{HighNode}) do
+  // while (Node <> HighNode) do
   if (Node <> HighNode) then
   repeat
     Coordinates := Cardinal(Node.Coordinates);
@@ -4516,39 +4715,21 @@ begin
   until (Node = HighNode);
 end;
 
-procedure TTileMap.FreeAllocatedNodes(const ClearCells{usually True}: Boolean);
+procedure TTileMap.FreeAllocatedNodes(const RetrieveCells{usually True}: Boolean);
 var
   Node, HighNode: PCPFNode;
   Index: NativeUInt;
 begin
-  // no attanable tree nodes
-  FNodes.AttainableTree := False;
-
-  // hot pool
-  FNodes.HotPool.First.Next := @FNodes.HotPool.Last;
-  FNodes.HotPool.Last.Prev := @FNodes.HotPool.First;
-
-  // excluded pool
-  FNodes.ExcludedPool.First.Next := @FNodes.ExcludedPool.Last;
-  FNodes.ExcludedPool.Last.Prev := @FNodes.ExcludedPool.First;
-
-  // heuristed pool
-  FNodes.HeuristedPool.First.Next := @FNodes.HeuristedPool.Last;
-  FNodes.HeuristedPool.Last.Prev := @FNodes.HeuristedPool.First;
-
-  // unattainable pool
-  FNodes.UnattainablePool.First.Next := @FNodes.UnattainablePool.Last;
-  FNodes.UnattainablePool.Last.Prev := @FNodes.UnattainablePool.First;
-
-  // clear map cells
-  if (ClearCells) and (FInfo.NodeAllocator.Count <> 0) then
+  // retrieve map cells
+  if (RetrieveCells) and (FInfo.NodeAllocator.Count <> 0) then
   begin
-    Index := FInfo.NodeAllocator.Count - 1;
+    if (FActualInfo.Excludes.Count <> 0) then
+      ForgetExcludedNodes;
 
+    Index := FInfo.NodeAllocator.Count - 1;
     Node := FInfo.NodeAllocator.Buffers[Index];
     HighNode := FInfo.NodeAllocator.NewNode;
-    FreeAllocatedNodeArray(FInfo, Node, HighNode);
-
+    RetrieveNodeArrayCells(FInfo, Node, HighNode);
     while (Index <> 0) do
     begin
       Dec(Index);
@@ -4557,7 +4738,7 @@ begin
       Node := HighNode;
       Inc(HighNode, NODESTORAGE_INFO[Index].Count);
 
-      FreeAllocatedNodeArray(FInfo, Node, HighNode);
+      RetrieveNodeArrayCells(FInfo, Node, HighNode);
     end;
   end;
 
@@ -4573,6 +4754,25 @@ begin
       CPFFreeMem(FNodes.Storage.Buffers[Index]);
     end;
   end;
+
+  // parameters
+  FNodes.AttainableTree := False;
+  FActualInfo.Excludes.Count := 0;
+
+  // hot pool
+  FNodes.HotPool.First.Next := @FNodes.HotPool.Last;
+  FNodes.HotPool.Last.Prev := @FNodes.HotPool.First;
+  FNodes.HotPool.LockedExcluded := False;
+  FNodes.HotPool.Unattainable := False;
+  FNodes.HotPool.KnownPathNode := nil;
+
+  // heuristed pool
+  FNodes.HeuristedPool.First.Next := @FNodes.HeuristedPool.Last;
+  FNodes.HeuristedPool.Last.Prev := @FNodes.HeuristedPool.First;
+
+  // unattainable pool
+  FNodes.UnattainablePool.First.Next := @FNodes.UnattainablePool.Last;
+  FNodes.UnattainablePool.Last.Prev := @FNodes.UnattainablePool.First;
 
   // fill allocator by first buffer
   FInfo.NodeAllocator.Count := 0;
@@ -4796,6 +4996,31 @@ begin
   end;
 end;
 
+procedure TTileMap.ForgetExcludedNodes;
+var
+  i, Count: NativeUInt;
+  Excluded: PCPFExcluded;
+  Node: PCPFNode;
+begin
+  Count := FActualInfo.Excludes.Count;
+  if (Count <> 0) then
+  begin
+    FNodes.HotPool.LockedExcluded := False;
+
+    Excluded := FActualInfo.Excludes.Buffers[FActualInfo.Excludes.Index].Memory;
+    for i := 1 to Count do
+    begin
+      Node := Excluded.Node;
+      if (Node <> nil{local duplicate}) then
+        Cardinal(Node.Coordinates) := Cardinal(Excluded.Coordinates);
+
+      Inc(Excluded);
+    end;
+
+    FActualInfo.Excludes.Count := 0;
+  end;
+end;
+
 procedure TTileMap.ReleasePoolNodes(var PoolFirst, PoolLast: TCPFNode);
 var
   Node: PCPFNode;
@@ -4825,101 +5050,183 @@ begin
 end;
 
 procedure TTileMap.FlushHotPoolNodes;
+label
+  _2, _1, next_excluded, excluded_associated, next_unattainable;
+const
+  MASK_BITS_15 = (1 shl 15) - 1;
+  MASK_BITS_16_30 = MASK_BITS_15 shl 16;
+  PARENT_MASK_BITS = $00ff0000;
 var
-  LastPoolNode: PCPFNode;
-  Node, Buffer: PCPFNode;
+  NodeInfo: Cardinal;
+  Node, Left, Right: PCPFNode;
+
+  Coordinates: Cardinal;
+  Index: NativeUInt;
+  Excluded: PCPFExcludedList;
+  Item: PCPFExcluded;
 begin
   // start point nodes
-  Buffer{Node} := FNodes.HotPool.First.Next;
-  if (Buffer{Node} = @FNodes.HotPool.Last) then Exit;
+  Node := FNodes.HotPool.First.Next;
+  if (Node = @FNodes.HotPool.Last) then Exit;
 
-  // mark list end (nil)
-  FNodes.HotPool.Last.Prev.Next := nil;
+  // locked excluded points associate
+  if (FNodes.HotPool.LockedExcluded) then
+  begin
+    // current excluded list
+    Excluded := FActualInfo.Excludes.Buffers[FActualInfo.Excludes.Index].Memory;
+
+    if (not FNodes.HotPool.Unattainable) then
+    begin
+      // parent coordinates
+      if (not FNodes.AttainableTree) then goto excluded_associated;
+      Right := FNodes.HotPool.KnownPathNode;
+      with POINT_OFFSETS[Right.NodeInfo and 7] do
+      begin
+        Coordinates := Cardinal(SmallInt(Right.Coordinates.Y) + y) +
+         (Cardinal(SmallInt(Right.Coordinates.X) + x) shl 16);
+      end;
+
+      // excluded loop
+      Node := FNodes.HotPool.First.Next;
+      Index := Cardinal(Node.Coordinates);
+      repeat
+        if (Node.NodeInfo and FLAGS_KNOWN_ATTAINABLE <> FLAG_KNOWN_PATH) then
+        begin
+          Index := (Index and MASK_BITS_15) + (Index and MASK_BITS_16_30) shr 1;
+          Item := @Excluded[Index];
+          case (Item.Count and 7) of
+            4: goto next_excluded;
+            3:
+            begin
+              if (Cardinal(Item.Attainables[2]) = Coordinates) then goto next_excluded;
+              goto _2;
+            end;
+            2:
+            begin
+            _2:
+              if (Cardinal(Item.Attainables[1]) = Coordinates) then goto next_excluded;
+              goto _1;
+            end;
+            1:
+            begin
+            _1:
+              if (Cardinal(Item.Attainables[0]) = Coordinates) then goto next_excluded;
+            end;
+          end;
+          Cardinal(Item.Attainables[Item.Count and 7]) := Coordinates;
+          Inc(Item.Count);
+        end;
+
+      next_excluded:
+        Node := Node.Next;
+        Index := Cardinal(Node.Coordinates);
+      until (Index and FLAG_EXCLUDED_COORDINATES <> FLAG_EXCLUDED_COORDINATES);
+    end else
+    begin
+      // flag unattainables
+      Node := FNodes.HotPool.First.Next;
+      Index := Cardinal(Node.Coordinates);
+      repeat
+        if (Node.NodeInfo and FLAGS_KNOWN_ATTAINABLE <> FLAG_KNOWN_PATH) then
+        begin
+          Index := (Index and MASK_BITS_15) + (Index and MASK_BITS_16_30) shr 1;
+          Item := @Excluded[Index];
+          Item.Count := Item.Count or 8;
+        end;
+
+        Node := Node.Next;
+        Index := Cardinal(Node.Coordinates);
+      until (Index and FLAG_EXCLUDED_COORDINATES <> FLAG_EXCLUDED_COORDINATES);
+    end;
+
+  excluded_associated:
+    Node := FNodes.HotPool.First.Next;
+  end;
+
+  // push back nodes, process each, detect excluded
+  Right := FNodes.HotPool.Last.Prev;
+  if (not FNodes.HotPool.Unattainable) then
+  begin
+    // heuristed pool
+    Left := FNodes.HeuristedPool.Last.Prev;
+    Node.Prev := Left;
+    Left.Next := Node;
+    Right.Next := @FNodes.HeuristedPool.Last;
+    FNodes.HeuristedPool.Last.Prev := Right;
+
+    NodeInfo := Node.NodeInfo;
+    repeat
+      Node.NodeInfo := NodeInfo or PARENT_MASK_BITS;
+      Right := Node.Next;
+
+      // excluded unattainable move
+      if (NodeInfo and FLAG_KNOWN_PATH <> 0) then
+      if (Cardinal(Node.Coordinates) and FLAG_EXCLUDED_COORDINATES = FLAG_EXCLUDED_COORDINATES) then
+      begin
+        Left := Node.Prev;
+        Left.Next := Right;
+        Right.Prev := Left;
+
+        Left := FNodes.UnattainablePool.Last.Prev;
+        Left.Next := Node;
+        Node.Prev := Left;
+        Node.Next := @FNodes.UnattainablePool.Last;
+        FNodes.UnattainablePool.Last.Prev := Node;
+      end;
+
+      Node.Path := SORTVALUE_LIMIT - (Node.SortValue - Node.Path);
+      Node.SortValue := SORTVALUE_LIMIT;
+      NodeInfo := Right.NodeInfo;
+      Node := Right;
+    until (Right = @FNodes.HeuristedPool.Last{HighNode});
+  end else
+  begin
+    // unattainable pool
+    Left := FNodes.UnattainablePool.Last.Prev;
+    Node.Prev := Left;
+    Left.Next := Node;
+    Right.Next := @FNodes.UnattainablePool.Last;
+    FNodes.UnattainablePool.Last.Prev := Right;
+
+    NodeInfo := Node.NodeInfo;
+    repeat
+      Right := Node.Next;
+
+      // excluded heuristed move
+      if (NodeInfo and FLAG_KNOWN_PATH = 0) then
+      if (Cardinal(Node.Coordinates) and FLAG_EXCLUDED_COORDINATES = FLAG_EXCLUDED_COORDINATES) then
+      begin
+        Left := Node.Prev;
+        Left.Next := Right;
+        Right.Prev := Left;
+
+        Left := FNodes.HeuristedPool.Last.Prev;
+        Left.Next := Node;
+        Node.Prev := Left;
+        Node.Next := @FNodes.HeuristedPool.Last;
+        FNodes.HeuristedPool.Last.Prev := Node;
+
+        Node.NodeInfo := NodeInfo or PARENT_MASK_BITS;
+        Node.Path := SORTVALUE_LIMIT - (Node.SortValue - Node.Path);
+        Node.SortValue := SORTVALUE_LIMIT;
+        goto next_unattainable;
+      end;
+
+      Node.NodeInfo := (NodeInfo and FLAGS_CLEAN_MASK) + (PARENT_MASK_BITS + FLAG_KNOWN_PATH);
+      Node.Path := SORTVALUE_LIMIT;
+      Node.SortValue := SORTVALUE_LIMIT;
+    next_unattainable:
+      NodeInfo := Right.NodeInfo;
+      Node := Right;
+    until (Right = @FNodes.HeuristedPool.Last{HighNode});
+  end;
 
   // clear hot pool
   FNodes.HotPool.First.Next := @FNodes.HotPool.Last;
   FNodes.HotPool.Last.Prev := @FNodes.HotPool.First;
-
-  // process each node
-  if (not FNodes.HotPool.Unattainable) then
-  begin
-    // first heuristed pool node
-    Buffer{Node}.Prev := @FNodes.HeuristedPool.First;
-    LastPoolNode := FNodes.HeuristedPool.First.Next;
-    FNodes.HeuristedPool.First.Next := Buffer{Node};
-
-    // retrieve parent mask (unlock)
-    // clear sort value
-    repeat
-      Node := Buffer;
-      Buffer := Buffer.Next;
-
-      Node.ParentMask := $ff;
-      Node.Path := SORTVALUE_LIMIT - (Node.SortValue - Node.Path);
-      Node.SortValue := SORTVALUE_LIMIT;
-    until (Buffer = nil);
-  end else
-  begin
-    // first unattainable pool node
-    Buffer{Node}.Prev := @FNodes.UnattainablePool.First;
-    LastPoolNode := FNodes.UnattainablePool.First.Next;
-    FNodes.UnattainablePool.First.Next := Buffer{Node};
-
-    // retrieve parent mask (unlock)
-    // mark as KnownPath Unattainable
-    // clear node heuristics
-    repeat
-      Node := Buffer;
-      Buffer := Buffer.Next;
-
-      Node.NodeInfo := (Node.NodeInfo and FLAGS_CLEAN_MASK) or ($00ff0000{parent mask} or FLAG_KNOWN_PATH);
-      Node.Path := SORTVALUE_LIMIT;
-      Node.SortValue := SORTVALUE_LIMIT;
-    until (Buffer = nil);
-  end;
-
-  // last heuristed or unattainable pool node
-  Node.Next := LastPoolNode;
-  LastPoolNode.Prev := Node;
-end;
-
-procedure TTileMap.UnlockExcludedNodes;
-var
-  Buffer, Node, Right: PCPFNode;
-  NodeInfo: Cardinal;
-begin
-  // first excluded node
-  Buffer{Node} := FNodes.ExcludedPool.First.Next;
-  if (Buffer{Node} = @FNodes.ExcludedPool.Last) then Exit;
-
-  // mark list end (nil)
-  FNodes.ExcludedPool.Last.Prev.Next := nil;
-
-  // clear excluded pool
-  FNodes.ExcludedPool.First.Next := @FNodes.ExcludedPool.Last;
-  FNodes.ExcludedPool.Last.Prev := @FNodes.ExcludedPool.First;
-
-  // move to heuristed/unattanable pools loop
-  repeat
-    Node := Buffer;
-    Buffer := Buffer.Next;
-
-    NodeInfo := Node.NodeInfo;
-    Node.NodeInfo := NodeInfo or $00ff0000{parent mask};
-    if (NodeInfo and (FLAG_KNOWN_PATH or FLAG_ATTAINABLE) = FLAG_KNOWN_PATH{KnownPath, not Attainable}) then
-    begin
-      Right := FNodes.UnattainablePool.First.Next;
-      Node.Prev := @FNodes.UnattainablePool.First;
-      Node.Next := Right;
-      FNodes.UnattainablePool.First.Next := Node;
-    end else
-    begin
-      Right := FNodes.HeuristedPool.First.Next;
-      Node.Prev := @FNodes.HeuristedPool.First;
-      Node.Next := Right;
-      FNodes.HeuristedPool.First.Next := Node;
-    end;
-  until (Buffer = nil);
+  FNodes.HotPool.LockedExcluded := False;
+  FNodes.HotPool.Unattainable := False;
+  FNodes.HotPool.KnownPathNode := nil;
 end;
 
 procedure TTileMap.CacheAttainablePath(var StartPoint: TCPFStart; const FinishNode: PCPFNode);
@@ -5499,6 +5806,7 @@ var
     Self: Pointer;
     Flags: NativeUInt;
     Info: TCPFInfo;
+    HotPool: PCPFNode;
     CardinalsDiagonal: Pointer;
 
     {$ifdef CPUX86}
@@ -5535,6 +5843,7 @@ begin
   Store.Flags := CalculatePathLoopFlags(NativeInt(FKind), Cardinal(StartNode.Coordinates), Cardinal(Self.FInfo.FinishPoint));
 
   // information copy
+  Store.HotPool := @Self.FNodes.HotPool.First;
   Store.CardinalsDiagonal := @Self.FActualInfo.Weights.CardinalsDiagonal;
   Move(Self.FInfo, Store.Info,
     (SizeOf(Store.Info) - 32 * SizeOf(Pointer)) +
@@ -5818,7 +6127,7 @@ begin
         ParentBits := ParentBits + (ChildNodeInfo and PARENT_BITS_CLEAR_MASK);
         if (ChildNodeInfo and $ff00 = 0) then goto nextchild_continue;
 
-        // child locked/excluded test
+        // child locked test
         if (ChildNodeInfo and $ff0000 = 0) then goto nextchild_continue;
 
         // child path
@@ -5980,9 +6289,39 @@ begin
   next_current:
     Node := Store.Current.Node.Next;
   current_initialize:
-    // cell
+    // coordinates
     NodeFlags{XY} := Cardinal(Node.Coordinates);
     Cardinal(Store.Current.Coordinates) := NodeFlags{XY};
+
+    // excluded node case
+    if (NodeFlags and FLAG_EXCLUDED_COORDINATES = FLAG_EXCLUDED_COORDINATES) then
+    begin
+      // remove from hot pool
+      ChildNode{Left} := Node.Prev;
+      Right := Node.Next;
+      ChildNode{Left}.Next := Right;
+      Right.Prev := ChildNode{Left};
+      if (Node = Store.Top.Node) then
+      begin
+        Store.Top.Node := Right;
+        Store.Top.SortValue := Right.SortValue;
+      end;
+
+      // lock
+      Node.ParentMask := 0;
+
+      // make first hot pool item
+      ChildNode{Left} := Store.HotPool;
+      Right := ChildNode{Left}.Next;
+      ChildNode{Left}.Next := Node;
+      Node.Prev := ChildNode;
+      Node.Next := Right;
+      Right.Prev := Node;
+
+      goto next_current;
+    end;
+
+    // cell
     Cell := @Store.Info.CellArray[(NativeInt(NodeFlags) shr 16){X} + Store.Info.MapWidth * {Y}Word(NodeFlags)];
     Store.Current.Cell := Cell;
 
@@ -6002,23 +6341,48 @@ begin
 
   // actualize node allocator (new node pointer)
   TTileMapPtr(Store.Self).FInfo.NodeAllocator.NewNode := Store.Info.NodeAllocator.NewNode;
+
+  // hot pool parameters
+  with TTileMapPtr(Store.Self).FNodes.HotPool do
+  begin
+    LockedExcluded := (Cardinal(Store.HotPool.Next.Coordinates) and FLAG_EXCLUDED_COORDINATES = FLAG_EXCLUDED_COORDINATES);
+    Unattainable := (NodeFlags and FLAG_ATTAINABLE = 0);
+    KnownPathNode := Node;
+  end;
 end;
 
-function TTileMap.DoFindPath(const ParamsPtr: NativeUInt{high bit is FullPath}): TTileMapPath;
+function CompareExcludedCoordinates(Excluded: PCPFExcluded; Point: PPoint; Count: NativeUInt): Boolean;
+var
+  i: NativeUInt;
+begin
+  for i := 1 to Count do
+  begin
+    if (Cardinal(Point.Y + (Point.X shl 16)) <> Cardinal(Excluded.Coordinates)) then
+    begin
+      Result := False;
+      Exit;
+    end;
+
+    Inc(Point);
+    Inc(Excluded);
+  end;
+
+  Result := True;
+end;
+
+function TTileMap.DoFindPath({const} ParamsPtr: NativeUInt{high bit is FullPath flag}): TTileMapPath;
 const
   FLAG_CACHING = (1 shl 0);
   FLAG_FINISH = (1 shl 1);
   FLAG_CLEAN = (1 shl 2);
   FLAG_TILEWEIGHTS = (1 shl 3);
   FLAG_HEURISTICS = (1 shl 4);
-  FLAG_EXCLUDES = (1 shl 5);
-  FLAG_STARTS = (1 shl 6);
+  FLAG_STARTS = (1 shl 5);
+  FLAG_EXCLUDES = (1 shl 6);
 
-  FLAGS_HEURISTED_POOL = FLAG_CACHING or FLAG_FINISH or FLAG_HEURISTICS;
-  FLAGS_UNATTAINABLE_POOL = FLAG_CACHING or FLAG_FINISH or FLAG_TILEWEIGHTS or FLAG_EXCLUDES;
-  // FLAGS_HOT_POOL = FLAGS_HEURISTED_POOL / FLAGS_UNATTAINABLE_POOL;
-  FLAGS_EXCLUDED_POOL = FLAG_EXCLUDES or FLAGS_HEURISTED_POOL or FLAGS_UNATTAINABLE_POOL;
-  FLAGS_ATTAINABLE_NODES = FLAG_CACHING or FLAG_FINISH or FLAG_TILEWEIGHTS or FLAG_EXCLUDES;
+  // FLAGS_HEURISTED_POOL = FLAG_CACHING or FLAG_FINISH or FLAG_HEURISTICS;
+  // FLAGS_UNATTAINABLE_POOL = FLAG_CACHING or FLAG_FINISH or FLAG_TILEWEIGHTS;
+  // FLAGS_ATTAINABLE_NODES = FLAG_CACHING or FLAG_FINISH or FLAG_TILEWEIGHTS;
 
   CHANGED_FINISH_INTERVAL = 8;
 label
@@ -6055,13 +6419,12 @@ var
   {$endif}
 begin
   // stack copy parameters to one register save
-  Flags := ParamsPtr;
-  Store.FullPath := Boolean(Flags shr HIGH_NATIVE_BIT);
-  Params := PTileMapParams(Flags and ((NativeUInt(1) shl HIGH_NATIVE_BIT) - 1))^;
+  Store.FullPath := Boolean(ParamsPtr shr HIGH_NATIVE_BIT);
+  Params := PTileMapParams(ParamsPtr and ((NativeUInt(1) shl HIGH_NATIVE_BIT) - 1))^;
 
 {$ifNdef CPUX86}
   _Self := Pointer({$ifdef CPFLIB}@Self{$else}Self{$endif});
-  {$ifNdef CPUX86}with TTileMapPtr(_Self){$ifdef CPFLIB}^{$endif} do{$endif}
+  with TTileMapPtr(_Self){$ifdef CPFLIB}^{$endif} do
 begin
 {$endif}
   // test start points coordinates
@@ -6210,13 +6573,6 @@ begin
       Store.FinishSector := SECTOR_EMPTY;
     end;
 
-    // excluded points
-    if (FActualInfo.Excludes.Count or Params.ExcludesCount <> 0) then
-    begin
-      if (not ActualizeExcludes(Params.Excludes, Params.ExcludesCount, 0 = Flags and FLAG_CLEAN)) then
-        Flags := Flags or FLAG_EXCLUDES;
-    end;
-
     // tile weights
     if (Params.Weights = nil) then
     begin
@@ -6241,6 +6597,15 @@ begin
         if (Store.HLine <> FInfo.HeuristicsLine) or (Store.HDiagonal <> FInfo.HeuristicsDiagonal) then
           Flags := Flags or FLAG_HEURISTICS;
       end;
+    end;
+
+    // excluded points
+    if (FActualInfo.Excludes.Count or Params.ExcludesCount <> 0) then
+    begin
+      if (FActualInfo.Excludes.Count <> Params.ExcludesCount) or
+        ((Params.ExcludesCount <> 0) and
+         (not CompareExcludedCoordinates(FActualInfo.Excludes.Buffers[FActualInfo.Excludes.Index].Memory, Params.Excludes, Params.ExcludesCount))) then
+        Flags := Flags or FLAG_EXCLUDES;
     end;
 
     // start points
@@ -6275,43 +6640,59 @@ begin
   // cleanup initialized node pools (contains NODEPTR_FLAG_HEURISTED)
   if (Flags and FLAG_CLEAN = 0) then
   begin
-    // attainable points
-    if (Flags and FLAGS_ATTAINABLE_NODES <> 0) and (FNodes.AttainableTree) then
-      ForgetAttainableTreeNodes;
-
-    // excluded points
-    if (Flags and FLAGS_EXCLUDED_POOL <> 0) and
-      (FNodes.ExcludedPool.First.Next <> @FNodes.ExcludedPool.Last) then
+    if (Flags and (FLAG_CACHING or FLAG_FINISH) <> 0) then
     begin
-      if (Flags and (FLAGS_HEURISTED_POOL and FLAGS_UNATTAINABLE_POOL) <> 0) then
+      if (FNodes.AttainableTree) then
+        ForgetAttainableTreeNodes;
+
+      if (FActualInfo.Excludes.Count <> 0) then
       begin
-        ReleasePoolNodes(FNodes.ExcludedPool.First, FNodes.ExcludedPool.Last);
-      end else
-      begin
-        UnlockExcludedNodes;
+        ForgetExcludedNodes;
+        Flags := Flags and (not FLAG_EXCLUDES);
+        if (Params.ExcludesCount <> 0) then Flags := Flags or FLAG_EXCLUDES;
       end;
-    end;
 
-    // heuristed pool (+ excluded + hot)
-    if (Flags and FLAGS_HEURISTED_POOL <> 0) then
-    begin
-      if (FNodes.HeuristedPool.First.Next <> @FNodes.HeuristedPool.Last) then
-        ReleasePoolNodes(FNodes.HeuristedPool.First, FNodes.HeuristedPool.Last);
-
-      if (FNodes.HotPool.First.Next <> @FNodes.HotPool.Last) and
-        (not FNodes.HotPool.Unattainable) then
+      if (FNodes.HotPool.First.Next <> @FNodes.HotPool.Last) then
+      begin
         ReleasePoolNodes(FNodes.HotPool.First, FNodes.HotPool.Last);
-    end;
+        FNodes.HotPool.LockedExcluded := False;
+        FNodes.HotPool.Unattainable := False;
+        FNodes.HotPool.KnownPathNode := nil;
+      end;
 
-    // unattainable pool (+ hot)
-    if (Flags and FLAGS_UNATTAINABLE_POOL <> 0) then
-    begin
       if (FNodes.UnattainablePool.First.Next <> @FNodes.UnattainablePool.Last) then
         ReleasePoolNodes(FNodes.UnattainablePool.First, FNodes.UnattainablePool.Last);
 
-      if (FNodes.HotPool.First.Next <> @FNodes.HotPool.Last) and
-        (FNodes.HotPool.Unattainable) then
-        ReleasePoolNodes(FNodes.HotPool.First, FNodes.HotPool.Last);
+      if (FNodes.HeuristedPool.First.Next <> @FNodes.HeuristedPool.Last) then
+        ReleasePoolNodes(FNodes.HeuristedPool.First, FNodes.HeuristedPool.Last);
+    end else
+    begin
+      // move hot pool nodes to heuristed or unattainable pools
+      FlushHotPoolNodes;
+    end;
+
+    // attainable/unattainable and excluded
+    if (Flags and FLAG_TILEWEIGHTS {or FLAG_HEURISTICS} <> 0) then
+    begin
+      if (FNodes.AttainableTree) then
+        ForgetAttainableTreeNodes;
+
+      if (FActualInfo.Excludes.Count <> 0) then
+      begin
+        ForgetExcludedNodes;
+        Flags := Flags and (not FLAG_EXCLUDES);
+        if (Params.ExcludesCount <> 0) then Flags := Flags or FLAG_EXCLUDES;
+      end;
+
+      if (FNodes.UnattainablePool.First.Next <> @FNodes.UnattainablePool.Last) then
+        ReleasePoolNodes(FNodes.UnattainablePool.First, FNodes.UnattainablePool.Last);
+    end;
+
+    // heuristics
+    if (Flags and FLAG_HEURISTICS <> 0) then
+    begin
+      if (FNodes.HeuristedPool.First.Next <> @FNodes.HeuristedPool.Last) then
+        ReleasePoolNodes(FNodes.HeuristedPool.First, FNodes.HeuristedPool.Last);
     end;
   end;
 
@@ -6320,36 +6701,8 @@ begin
   FInfo.FinishPoint.Y := Params.Finish.Y;
 
   // (re)initialize excluded points
-  if (Flags and (FLAG_CLEAN or FLAGS_EXCLUDED_POOL) = 0) then goto nodes_initialized;
-  Flags := Params.ExcludesCount;
-  S := Params.Excludes;
-  if (Flags <> 0) then
-  begin
-    // hot pool nodes
-    if (FNodes.HotPool.First.Next <> @FNodes.HotPool.Last) then
-      ReleasePoolNodes(FNodes.HotPool.First, FNodes.HotPool.Last);
-
-    // each excluded point loop
-    repeat
-      N := AllocateHeuristedNode(S.X, S.Y);
-      N.ParentMask := 0{locked flag};
-
-      // remove from heuristed/unattainable/excluded pool
-      Node := N.Prev;
-      Node.Next := N.Next;
-      Node.Next.Prev := Node;
-
-      // add to excluded pool
-      Node := FNodes.ExcludedPool.First.Next;
-      FNodes.ExcludedPool.First.Next := N;
-      N.Prev := @FNodes.ExcludedPool.First;
-      N.Next := Node;
-      Node.Prev := N;
-
-      Dec(Flags);
-      Inc(S);
-    until (Flags = 0);
-  end;
+  if (Flags and FLAG_EXCLUDES <> 0) then
+    ActualizeExcludes(Params.Excludes, Params.ExcludesCount);
 
 nodes_initialized:
   // basic path initialization  
@@ -6391,7 +6744,7 @@ nodes_initialized:
        (NodeInfo and Integer($ff000000){Tile} = 0{TILE_BARIER})
        {$endif} or
       (NodeInfo and $ff00{Mask} = 0) or
-      (NodeInfo and Integer($00ff0000) = 0{excluded test}) or
+      (Cardinal(Node.Coordinates) and FLAG_EXCLUDED_COORDINATES = FLAG_EXCLUDED_COORDINATES{excluded test}) or
       (FActualInfo.Weights.CardinalsLine[NodeInfo shr 24] = PATHLESS_TILE_WEIGHT) then goto path_not_found;
     if (NodeInfo and FLAG_KNOWN_PATH <> 0) then
     begin
@@ -6422,10 +6775,8 @@ nodes_initialized:
 
     // call find path loop
     StartPoint.KnownPathNode := DoFindPathLoop(Node);
-    if (StartPoint.KnownPathNode.NodeInfo and FLAG_ATTAINABLE <> 0) then
+    if (not FNodes.HotPool.Unattainable) then
     begin
-      FNodes.HotPool.Unattainable := False;
-    
     path_found:
       if (Store.AttainableAlgorithm) then
       begin
@@ -6438,8 +6789,6 @@ nodes_initialized:
       end;
     end else
     begin
-      FNodes.HotPool.Unattainable := True;
-    
     path_not_found:
       StartPoint.DistanceAsInt64 := $7fefffffffffffff{MaxDouble};
       Dec(FoundPaths);
@@ -6580,7 +6929,6 @@ initialization
     {$WARNINGS OFF} // deprecated warning bug fix (like Delphi 2010 compiler)
     System.GetMemoryManager(MemoryManager);
   {$endif}
-
 
 finalization
   {$ifdef CPFLOG}
