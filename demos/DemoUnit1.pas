@@ -436,10 +436,14 @@ var
   begin
     Result := TBitmap.Create;
     {$ifdef DEBUG}
+    if (FileExists(FileName)) then
+    begin
       F := TFileStream.Create(FileName, fmOpenRead or fmShareDenyNone);
-    {$else}
-      F := TResourceStream.Create(hInstance, 'bmp' + ChangeFileExt(FileName, ''), RT_RCDATA);
+    end else
     {$endif}
+    begin
+      F := TResourceStream.Create(hInstance, 'bmp' + ChangeFileExt(FileName, ''), RT_RCDATA);
+    end;
     try
       Result.LoadFromStream(F);
     finally
@@ -1395,9 +1399,13 @@ begin
   TLabel(FindComponent('lbTile' + IntToStr(Index))).Caption := LocalFloatToStr(Weight);
 
   Weights[Index] := Weight;
-  TileMode := Index;
-  RepaintBoxes([TPaintBox(FindComponent('pbTile' + IntToStr(Index)))]);
-  if (FUseWeights) then TryUpdate;
+
+  if (FUpdateCounter = 0) then
+  begin
+    TileMode := Index;
+    RepaintBoxes([TPaintBox(FindComponent('pbTile' + IntToStr(Index)))]);
+    if (FUseWeights) then TryUpdate;
+  end;
 end;
 
 procedure TMainForm.cbMapKindChange(Sender: TObject);

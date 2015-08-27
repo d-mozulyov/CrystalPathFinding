@@ -323,7 +323,7 @@ type
 
   TCPFExcluded = packed record
     Attainables: array[0..3] of TCPFPoint;
-    Count: Cardinal; // 8 - flag unattainables, 4 - flag many attainables
+    Count: Cardinal; // 16 - flag unattainables, 8 - flag many attainables
     Coordinates: TCPFPoint;
     Node: PCPFNode;
     {$ifNdef LARGEINT}
@@ -395,7 +395,7 @@ type
     procedure SetTile(const X, Y: Word; Value: Byte);
     procedure GrowNodeAllocator(var Buffer: TCPFInfo);
     function DoFindPathLoop(StartNode: PCPFNode): PCPFNode;
-    function DoFindPath({const} ParamsPtr: NativeUInt{high bit is FullPath flag}): TTileMapPath;
+    function DoFindPath(const ParamsPtr: NativeUInt{high bit is FullPath flag}): TTileMapPath;
   private
     FNodes: record
       Storage: record
@@ -403,9 +403,6 @@ type
         Count: NativeUInt;
       end;
       AttainableTree: Boolean;
-      //AttainableTreeBooked: Boolean;
-      //UnattainableSet: Boolean;
-      //UnattainableSetBooked: Boolean;
       HotPool: record
         First: TCPFNode;
         Last: TCPFNode;
@@ -1698,7 +1695,7 @@ const
   FLAG_ATTAINABLE = 1 shl 7;
   FLAGS_KNOWN_ATTAINABLE = FLAG_KNOWN_PATH or FLAG_ATTAINABLE;
   FLAGS_CLEAN_MASK = Integer(not ($1f shl 3));
-  FLAG_EXCLUDED_COORDINATES = NativeUInt((1 shl 31) + (1 shl 15));
+  FLAG_EXCLUDED_COORDINATES = Cardinal((1 shl 31) + (1 shl 15));
   PATHLESS_TILE_WEIGHT = High(Cardinal) shr 1;
 
   {$ifdef LARGEINT}
@@ -2694,7 +2691,7 @@ begin
   // failure hot node
   FNodes.HotPool.Last.Path := SORTVALUE_LIMIT;
   FNodes.HotPool.Last.SortValue := SORTVALUE_LIMIT;
-  Cardinal(FNodes.HotPool.Last.Coordinates) := High(Cardinal);
+  Cardinal(FNodes.HotPool.Last.Coordinates) := High(Cardinal) and (not FLAG_EXCLUDED_COORDINATES);
   FNodes.HotPool.Last.NodeInfo := FLAG_KNOWN_PATH {+ not FLAG_ATTAINABLE};
 
   // unlocked heuristed node
@@ -4125,7 +4122,12 @@ var
   Node: PCPFNode;
   Attainable: PCPFPoint;
   Booked: NativeUInt;
-  StoreBooked: NativeUInt;
+  Cells: PCPFCellArray;
+
+  Store: record
+    Booked: NativeUInt;
+    Node: PCPFNode;
+  end;
 
   {$ifNdef CPUX86}
     _Self: Pointer;
@@ -4225,7 +4227,7 @@ begin
 
   fill_index:
     Index := (NativeUInt(Item) - NativeUInt(Excludes)) shr 5{div SizeOf(TCPFExcluded)};
-    Index := (Index and MASK_BITS_15) + ((Index shl 1) and MASK_BITS_16_30) + FLAG_EXCLUDED_COORDINATES;
+    Index := (Index and MASK_BITS_15) + ((Index shl 1) and MASK_BITS_16_30) + NativeUInt(FLAG_EXCLUDED_COORDINATES);
     Cardinal(Node.Coordinates) := Index;
 
   next_point:
@@ -4249,17 +4251,15 @@ begin
     NodeInfo := Item.Count;
     if (NodeInfo = 0) then goto next_item;
 
-    if (NodeInfo and (8 or 4) <> 0) then
+    if (NodeInfo and (16 or 8) <> 0) then
     begin
-      if (NodeInfo and 8 <> 0) then Booked := Booked or 2;
-      if (NodeInfo and 4 <> 0) then Booked := Booked or 1;
-
-      NodeInfo := NodeInfo and 3;
+      Booked := Booked or (NodeInfo shr 3);
+      NodeInfo := NodeInfo and 7;
       if (NodeInfo = 0) then goto next_item;
     end;
 
     if (Booked and 1 <> 0) then goto next_item;
-    StoreBooked := Booked;
+    Store.Booked := Booked;
     Attainable := @Item.Attainables[NodeInfo];
     repeat
       Dec(Attainable);
@@ -4268,7 +4268,7 @@ begin
       if (NodeInfo and NODEPTR_FLAG_HEURISTED <> 0) then
         ForgetAttainableNodes(Attainable.X, Attainable.Y);
     until (Attainable = @Item.Attainables[0]);
-    Booked := StoreBooked;
+    Booked := Store.Booked;
 
   next_item:
     Inc(Item);
@@ -4279,8 +4279,54 @@ begin
     ForgetAttainableTreeNodes;
 
   // cleanup all unattainable nodes
-  if (Booked and 2 <> 0) and (FNodes.UnattainablePool.First.Next = @FNodes.UnattainablePool.Last) then
-    ReleasePoolNodes(FNodes.UnattainablePool.First, FNodes.UnattainablePool.Last);
+  // midified implementation of ReleasePoolNodes(FNodes.UnattainablePool)
+  if (Booked and 2 <> 0) and (FNodes.UnattainablePool.First.Next <> @FNodes.UnattainablePool.Last) then
+  begin
+      // node list
+    FNodes.UnattainablePool.Last.Prev.Next := nil;
+    Node := FNodes.UnattainablePool.First.Next;
+    FNodes.UnattainablePool.First.Next := @FNodes.UnattainablePool.Last;
+    FNodes.UnattainablePool.Last.Prev := @FNodes.UnattainablePool.First;
+
+    // clear flag loop
+    Cells := FInfo.CellArray;
+    Booked{MapWidth} := FInfo.MapWidth;
+    repeat
+      Index := Cardinal(Node.Coordinates);
+      Node := Node.Next;
+
+      if (Cardinal(Index) and FLAG_EXCLUDED_COORDINATES <> FLAG_EXCLUDED_COORDINATES) then
+      begin
+        with Cells[(NativeInt(Index) shr 16){X} + NativeInt(Booked{MapWidth}) * {Y}Word(Index)] do
+          NodePtr := NodePtr and (not NODEPTR_FLAG_HEURISTED);
+
+        if (Node = nil) then Break;
+      end else
+      begin
+        Store.Booked := Index;
+        Store.Node := Node;
+
+        // take excluded node item
+        Index := (Index and MASK_BITS_15) + (Index and MASK_BITS_16_30) shr 1;
+        Item := @Excludes[Index];
+
+        // retrieve node coordinates, mark up as allocated
+        Item.Node.Coordinates := Item.Coordinates;
+        with FInfo.CellArray[Item.Coordinates.X + NativeInt(Booked{MapWidth}) * Item.Coordinates.Y] do
+          NodePtr := NodePtr and (not NODEPTR_FLAG_HEURISTED);
+
+        // fill heuristed information (pointer is the same)
+        // and excluded index
+        AllocateHeuristedNode(Item.Coordinates.X, Item.Coordinates.Y);
+        Cardinal(Item.Node.Coordinates) := Store.Booked;
+
+        // retrieve parameters
+        Node := Store.Node;
+        Cells := FInfo.CellArray;
+        if (Node = nil) then Break;
+      end;
+    until (False);
+  end;
 {$ifNdef CPUX86}
   end;
 {$endif}
@@ -4947,6 +4993,8 @@ var
     NodeBuffers: PCPFNodeBuffers;
   {$endif}
 begin
+  if (not FNodes.AttainableTree) then Exit;
+
   Cell := @FInfo.CellArray[FInfo.MapWidth * Y + X];
   NodeInfo := Cell.NodePtr;
   {$ifdef LARGEINT}
@@ -4957,6 +5005,10 @@ begin
   {$else}
     Node := Pointer(NodeInfo and NODEPTR_CLEAN_MASK);
   {$endif}
+  if (NodeInfo and NODEPTR_FLAG_HEURISTED = 0) or
+    (Node.NodeInfo and FLAGS_KNOWN_ATTAINABLE <> FLAGS_KNOWN_ATTAINABLE) then Exit;
+
+  // make allocated
   Cell.NodePtr := NodeInfo and (not NODEPTR_FLAG_HEURISTED);
 
   // remove from list
@@ -4991,8 +5043,8 @@ procedure TTileMap.ForgetAttainableTreeNodes;
 begin
   if (FNodes.AttainableTree) then
   begin
-    FNodes.AttainableTree := False;
     ForgetAttainableNodes(FInfo.FinishPoint.X, FInfo.FinishPoint.Y);
+    FNodes.AttainableTree := False;
   end;
 end;
 
@@ -5051,7 +5103,8 @@ end;
 
 procedure TTileMap.FlushHotPoolNodes;
 label
-  _2, _1, next_excluded, excluded_associated, next_unattainable;
+  _2, _1, next_excluded, excluded_associated,
+  standard_heuristed, standard_unattainable, next_unattainable;
 const
   MASK_BITS_15 = (1 shl 15) - 1;
   MASK_BITS_16_30 = MASK_BITS_15 shl 16;
@@ -5094,8 +5147,13 @@ begin
         begin
           Index := (Index and MASK_BITS_15) + (Index and MASK_BITS_16_30) shr 1;
           Item := @Excluded[Index];
-          case (Item.Count and 7) of
-            4: goto next_excluded;
+          case (Item.Count and 15) of
+            5..15: {only 8} goto next_excluded;
+            4:
+            begin
+              Inc(Item.Count, 4){make 8};
+              goto next_excluded;
+            end;
             3:
             begin
               if (Cardinal(Item.Attainables[2]) = Coordinates) then goto next_excluded;
@@ -5120,7 +5178,7 @@ begin
       next_excluded:
         Node := Node.Next;
         Index := Cardinal(Node.Coordinates);
-      until (Index and FLAG_EXCLUDED_COORDINATES <> FLAG_EXCLUDED_COORDINATES);
+      until (Cardinal(Index) and FLAG_EXCLUDED_COORDINATES <> FLAG_EXCLUDED_COORDINATES);
     end else
     begin
       // flag unattainables
@@ -5131,12 +5189,12 @@ begin
         begin
           Index := (Index and MASK_BITS_15) + (Index and MASK_BITS_16_30) shr 1;
           Item := @Excluded[Index];
-          Item.Count := Item.Count or 8;
+          Item.Count := Item.Count or 16;
         end;
 
         Node := Node.Next;
         Index := Cardinal(Node.Coordinates);
-      until (Index and FLAG_EXCLUDED_COORDINATES <> FLAG_EXCLUDED_COORDINATES);
+      until (Cardinal(Index) and FLAG_EXCLUDED_COORDINATES <> FLAG_EXCLUDED_COORDINATES);
     end;
 
   excluded_associated:
@@ -5159,10 +5217,18 @@ begin
       Node.NodeInfo := NodeInfo or PARENT_MASK_BITS;
       Right := Node.Next;
 
-      // excluded unattainable move
-      if (NodeInfo and FLAG_KNOWN_PATH <> 0) then
-      if (Cardinal(Node.Coordinates) and FLAG_EXCLUDED_COORDINATES = FLAG_EXCLUDED_COORDINATES) then
+      // unattanable may be excluded only
+      if (NodeInfo and FLAGS_KNOWN_ATTAINABLE <> FLAG_KNOWN_PATH) then
       begin
+      standard_heuristed:
+        Node.Path := SORTVALUE_LIMIT - (Node.SortValue - Node.Path);
+        Node.SortValue := SORTVALUE_LIMIT;
+        NodeInfo := Right.NodeInfo;
+        Node := Right;
+        if (Right = @FNodes.HeuristedPool.Last{HighNode}) then Break;
+      end else
+      begin
+        // excluded unattainable move
         Left := Node.Prev;
         Left.Next := Right;
         Right.Prev := Left;
@@ -5172,13 +5238,9 @@ begin
         Node.Prev := Left;
         Node.Next := @FNodes.UnattainablePool.Last;
         FNodes.UnattainablePool.Last.Prev := Node;
+        goto standard_heuristed;
       end;
-
-      Node.Path := SORTVALUE_LIMIT - (Node.SortValue - Node.Path);
-      Node.SortValue := SORTVALUE_LIMIT;
-      NodeInfo := Right.NodeInfo;
-      Node := Right;
-    until (Right = @FNodes.HeuristedPool.Last{HighNode});
+    until (False);
   end else
   begin
     // unattainable pool
@@ -5192,10 +5254,23 @@ begin
     repeat
       Right := Node.Next;
 
-      // excluded heuristed move
-      if (NodeInfo and FLAG_KNOWN_PATH = 0) then
-      if (Cardinal(Node.Coordinates) and FLAG_EXCLUDED_COORDINATES = FLAG_EXCLUDED_COORDINATES) then
+      if (Cardinal(Node.Coordinates) and FLAG_EXCLUDED_COORDINATES <> FLAG_EXCLUDED_COORDINATES) then
       begin
+      standard_unattainable:
+        Node.NodeInfo := (NodeInfo and FLAGS_CLEAN_MASK) + (PARENT_MASK_BITS + FLAG_KNOWN_PATH);
+        Node.Path := SORTVALUE_LIMIT;
+        Node.SortValue := SORTVALUE_LIMIT;
+      next_unattainable:
+        NodeInfo := Right.NodeInfo;
+        Node := Right;
+        if (Right = @FNodes.UnattainablePool.Last{HighNode}) then Break;
+      end else
+      begin
+        // excluded is already unattanable case
+        if (NodeInfo and FLAGS_KNOWN_ATTAINABLE = FLAG_KNOWN_PATH) then
+          goto standard_unattainable;
+
+        // excluded heuristed move
         Left := Node.Prev;
         Left.Next := Right;
         Right.Prev := Left;
@@ -5211,14 +5286,7 @@ begin
         Node.SortValue := SORTVALUE_LIMIT;
         goto next_unattainable;
       end;
-
-      Node.NodeInfo := (NodeInfo and FLAGS_CLEAN_MASK) + (PARENT_MASK_BITS + FLAG_KNOWN_PATH);
-      Node.Path := SORTVALUE_LIMIT;
-      Node.SortValue := SORTVALUE_LIMIT;
-    next_unattainable:
-      NodeInfo := Right.NodeInfo;
-      Node := Right;
-    until (Right = @FNodes.HeuristedPool.Last{HighNode});
+    until (False);
   end;
 
   // clear hot pool
@@ -5765,7 +5833,7 @@ function TTileMap.DoFindPathLoop(StartNode: PCPFNode): PCPFNode;
 label
   nextchild_continue, nextchild,
   heuristics_data,
-  next_current, current_initialize;
+  next_current, current_initialize, excluded_node;
 const
   NODEPTR_FLAGS = NODEPTR_FLAG_HEURISTED + NODEPTR_FLAG_ALLOCATED;
   PARENT_BITS_CLEAR_MASK = not Cardinal($00ff0000 + 7);
@@ -6169,10 +6237,7 @@ begin
       {$endif}
       Buffer[(NodeFlags shr COUNTER_OFFSET) and 7] := ChildNode;
       Inc(NodeFlags, (1 shl COUNTER_OFFSET));
-
-      // goto nextchild_continue;
-      if (NodeFlags and $ff00 = 0) then Break;
-    until (False);
+    until (NodeFlags and $ff00 = 0);
 
     // move buffered nodes to opened list
     if (NodeFlags and ($f shl COUNTER_OFFSET) = 0) then
@@ -6198,13 +6263,18 @@ begin
     PBufferHigh := @Buffer[(NodeFlags shr COUNTER_OFFSET) and $f];
     PBufferBase := @Store.Buffer[1];
     PBufferCurrent := @Store.Buffer[0];
-    while (PBufferBase <> PBufferHigh) do
-    begin
+    if (PBufferBase <> PBufferHigh) then
+    repeat
       ChildNode := PBufferBase^;
       ChildSortValue := ChildNode.SortValue;
 
       Node := PBufferCurrent^;
-      if (Node.SortValue > ChildSortValue) then
+      if (Node.SortValue <= ChildSortValue) then
+      begin
+        PBufferCurrent := PBufferBase;
+        Inc(PBufferBase);
+        if (PBufferBase = PBufferHigh) then Break;
+      end else
       begin
        repeat
           PMapNodeBuffer(PBufferCurrent)[1] := Node;
@@ -6218,11 +6288,12 @@ begin
         until (False);
 
         PBufferCurrent^ := ChildNode;
-      end;
 
-      PBufferCurrent := PBufferBase;
-      Inc(PBufferBase);
-    end;
+        PBufferCurrent := PBufferBase;
+        Inc(PBufferBase);
+        if (PBufferBase = PBufferHigh) then Break;
+      end;
+    until (False);
 
     // insert sorted nodes
     {$ifdef CPUX86}Store.{$endif}TopGreatherNode := Store.Top.Node;
@@ -6292,34 +6363,11 @@ begin
     // coordinates
     NodeFlags{XY} := Cardinal(Node.Coordinates);
     Cardinal(Store.Current.Coordinates) := NodeFlags{XY};
-
-    // excluded node case
-    if (NodeFlags and FLAG_EXCLUDED_COORDINATES = FLAG_EXCLUDED_COORDINATES) then
-    begin
-      // remove from hot pool
-      ChildNode{Left} := Node.Prev;
-      Right := Node.Next;
-      ChildNode{Left}.Next := Right;
-      Right.Prev := ChildNode{Left};
-      if (Node = Store.Top.Node) then
-      begin
-        Store.Top.Node := Right;
-        Store.Top.SortValue := Right.SortValue;
-      end;
-
-      // lock
-      Node.ParentMask := 0;
-
-      // make first hot pool item
-      ChildNode{Left} := Store.HotPool;
-      Right := ChildNode{Left}.Next;
-      ChildNode{Left}.Next := Node;
-      Node.Prev := ChildNode;
-      Node.Next := Right;
-      Right.Prev := Node;
-
-      goto next_current;
-    end;
+    {$ifdef LARGEINT} // Delphi compiler optimization bug
+      if (Cardinal(NodeFlags) and FLAG_EXCLUDED_COORDINATES = FLAG_EXCLUDED_COORDINATES) then goto excluded_node;
+    {$else}
+      if (NodeFlags and FLAG_EXCLUDED_COORDINATES = FLAG_EXCLUDED_COORDINATES) then goto excluded_node;
+    {$endif}
 
     // cell
     Cell := @Store.Info.CellArray[(NativeInt(NodeFlags) shr 16){X} + Store.Info.MapWidth * {Y}Word(NodeFlags)];
@@ -6333,8 +6381,36 @@ begin
 
     // node info
     NodeFlags := Cardinal(Node.NodeInfo);
-    if (NodeFlags and FLAG_KNOWN_PATH <> 0) then Break;
-  until (False);
+  until (NodeFlags and FLAG_KNOWN_PATH <> 0);
+
+  // excluded node case
+  if (NodeFlags and FLAG_KNOWN_PATH = 0{fake comparison}) then
+  begin
+  excluded_node:
+    // remove from hot pool
+    ChildNode{Left} := Node.Prev;
+    Right := Node.Next;
+    ChildNode{Left}.Next := Right;
+    Right.Prev := ChildNode{Left};
+    if (Node = Store.Top.Node) then
+    begin
+      Store.Top.Node := Right;
+      Store.Top.SortValue := Right.SortValue;
+    end;
+
+    // lock
+    Node.ParentMask := 0;
+
+    // make first hot pool item
+    ChildNode{Left} := Store.HotPool;
+    Right := ChildNode{Left}.Next;
+    ChildNode{Left}.Next := Node;
+    Node.Prev := ChildNode;
+    Node.Next := Right;
+    Right.Prev := Node;
+
+    goto next_current;
+  end;
 
   // Result
   Result := Node;
@@ -6370,7 +6446,7 @@ begin
   Result := True;
 end;
 
-function TTileMap.DoFindPath({const} ParamsPtr: NativeUInt{high bit is FullPath flag}): TTileMapPath;
+function TTileMap.DoFindPath(const ParamsPtr: NativeUInt{high bit is FullPath flag}): TTileMapPath;
 const
   FLAG_CACHING = (1 shl 0);
   FLAG_FINISH = (1 shl 1);
@@ -6929,6 +7005,7 @@ initialization
     {$WARNINGS OFF} // deprecated warning bug fix (like Delphi 2010 compiler)
     System.GetMemoryManager(MemoryManager);
   {$endif}
+
 
 finalization
   {$ifdef CPFLOG}
