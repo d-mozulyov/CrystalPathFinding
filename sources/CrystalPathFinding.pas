@@ -1695,7 +1695,6 @@ const
   FLAG_ATTAINABLE = 1 shl 7;
   FLAGS_KNOWN_ATTAINABLE = FLAG_KNOWN_PATH or FLAG_ATTAINABLE;
   FLAGS_CLEAN_MASK = Integer(not ($1f shl 3));
-  FLAG_EXCLUDED_COORDINATES = Cardinal((1 shl 31) + (1 shl 15));
   PATHLESS_TILE_WEIGHT = High(Cardinal) shr 1;
 
   {$ifdef LARGEINT}
@@ -1708,6 +1707,10 @@ const
 
   SECTOR_EMPTY = 0;
   SECTOR_PATHLESS = 1;
+
+  COORDINATES_FLAG_EXCLUDED = Cardinal((1 shl 31) + (1 shl 15));
+  COORDINATES_MASK_EXCLUDED_LOW = (1 shl 15) - 1;
+  COORDINATES_MASK_EXCLUDED_HIGH = COORDINATES_MASK_EXCLUDED_LOW shl 16;
 
   {$ifdef LARGEINT}
     HIGH_NATIVE_BIT = 63;
@@ -2691,7 +2694,7 @@ begin
   // failure hot node
   FNodes.HotPool.Last.Path := SORTVALUE_LIMIT;
   FNodes.HotPool.Last.SortValue := SORTVALUE_LIMIT;
-  Cardinal(FNodes.HotPool.Last.Coordinates) := High(Cardinal) and (not FLAG_EXCLUDED_COORDINATES);
+  Cardinal(FNodes.HotPool.Last.Coordinates) := High(Cardinal) and (not COORDINATES_FLAG_EXCLUDED);
   FNodes.HotPool.Last.NodeInfo := FLAG_KNOWN_PATH {+ not FLAG_ATTAINABLE};
 
   // unlocked heuristed node
@@ -2774,8 +2777,6 @@ end;
 {$ifdef CPFDBG}
 function TTileMap.CellInformation(const X, Y: Word): string;
 const
-  MASK_BITS_15 = (1 shl 15) - 1;
-  MASK_BITS_16_30 = MASK_BITS_15 shl 16;
   STAR: array[Boolean] of string = ('', '*');
 var
   Cell: PCPFCell;
@@ -2783,6 +2784,7 @@ var
   CellKind, CellInfo: string;
   WayBits: Integer;
   ChildList: PChildList;
+  IsExcluded: Boolean;
   IsSimple: Boolean;
   Sector: Byte;
   Heuristics: Cardinal;
@@ -2800,6 +2802,7 @@ begin
     Exit;
   end;
 
+  IsExcluded := False;
   Cell := @Self.FInfo.CellArray[Self.FInfo.MapWidth * Y + X];
   if (Cell.NodePtr and NODEPTR_FLAG_ALLOCATED = 0) then
   begin
@@ -2920,15 +2923,15 @@ begin
     end;
 
     Coordinates := Node.Coordinates;
-    if (Cardinal(Coordinates) and FLAG_EXCLUDED_COORDINATES = FLAG_EXCLUDED_COORDINATES) then
+    if (Cardinal(Coordinates) and COORDINATES_FLAG_EXCLUDED = COORDINATES_FLAG_EXCLUDED) then
     begin
+      IsExcluded := True;
+
       Index := Cardinal(Coordinates);
-      Index := (Index and MASK_BITS_15) + (Index and MASK_BITS_16_30) shr 1;
+      Index := (Index and COORDINATES_MASK_EXCLUDED_LOW) + (Index and COORDINATES_MASK_EXCLUDED_HIGH) shr 1;
       ExcludeItem := @PCPFExcludedList(FActualInfo.Excludes.Buffers[FActualInfo.Excludes.Index].Memory)[Index];
 
       Coordinates := ExcludeItem.Coordinates;
-      CellInfo := CellInfo + ' [excluded]';
-
       if (ExcludeItem.Node <> Node) then
         CellInfo := CellInfo + ' FAILURE NODE';
     end;
@@ -2937,6 +2940,8 @@ begin
   end;
 
   Result := Format('[%d,%d] %s %s', [X, Y, CellKind, CellInfo]);
+  if (IsExcluded) then
+    Result := 'excluded ' + Result;
 
   if (Self.SectorTest) then
   begin
@@ -2955,13 +2960,24 @@ begin
 end;
 
 function TTileMap.NodeInformation(const Node: PCPFNode): string;
+var
+  Coordinates: TCPFPoint;
+  Index: Cardinal;
 begin
   if (Node = nil) then
   begin
     Result := 'nil';
   end else
   begin
-    Result := CellInformation(Node.Coordinates.X, Node.Coordinates.Y);
+    Coordinates := Node.Coordinates;
+    if (Cardinal(Coordinates) and COORDINATES_FLAG_EXCLUDED = COORDINATES_FLAG_EXCLUDED) then
+    begin
+      Index := Cardinal(Coordinates);
+      Index := (Index and COORDINATES_MASK_EXCLUDED_LOW) + (Index and COORDINATES_MASK_EXCLUDED_HIGH) shr 1;
+      Coordinates := PCPFExcludedList(FActualInfo.Excludes.Buffers[FActualInfo.Excludes.Index].Memory)[Index].Coordinates;
+    end;
+
+    Result := CellInformation(Coordinates.X, Coordinates.Y);
   end;
 end;
 
@@ -2990,8 +3006,11 @@ begin
     if (Node.Prev <> Previous) then
       Result := Result + Format('FAILURE PREV $%p ', [Node.Prev]);
 
-    if (Node.SortValue < Previous.SortValue) then
-      Result := Result + 'FAILURE SORTVALUE ';
+    if (Cardinal(Node.Coordinates) and COORDINATES_FLAG_EXCLUDED <> COORDINATES_FLAG_EXCLUDED) then
+    begin
+      if (Node.SortValue < Previous.SortValue) then
+        Result := Result + 'FAILURE SORTVALUE ';
+    end;
 
     if (Node = @FNodes.HotPool.Last) then
     begin
@@ -4108,9 +4127,6 @@ end;
 procedure TTileMap.ActualizeExcludes(Points: PPoint; Count: NativeUInt);
 label
   fill_index, next_point, next_item;
-const
-  MASK_BITS_15 = (1 shl 15) - 1;
-  MASK_BITS_16_30 = MASK_BITS_15 shl 16;
 var
   Index: NativeUInt;
   X, Y: NativeInt;
@@ -4181,12 +4197,12 @@ begin
         ForgetAttainableNodes(Points.X, Points.Y);
         Node := AllocateHeuristedNode(Points.X, Points.Y);
       end else
-      if (Cardinal(Node.Coordinates) and FLAG_EXCLUDED_COORDINATES = FLAG_EXCLUDED_COORDINATES) then
+      if (Cardinal(Node.Coordinates) and COORDINATES_FLAG_EXCLUDED = COORDINATES_FLAG_EXCLUDED) then
       begin
         // already marked as excluded
         Item.Node := Node;
         Index := Cardinal(Node.Coordinates);
-        Index := (Index and MASK_BITS_15) + (Index and MASK_BITS_16_30) shr 1;
+        Index := (Index and COORDINATES_MASK_EXCLUDED_LOW) + (Index and COORDINATES_MASK_EXCLUDED_HIGH) shr 1;
 
         if (Index < LastExcludesCount) then
         begin
@@ -4227,7 +4243,7 @@ begin
 
   fill_index:
     Index := (NativeUInt(Item) - NativeUInt(Excludes)) shr 5{div SizeOf(TCPFExcluded)};
-    Index := (Index and MASK_BITS_15) + ((Index shl 1) and MASK_BITS_16_30) + NativeUInt(FLAG_EXCLUDED_COORDINATES);
+    Index := (Index and COORDINATES_MASK_EXCLUDED_LOW) + ((Index shl 1) and COORDINATES_MASK_EXCLUDED_HIGH) + NativeUInt(COORDINATES_FLAG_EXCLUDED);
     Cardinal(Node.Coordinates) := Index;
 
   next_point:
@@ -4295,7 +4311,7 @@ begin
       Index := Cardinal(Node.Coordinates);
       Node := Node.Next;
 
-      if (Cardinal(Index) and FLAG_EXCLUDED_COORDINATES <> FLAG_EXCLUDED_COORDINATES) then
+      if (Cardinal(Index) and COORDINATES_FLAG_EXCLUDED <> COORDINATES_FLAG_EXCLUDED) then
       begin
         with Cells[(NativeInt(Index) shr 16){X} + NativeInt(Booked{MapWidth}) * {Y}Word(Index)] do
           NodePtr := NodePtr and (not NODEPTR_FLAG_HEURISTED);
@@ -4307,7 +4323,7 @@ begin
         Store.Node := Node;
 
         // take excluded node item
-        Index := (Index and MASK_BITS_15) + (Index and MASK_BITS_16_30) shr 1;
+        Index := (Index and COORDINATES_MASK_EXCLUDED_LOW) + (Index and COORDINATES_MASK_EXCLUDED_HIGH) shr 1;
         Item := @Excludes[Index];
 
         // retrieve node coordinates, mark up as allocated
@@ -5106,8 +5122,6 @@ label
   _2, _1, next_excluded, excluded_associated,
   standard_heuristed, standard_unattainable, next_unattainable;
 const
-  MASK_BITS_15 = (1 shl 15) - 1;
-  MASK_BITS_16_30 = MASK_BITS_15 shl 16;
   PARENT_MASK_BITS = $00ff0000;
 var
   NodeInfo: Cardinal;
@@ -5145,7 +5159,7 @@ begin
       repeat
         if (Node.NodeInfo and FLAGS_KNOWN_ATTAINABLE <> FLAG_KNOWN_PATH) then
         begin
-          Index := (Index and MASK_BITS_15) + (Index and MASK_BITS_16_30) shr 1;
+          Index := (Index and COORDINATES_MASK_EXCLUDED_LOW) + (Index and COORDINATES_MASK_EXCLUDED_HIGH) shr 1;
           Item := @Excluded[Index];
           case (Item.Count and 15) of
             5..15: {only 8} goto next_excluded;
@@ -5178,7 +5192,7 @@ begin
       next_excluded:
         Node := Node.Next;
         Index := Cardinal(Node.Coordinates);
-      until (Cardinal(Index) and FLAG_EXCLUDED_COORDINATES <> FLAG_EXCLUDED_COORDINATES);
+      until (Cardinal(Index) and COORDINATES_FLAG_EXCLUDED <> COORDINATES_FLAG_EXCLUDED);
     end else
     begin
       // flag unattainables
@@ -5187,14 +5201,14 @@ begin
       repeat
         if (Node.NodeInfo and FLAGS_KNOWN_ATTAINABLE <> FLAG_KNOWN_PATH) then
         begin
-          Index := (Index and MASK_BITS_15) + (Index and MASK_BITS_16_30) shr 1;
+          Index := (Index and COORDINATES_MASK_EXCLUDED_LOW) + (Index and COORDINATES_MASK_EXCLUDED_HIGH) shr 1;
           Item := @Excluded[Index];
           Item.Count := Item.Count or 16;
         end;
 
         Node := Node.Next;
         Index := Cardinal(Node.Coordinates);
-      until (Cardinal(Index) and FLAG_EXCLUDED_COORDINATES <> FLAG_EXCLUDED_COORDINATES);
+      until (Cardinal(Index) and COORDINATES_FLAG_EXCLUDED <> COORDINATES_FLAG_EXCLUDED);
     end;
 
   excluded_associated:
@@ -5254,7 +5268,7 @@ begin
     repeat
       Right := Node.Next;
 
-      if (Cardinal(Node.Coordinates) and FLAG_EXCLUDED_COORDINATES <> FLAG_EXCLUDED_COORDINATES) then
+      if (Cardinal(Node.Coordinates) and COORDINATES_FLAG_EXCLUDED <> COORDINATES_FLAG_EXCLUDED) then
       begin
       standard_unattainable:
         Node.NodeInfo := (NodeInfo and FLAGS_CLEAN_MASK) + (PARENT_MASK_BITS + FLAG_KNOWN_PATH);
@@ -6364,9 +6378,9 @@ begin
     NodeFlags{XY} := Cardinal(Node.Coordinates);
     Cardinal(Store.Current.Coordinates) := NodeFlags{XY};
     {$ifdef LARGEINT} // Delphi compiler optimization bug
-      if (Cardinal(NodeFlags) and FLAG_EXCLUDED_COORDINATES = FLAG_EXCLUDED_COORDINATES) then goto excluded_node;
+      if (Cardinal(NodeFlags) and COORDINATES_FLAG_EXCLUDED = COORDINATES_FLAG_EXCLUDED) then goto excluded_node;
     {$else}
-      if (NodeFlags and FLAG_EXCLUDED_COORDINATES = FLAG_EXCLUDED_COORDINATES) then goto excluded_node;
+      if (NodeFlags and COORDINATES_FLAG_EXCLUDED = COORDINATES_FLAG_EXCLUDED) then goto excluded_node;
     {$endif}
 
     // cell
@@ -6421,7 +6435,7 @@ begin
   // hot pool parameters
   with TTileMapPtr(Store.Self).FNodes.HotPool do
   begin
-    LockedExcluded := (Cardinal(Store.HotPool.Next.Coordinates) and FLAG_EXCLUDED_COORDINATES = FLAG_EXCLUDED_COORDINATES);
+    LockedExcluded := (Cardinal(Store.HotPool.Next.Coordinates) and COORDINATES_FLAG_EXCLUDED = COORDINATES_FLAG_EXCLUDED);
     Unattainable := (NodeFlags and FLAG_ATTAINABLE = 0);
     KnownPathNode := Node;
   end;
@@ -6820,7 +6834,7 @@ nodes_initialized:
        (NodeInfo and Integer($ff000000){Tile} = 0{TILE_BARIER})
        {$endif} or
       (NodeInfo and $ff00{Mask} = 0) or
-      (Cardinal(Node.Coordinates) and FLAG_EXCLUDED_COORDINATES = FLAG_EXCLUDED_COORDINATES{excluded test}) or
+      (Cardinal(Node.Coordinates) and COORDINATES_FLAG_EXCLUDED = COORDINATES_FLAG_EXCLUDED{excluded test}) or
       (FActualInfo.Weights.CardinalsLine[NodeInfo shr 24] = PATHLESS_TILE_WEIGHT) then goto path_not_found;
     if (NodeInfo and FLAG_KNOWN_PATH <> 0) then
     begin
