@@ -221,9 +221,11 @@ try
       BitmapPixel(Path.Points[i].X, Path.Points[i].Y)^ := RedValue;
 
     Bitmap.SaveToFile(DestFileName);
-    ShowInformation('Processing time is %d milliseconds, the path was saved to "%s" file'#13+
+    ShowInformation('[%d, %d] --> [%d, %d]'#13 +
+                    'Processing time is %d milliseconds, the path was saved to "%s" file'#13 +
                     'Distance: %0.2f (%d points)',
-                    [Time, DestFileName, Path.Distance, Path.Count]);
+                    [Start.X, Start.Y, Finish.X, Finish.Y,
+                     Time, DestFileName, Path.Distance, Path.Count]);
   end;
 finally
   Map.Free;

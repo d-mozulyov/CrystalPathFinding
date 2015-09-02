@@ -292,7 +292,7 @@ type
                      KnownPath:1;
                      case (KnownPath and Attainable) of
                        False: (Way:3; ClockWise:1);
-                        True: (KnownChild:3; Attainable:1);
+                        True: (KnownChild:3);
                      end;
                    };
                    Mask: Byte;
@@ -321,12 +321,12 @@ type
   end;
 
   TCPFStart = packed record
+    {$ifdef LARGEINT}
+    __Align: array[1..12] of Byte;
+    {$endif}
     Node: PCPFNode;
-    __Align: array[1..4{$ifNdef LARGEINT}+4{$endif}] of Byte;
-    XYDistance: Integer;
-    KnownPathCoordinates: TCPFPoint;
-    KnownPathChild: Cardinal;
     AttainablePath: Cardinal;
+    XYDistance: Integer;
     case Boolean of
      False: (Coordinates: TCPFPoint);
       True: (XYCoordinates: Integer);
@@ -442,14 +442,14 @@ type
         ScaleDiagonal: Double;
         case Boolean of
         False: (
-                 SinglesDiagonal: array[0..255] of Single;
-                 SinglesLine: array[0..255] of Single;
                  CardinalsDiagonal: array[0..255] of Cardinal;
                  CardinalsLine: array[0..255] of Cardinal;
+                 SinglesDiagonal: array[0..255] of Single;
+                 SinglesLine: array[0..255] of Single;
                 );
          True: (
-                 SingleValues: array[0..1, 0..255] of Single;
                  CardinalValues: array[0..1, 0..255] of Cardinal;
+                 SingleValues: array[0..1, 0..255] of Single;
                );
       end;
       Excludes: record
@@ -3924,7 +3924,7 @@ begin
     Right.Prev := Left;
 
     Result.NodeInfo := Result.NodeInfo or FLAGS_KNOWN_ATTAINABLE;
-    Result.AttainableLength := 0;
+    Result.AttainableLength := 1;
     Result.AttainablePath := 0;
     Result.AttainableDistance := 0;
   end;
@@ -5280,8 +5280,8 @@ begin
 
       if (Cardinal(Node.Coordinates) and COORDINATES_FLAG_EXCLUDED <> COORDINATES_FLAG_EXCLUDED) then
       begin
-      next_unattainable:
         NodeInfo := (NodeInfo and Integer(not FLAG_ATTAINABLE)) or (PARENT_MASK_BITS + FLAG_KNOWN_PATH);
+      next_unattainable:
         Node.NodeInfo := NodeInfo;
         Node.Path := SORTVALUE_LIMIT - (Node.SortValue - Node.Path);
         Node.SortValue := SORTVALUE_LIMIT;
@@ -5290,6 +5290,9 @@ begin
         if (Right = @FNodes.Unattainable.Last{HighNode}) then Break;
       end else
       begin
+        // unlock
+        NodeInfo := NodeInfo or PARENT_MASK_BITS;
+
         // excluded is already unattanable case
         if (NodeInfo and FLAGS_KNOWN_ATTAINABLE = FLAG_KNOWN_PATH) then
           goto next_unattainable;
@@ -5320,27 +5323,28 @@ end;
 
 procedure TTileMap.CacheAttainablePath(var StartPoint: TCPFStart);
 type
-  TCardinalWeights = array[0..511] of Cardinal;
-  TSingleWeights = array[0..511] of Single;
+  TWeightsValues = array[0..1023] of record
+  case Boolean of
+    False: (CardinalValue: Cardinal);
+     True: (SingleValue: Single);
+  end;
 var
   ParentNode, Node: PCPFNode;
   ParentNodeInfo, NodeInfo, Buffer: NativeUInt;
   Cell: PCPFCell;
   Left, Right: PCPFNode;
 
-  CardinalWeights: ^TCardinalWeights;
-  SingleWeights: ^TSingleWeights;
+  WeightValues: ^TWeightsValues;
 
   Store: record
     {$ifdef CPUX86}
     CellOffsets: TCPFOffsets;
     StartPointNode: PCPFNode;
-    CardinalWeights: ^TCardinalWeights;
-    SingleWeights: ^TSingleWeights;
+    WeightValues: ^TWeightsValues;
     Cell: PCPFCell;
+    ParentNodeInfo: NativeUInt;
     {$endif}
     StartPoint: PCPFStart;
-    ParentNodeInfo: NativeUInt;
   end;
 
   {$ifNdef CPUX86}
@@ -5348,6 +5352,7 @@ var
     HALF: Double;
     W1, W2: Double;
     StartPointNode: PCPFNode;
+    StoreParentNodeInfo: NativeUInt;
   {$endif}
 
   {$ifdef LARGEINT}
@@ -5367,13 +5372,11 @@ begin
   Store.StartPoint := @StartPoint;
   {$ifdef CPUX86}
     Store.StartPointNode := StartPoint.Node;
-    Store.CardinalWeights := Pointer(@FActualInfo.Weights.CardinalValues);
-    Store.SingleWeights := Pointer(@FActualInfo.Weights.SingleValues);
+    Store.WeightValues := Pointer(@FActualInfo.Weights.CardinalValues);
   {$else}
     HALF := CrystalPathFinding.HALF;
     StartPointNode := StartPoint.Node;
-    CardinalWeights := Pointer(@FActualInfo.Weights.CardinalValues);
-    SingleWeights := Pointer(@FActualInfo.Weights.SingleValues);
+    WeightValues := Pointer(@FActualInfo.Weights.CardinalValues);
   {$endif}
 
   {$ifdef LARGEINT}
@@ -5381,8 +5384,8 @@ begin
   {$endif}
 
   // first cell/node/nodeinfo
-  Cell := @FInfo.CellArray[NativeInt(StartPoint.KnownPathCoordinates.Y) * Width + StartPoint.KnownPathCoordinates.X];
-  NodeInfo := StartPoint.KnownPathChild;
+  Cell := @FInfo.CellArray[NativeInt(FNodes.Hot.KnownPathCoordinates.Y) * Width + FNodes.Hot.KnownPathCoordinates.X];
+  NodeInfo := FNodes.Hot.KnownPathChild;
   Inc(NativeInt(Cell), {$ifdef CPUX86}Store.{$endif}CellOffsets[NodeInfo]);
   NodeInfo := (NodeInfo + 4) and 7{parent emulating};
   {$ifdef LARGEINT}
@@ -5427,7 +5430,7 @@ begin
 
     // parent node info
     ParentNodeInfo := ParentNode.NodeInfo;
-    Store.ParentNodeInfo := ParentNodeInfo;
+    {$ifdef CPUX86}Store.ParentNodeInfo{$else}StoreParentNodeInfo{$endif} := ParentNodeInfo;
     Buffer := (ParentNodeInfo and Integer($ff00ff00)) +
       ($00ff0000 + FLAGS_KNOWN_ATTAINABLE) +
       (((NodeInfo + 4){invert parent} and 7) shl 4);
@@ -5445,25 +5448,26 @@ begin
 
     // attainable path
     {$ifdef CPUX86}
-    CardinalWeights := Store.CardinalWeights;
+    WeightValues := Store.WeightValues;
     {$endif}
     ParentNode.AttainablePath := Node.AttainablePath +
-      ((CardinalWeights[ParentNodeInfo] + CardinalWeights[NodeInfo]) shr 1);
+      ((WeightValues[ParentNodeInfo].CardinalValue + WeightValues[NodeInfo].CardinalValue) shr 1);
 
     // attainable distance
+    Inc(ParentNodeInfo, 512);
+    Inc(NodeInfo, 512);
     {$ifdef CPUX86}
-      SingleWeights := Store.SingleWeights;
       ParentNode.AttainableDistance := Node.AttainableDistance +
-        HALF * (SingleWeights[ParentNodeInfo] + SingleWeights[NodeInfo]);
+        HALF * (WeightValues[ParentNodeInfo].SingleValue + WeightValues[NodeInfo].SingleValue);
     {$else}
-      W1 := SingleWeights[ParentNodeInfo];
-      W2 := SingleWeights[NodeInfo];
+      W1 := WeightValues[ParentNodeInfo].SingleValue;
+      W2 := WeightValues[NodeInfo].SingleValue;
       ParentNode.AttainableDistance := Node.AttainableDistance + HALF * (W1 + W2);
     {$endif}
 
     // next node
     Node := ParentNode;
-    NodeInfo := Store.ParentNodeInfo;
+    NodeInfo := {$ifdef CPUX86}Store.ParentNodeInfo{$else}StoreParentNodeInfo{$endif};
   until (ParentNode = {$ifdef CPUX86}Store.{$endif}StartPointNode);
 
   // result attainable path
@@ -5784,8 +5788,7 @@ end;
 function TTileMap.DoFindPathLoop(const StartNode: PCPFNode): Cardinal;
 label
   nextchild_continue, nextchild, heuristics_data,
-  next_current, current_initialize,
-  result_found;
+  next_current, current_initialize;
 const
   NODEPTR_FLAGS = NODEPTR_FLAG_HEURISTED + NODEPTR_FLAG_ALLOCATED;
   PARENT_BITS_CLEAR_MASK = not Cardinal($00ff0000 + 7);
@@ -6152,6 +6155,7 @@ begin
         Inc(NativeInt(Cell{TileWeights}), (ParentBits and 1) shl 10);
         Path := PCardinalList(Cell{TileWeights})[NodeFlags shr 24] +
                 PCardinalList(Cell{TileWeights})[ParentBits shr 24];
+        if (Path > PATHLESS_TILE_WEIGHT) then goto nextchild_continue;
         Path := (Path shr 1) + Store.Current.Path;
 
         if (ParentBits and FLAG_KNOWN_PATH = 0) then
@@ -6186,8 +6190,7 @@ begin
           Store.Attainable.Child := (ParentBits + 4) and 7;
           Store.Attainable.FinishSortValue := Path;
 
-          if (Path <> Store.Current.SortValue) then goto nextchild_continue;
-          goto result_found;
+          goto nextchild_continue;
         end;
       end;
 
@@ -6314,7 +6317,7 @@ begin
     // store current: node, path, sortvalue
     ChildSortValue := Node.SortValue;
     Store.Current.SortValue := ChildSortValue;
-    if (ChildSortValue >= Store.Attainable.FinishSortValue) then goto result_found;
+    if (ChildSortValue >= Store.Attainable.FinishSortValue) then Break;
     Store.Current.Node := Node;
     Store.Current.Path := Node.Path;
 
@@ -6374,7 +6377,6 @@ begin
     end;
   until (False);
 
-result_found:
   // Result
   Result := Store.Attainable.Child;
 
@@ -6428,6 +6430,16 @@ const
 label
   weights_flags, nodes_initialized, path_not_found,
   change_beststart, next_start, fill_result;
+type
+  TTileMapParamsEx = record
+    Starts: PPoint;
+    StartsCount: NativeUInt;
+    Finish: TPoint;
+    Weights: PCPFWeightsInfo;
+    Excludes: PPoint;
+    ExcludesCount: NativeUInt;
+  end;
+  PTileMapParamsEx = ^TTileMapParamsEx;
 var
   i: NativeUInt;
   MapWidth, MapHeight: Cardinal;
@@ -6437,7 +6449,7 @@ var
   S: PPoint;
   Flags: NativeUInt;
 
-  Params: TTileMapParams;
+  Params: TTileMapParamsEx;
   Store: record
     FullPath: Boolean;
     FinishSector: Byte;
@@ -6459,7 +6471,9 @@ var
 begin
   // stack copy parameters to one register save
   Store.FullPath := Boolean(ParamsPtr shr HIGH_NATIVE_BIT);
-  Params := PTileMapParams(ParamsPtr and ((NativeUInt(1) shl HIGH_NATIVE_BIT) - 1))^;
+  Params := PTileMapParamsEx(ParamsPtr and ((NativeUInt(1) shl HIGH_NATIVE_BIT) - 1))^;
+  Flags := NativeUInt(Params.Weights);
+  if (Flags <> 0) then Params.Weights := TTileMapWeightsPtr(Flags).FInfo;
 
 {$ifNdef CPUX86}
   _Self := Pointer({$ifdef CPFLIB}@Self{$else}Self{$endif});
@@ -6511,7 +6525,7 @@ begin
        (CellInfo and Integer($ff000000){Tile} = 0{TILE_BARIER})
      {$endif} or
     (CellInfo and $ff00{Mask} = 0) or
-    ((Params.Weights <> nil) and (Params.Weights.FInfo.Singles[CellInfo shr 24] = 0)) then
+    ((Params.Weights <> nil) and (Params.Weights.Singles[CellInfo shr 24] = 0)) then
       FinishX := -1{finish pathless flag};
 
   // test excluded points coordinates
@@ -6622,13 +6636,13 @@ begin
         if (not ActualizeWeights(nil, 0 = Flags and (FLAG_CACHING or FLAG_FINISH{ or FLAG_CLEAN}))) then goto weights_flags;
       end;
     end else
-    if (FActualInfo.Weights.Current <> Params.Weights.FInfo) or
-      (FActualInfo.Weights.UpdateId <> Params.Weights.FInfo.UpdateId) then
+    if (FActualInfo.Weights.Current <> Params.Weights) or
+      (FActualInfo.Weights.UpdateId <> Params.Weights.UpdateId) then
     begin
       Store.HLine := FInfo.HeuristicsLine;
       Store.HDiagonal := FInfo.HeuristicsDiagonal;
 
-      if (not ActualizeWeights(Params.Weights.FInfo, 0 = Flags and (FLAG_CACHING or FLAG_FINISH{ or FLAG_CLEAN}))) then
+      if (not ActualizeWeights(Params.Weights, 0 = Flags and (FLAG_CACHING or FLAG_FINISH{ or FLAG_CLEAN}))) then
       begin
       weights_flags:
         Flags := Flags or FLAG_TILEWEIGHTS;
@@ -6661,7 +6675,7 @@ begin
       end;
     end else
     begin
-      if (not ActualizeStarts(Params{, 0 = Flags})) then
+      if (not ActualizeStarts(PTileMapParams(@Params)^{, 0 = Flags})) then
         Flags := Flags or FLAG_STARTS;
     end;
   end;
@@ -6759,7 +6773,8 @@ nodes_initialized:
   if (Store.FinishSector = SECTOR_PATHLESS) then goto fill_result;
 
   // finish point node
-  AllocateFinishNode;
+  if (FNodes.Finish = nil) then
+    AllocateFinishNode;
 
   // each start point find algorithm
   FoundPaths := Params.StartsCount;
@@ -6795,8 +6810,7 @@ nodes_initialized:
     begin
       if (CellInfo and FLAG_ATTAINABLE <> 0) then
       begin
-        StartPoint.KnownPathCoordinates := StartPoint.Coordinates;
-        StartPoint.KnownPathChild := High(Cardinal);
+        StartPoint.AttainablePath := Node.AttainablePath;
       end else
       begin
         goto path_not_found;
@@ -6823,8 +6837,6 @@ nodes_initialized:
       begin
         if (Store.AttainableAlgorithm) then
         begin
-          Cardinal(StartPoint.KnownPathCoordinates) := Cardinal(FNodes.Hot.KnownPathCoordinates);
-          StartPoint.KnownPathChild := FNodes.Hot.KnownPathChild;
           CacheAttainablePath(StartPoint^);
         end else
         begin
@@ -6842,6 +6854,11 @@ nodes_initialized:
 
     Inc(StartPoint);
   end;
+
+  {$ifdef CPFDBG}
+    if (Store.AttainableAlgorithm) and (FNodes.Hot.Pool.First.Next <> @FNodes.Hot.Pool.Last) then
+      FlushHotPoolNodes;
+  {$endif}
 
   // find the best start point (attainable algorithm)
   // distance and distanceXY
@@ -6863,7 +6880,7 @@ nodes_initialized:
   end;
 
   // fill best start point parameters and path (attainable algorithm)
-  FActualInfo.FoundPath.Index := (NativeUInt(BestStartPoint) - NativeUInt(FActualInfo.Starts.Buffer.Memory)) shr 5;// div SizeOf(TCPFStart);
+  FActualInfo.FoundPath.Index := (NativeUInt(BestStartPoint) - NativeUInt(FActualInfo.Starts.Buffer.Memory)) shr {$ifdef LARGEINT}5{$else}4{$endif};// div SizeOf(TCPFStart);
   FActualInfo.FoundPath.Length := BestStartPoint.Node.AttainableLength;
   FActualInfo.FoundPath.Distance := BestStartPoint.Node.AttainableDistance;
   if (Store.FullPath) then
