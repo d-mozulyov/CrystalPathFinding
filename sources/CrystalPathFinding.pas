@@ -1846,15 +1846,15 @@ const
     $70, $70, $70, $70, $F0, $F0, $F0, $F0, $70, $70, $70, $70, $F0, $F0, $F0, $F0
   );
 
-  PARENT_BITS: array[0..63{oddy:1;hexagonal:1;simple:1;child:3}] of NativeUInt = (
-    $00C70004, $00C70004, $00C70004, $00000004, $00000004, $00000004, $00000004, $00000004,
-    $00070005, $00070005, $004F0005, $00970005, $00DF0005, $00DF0005, $00DF0005, $00DF0005,
-    $001F0006, $001F0006, $00000006, $001F0006, $00000006, $00000006, $00000006, $00000006,
-    $001C0007, $001C0007, $003E0007, $005D0007, $007F0007, $007F0007, $007F0007, $007F0007,
-    $007C0000, $007C0000, $00000000, $007C0000, $00000000, $00000000, $00000000, $00000000,
-    $00700001, $00700001, $00790001, $00F40001, $00FD0001, $00FD0001, $00FD0001, $00FD0001,
-    $00F10002, $00F10002, $00F10002, $00000002, $00000002, $00000002, $00000002, $00000002,
-    $00C10003, $00C10003, $00D50003, $00E30003, $00F70003, $00F70003, $00F70003, $00F70003
+  PARENT_BITS: array[0..31{oddy:1;hexagonal:1;child:3}] of NativeUInt = (
+    $00C70004, $00C70004, $00C70004, $00000004,
+    $008F0005, $008F0005, $004F0005, $00970005,
+    $001F0006, $001F0006, $00000006, $001F0006,
+    $003E0007, $003E0007, $003E0007, $005D0007,
+    $007C0000, $007C0000, $00000000, $007C0000,
+    $00F80001, $00F80001, $00790001, $00F40001,
+    $00F10002, $00F10002, $00F10002, $00000002,
+    $00E30003, $00E30003, $00D50003, $00E30003
   );
 
   ROUNDED_MASKS: array[Byte] of Byte = (
@@ -2210,8 +2210,8 @@ end;
 procedure AddParentBits(Child: Integer; Finalize: Boolean);
 var
   Parent: Integer;
-  Buffer: array[0..7] of Cardinal;
-  Simple, Hexagonal, OddY: Boolean;
+  Buffer: array[0..3] of Cardinal;
+  Hexagonal, OddY: Boolean;
   Item: PCardinal;
   S: string;
 
@@ -2224,32 +2224,20 @@ begin
   Parent := (Child + 4) and 7;
   Item := @Buffer[0];
 
-  for Simple := False to True do
   for Hexagonal := False to True do
   for OddY := False to True do
   begin
-    if (Simple) then
-    begin
-      case Child of
-        1: AddParentMask(_5);
-        3: AddParentMask(_7);
-        5: AddParentMask(_1);
-        7: AddParentMask(_3);
-      else
-        AddParentMask($FF);
-      end;
-    end else
     if (not Hexagonal) then
     begin
       case Child of
         0: AddParentMask(_3 or _4 or _5);
-        1: AddParentMask(_3 or _4 or _5 or _6 or _7);
+        1: AddParentMask(_4 or _5 or _6);
         2: AddParentMask(_5 or _6 or _7);
-        3: AddParentMask(_5 or _6 or _7 or _0 or _1);
+        3: AddParentMask(_6 or _7 or _0);
         4: AddParentMask(_7 or _0 or _1);
-        5: AddParentMask(_0 or _1 or _2 or _3 or _7);
+        5: AddParentMask(_0 or _1 or _2);
         6: AddParentMask(_1 or _2 or _3);
-        7: AddParentMask(_1 or _2 or _3 or _4 or _5);
+        7: AddParentMask(_2 or _3 or _4);
       end;
     end else
     if (not OddY) then
@@ -2279,9 +2267,8 @@ begin
     end;
   end;
 
-  S := Format('  $%0.8x, $%0.8x, $%0.8x, $%0.8x, $%0.8x, $%0.8x, $%0.8x, $%0.8x',
-    [Buffer[0], Buffer[1], Buffer[2], Buffer[3],
-     Buffer[4], Buffer[5], Buffer[6], Buffer[7]]);
+  S := Format('  $%0.8x, $%0.8x, $%0.8x, $%0.8x',
+    [Buffer[0], Buffer[1], Buffer[2], Buffer[3]]);
 
   if (not Finalize) then S := S + ',';
   LookupLine(S);
@@ -2396,7 +2383,7 @@ begin
 
     // PARENT_BITS
     LookupLine;
-    LookupLine('PARENT_BITS: array[0..63{oddy:1;hexagonal:1;simple:1;child:3}] of NativeUInt = (');
+    LookupLine('PARENT_BITS: array[0..31{oddy:1;hexagonal:1;child:3}] of NativeUInt = (');
     for Child := 0 to 7 do
     begin
       AddParentBits(Child, Child = 7);
@@ -5975,8 +5962,8 @@ begin
       Inc(NativeInt(Cell), CellOffsets[Child]);
 
       // parent bits
-      Child := Child shl 3;
-      Child := Child + (NodeFlags and (4+2)) + (NativeUInt(Cardinal(Store.Current.Coordinates)) and 1);
+      Child := Child shl 2;
+      Child := Child + (NodeFlags and 2) + (NativeUInt(Cardinal(Store.Current.Coordinates)) and 1);
       ParentBits := PARENT_BITS[Child];
 
       // allocated new or use exists
