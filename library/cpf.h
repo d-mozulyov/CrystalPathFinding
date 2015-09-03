@@ -27,11 +27,16 @@
 #ifndef CRYSTAL_PATH_FINDING_H
 #define CRYSTAL_PATH_FINDING_H
 ToDo: object oriented interface implementation & Memory/Exception callbacks (cpfInitialize)
-#include <Windows.h> // Cross Platform todo
 
-  typedef POINT TPoint;
   typedef unsigned short ushort;
   typedef unsigned char uchar;
+  struct TPoint
+  {
+      long X;
+      long Y;
+      TPoint(){}
+      TPoint(long x, long y):X(x),Y(y){}
+  };  
  
   // handle type
   typedef size_t TCPFHandle;

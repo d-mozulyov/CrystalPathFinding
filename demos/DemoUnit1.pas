@@ -676,7 +676,7 @@ begin
 
   // repaint map
   FillMapBitmap(Path);
-  RepaintBoxes([pbMap]);
+  RepaintBoxes([pbMap, pbBarrier, pbExclude, pbTile1, pbTile2, pbTile3, pbTile4]);
 end;
 
 function TMainForm.ExecutePathFinding: TTileMapPath;
