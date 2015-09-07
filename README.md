@@ -12,19 +12,19 @@ Library features:
 * Up to 255 types of tiles, weight is from 0.1 to 100.0 
 * Contains demonstration projects
 
-[Demo_x86](http://dmozulyov.ucoz.net/cpf_Demo_x86.zip), [Demo_x64](http://dmozulyov.ucoz.net/cpf_Demo_x64.zip)
-![](http://dmozulyov.ucoz.net/cpf_screenshot.png)
-![](http://dmozulyov.ucoz.net/cpf_excluded.png)
-![](http://dmozulyov.ucoz.net/cpf_ways.png)
+[Demo_x86.zip](http://dmozulyov.ucoz.net/CrystalPathFind/Demo_x86.zip), [Demo_x64.zip](http://dmozulyov.ucoz.net/CrystalPathFind/Demo_x64.zip)
+![](http://dmozulyov.ucoz.net/CrystalPathFind/screenshot.png)
+![](http://dmozulyov.ucoz.net/CrystalPathFind/excluded.png)
+![](http://dmozulyov.ucoz.net/CrystalPathFind/ways.png)
 
 # Help
-The library contains 2 main objects: TTileMap (map of tiles) and TTileMapWeights (tile weights array). The tile can take any value from 1 till 255. The tile’s weight is indicated in the range from 0.1 to 100.0, if the tile weight is from 0.0 to 0.1 then the tile is considered to be impassable. If the TTileMapWeights is not indicated during the searching then all the weights are considered to be 1. The tile with number 0 (TILE_BARRIER) is considered to be a barrier, passing through which is impossible. The modes of the maps mkDiagonal and mkDiagonalEx are different in a way how the paths round the tile-barriers. 
+The library contains 2 main objects: `TTileMap` (map of tiles) and `TTileMapWeights` (tile weights array). The tile can take any value from 1 till 255. The tile’s weight is indicated in the range from 0.1 to 100.0, if the tile weight is from 0.0 to 0.1 then the tile is considered to be impassable. If the `TTileMapWeights` is not indicated during the searching then all the weights are considered to be 1. The tile with number 0 (`TILE_BARRIER`) is considered to be a barrier, passing through which is impossible. The modes of the maps `mkDiagonal` and `mkDiagonalEx` are different in a way how the paths round the tile-barriers. 
 
-The "SectorTest" parameter helps to improve the search speed dramatically if the map is divided into "areas" and to build the path from one "area" to another is impossible. 
+The `SectorTest` parameter helps to improve the search speed dramatically if the map is divided into "areas" and to build the path from one "area" to another is impossible. 
 
-The "Caching" parameter is always recommended to set to `true` if it is not supposed to change the destination point or weights array. 
+The `Caching` parameter is always recommended to set to `true` if it is not supposed to change the destination point or weights array. 
 
-The array of Excludes has a large value. It is possible to organize complex searches with the help of this feature in which, for example, one game unit do not contact with the others.  In such cases it is recommended to rebuild the paths by changing the destination point, unit strength or the position of at least one of the game units. Accordingly, if not the whole path of the game unit interests you but only the next point then the serch parameter “FullPath” is recommended to set to `false` (watch the example below).  
+The array of `Excludes` has a large value. It is possible to organize complex searches with the help of this feature in which, for example, one game unit do not contact with the others.  In such cases it is recommended to rebuild the paths by changing the destination point, unit strength or the position of at least one of the game units. Accordingly, if not the whole path of the game unit interests you but only the next point then the search parameter `FullPath` is recommended to set to `false` (watch the example below).  
 
 ##### Basic types and contants
 ```c
