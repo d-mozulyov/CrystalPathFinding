@@ -3,15 +3,15 @@ program BitmapTest;
 
 // compiler directives
 {$ifdef FPC}
-  {$mode Delphi}
-  {$asmmode Intel}
+  {$mode delphi}
+  {$asmmode intel}
   {$define INLINESUPPORT}
   {$ifdef CPU386}
     {$define CPUX86}
   {$endif}
   {$ifdef CPUX86_64}
     {$define CPUX64}
-  {$endif}  
+  {$endif}
 {$else}
   {$if CompilerVersion >= 24}
     {$LEGACYIFEND ON}
@@ -21,11 +21,13 @@ program BitmapTest;
     {$WARN UNSAFE_TYPE OFF}
     {$WARN UNSAFE_CAST OFF}
   {$ifend}
-  {$if (CompilerVersion < 23)}
-    {$define CPUX86}
-  {$ifend}
-  {$if (CompilerVersion >= 17)}
+  {$if CompilerVersion >= 17}
     {$define INLINESUPPORT}
+  {$ifend}
+  {$if CompilerVersion < 23}
+    {$define CPUX86}
+  {$else}
+    {$define UNITSCOPENAMES}
   {$ifend}
   {$if CompilerVersion >= 21}
     {$WEAKLINKRTTI ON}
@@ -38,9 +40,9 @@ program BitmapTest;
 {$U-}{$V+}{$B-}{$X+}{$T+}{$P+}{$H+}{$J-}{$Z1}{$A4}
 {$O+}{$R-}{$I-}{$Q-}{$W-}
 {$if Defined(CPUX86) or Defined(CPUX64)}
-   {$define CPUINTEL}
+  {$define CPUINTEL}
 {$ifend}
-{$if SizeOf(Pointer) = 8}
+{$if Defined(CPUX64) or Defined(CPUARM64)}
   {$define LARGEINT}
 {$else}
   {$define SMALLINT}
@@ -49,19 +51,18 @@ program BitmapTest;
   {$define KOL}
 {$endif}
 
-uses
-  Types,
-  Windows,
-  SysUtils,
-  Classes,
-  Graphics,
-  CrystalPathFinding in '..\sources\CrystalPathFinding.pas';
+uses {$ifdef UNITSCOPENAMES}
+       System.Types, Winapi.Windows, System.SysUtils, System.Classes, Vcl.Graphics,
+     {$else}
+       Types, Windows, SysUtils, Classes, Graphics,
+     {$endif}
+     CrystalPathFinding in '..\sources\CrystalPathFinding.pas';
 
 function MessageBox(const Caption: string; const Fmt: string;
   const Args: array of const; const Flags: Integer): Integer;
 begin
-  Result := Windows.MessageBox(GetForegroundWindow,
-            PChar(Format(Fmt, Args)), PChar(Caption), Flags); 
+  Result := {$ifdef UNITSCOPENAMES}Winapi.{$endif}Windows.MessageBox(GetForegroundWindow,
+            PChar(Format(Fmt, Args)), PChar(Caption), Flags);
 end;
 
 procedure ShowMessage(const Fmt: string; const Args: array of const);

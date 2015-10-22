@@ -30,15 +30,15 @@ unit cpf;
 
 // compiler directives
 {$ifdef FPC}
-  {$mode Delphi}
-  {$asmmode Intel}
+  {$mode delphi}
+  {$asmmode intel}
   {$define INLINESUPPORT}
   {$ifdef CPU386}
     {$define CPUX86}
   {$endif}
   {$ifdef CPUX86_64}
     {$define CPUX64}
-  {$endif}  
+  {$endif}
 {$else}
   {$if CompilerVersion >= 24}
     {$LEGACYIFEND ON}
@@ -48,19 +48,32 @@ unit cpf;
     {$WARN UNSAFE_TYPE OFF}
     {$WARN UNSAFE_CAST OFF}
   {$ifend}
-  {$if (CompilerVersion < 23)}
-    {$define CPUX86}
-  {$ifend}
-  {$if (CompilerVersion >= 17)}
+  {$if CompilerVersion >= 17}
     {$define INLINESUPPORT}
+  {$ifend}
+  {$if CompilerVersion < 23}
+    {$define CPUX86}
+  {$else}
+    {$define UNITSCOPENAMES}
   {$ifend}
   {$if CompilerVersion >= 21}
     {$WEAKLINKRTTI ON}
     {$RTTI EXPLICIT METHODS([]) PROPERTIES([]) FIELDS([])}
   {$ifend}
+  {$if (not Defined(NEXTGEN)) and (CompilerVersion >= 20)}
+    {$define INTERNALCODEPAGE}
+  {$ifend}
 {$endif}
 {$U-}{$V+}{$B-}{$X+}{$T+}{$P+}{$H+}{$J-}{$Z1}{$A4}
 {$O+}{$R-}{$I-}{$Q-}{$W-}
+{$if Defined(CPUX86) or Defined(CPUX64)}
+  {$define CPUINTEL}
+{$ifend}
+{$if Defined(CPUX64) or Defined(CPUARM64)}
+  {$define LARGEINT}
+{$else}
+  {$define SMALLINT}
+{$ifend}
 {$ifdef KOL_MCK}
   {$define KOL}
 {$endif}
@@ -430,7 +443,7 @@ end;
 
 function CPFFree(P: Pointer): Boolean; cdecl;
 begin
-  Result := (MemoryManager.FreeMem(P) = 0);
+  Result := (MemoryManager.FreeMem(P) {$ifdef FPC}<>{$else}={$endif} 0);
 end;
 
 function CPFRealloc(P: Pointer; Size: NativeUInt): Pointer; cdecl;

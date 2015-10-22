@@ -1,7 +1,7 @@
 unit CrystalPathFinding;
 
 {******************************************************************************}
-{ Copyright (c) 2011-2015 Dmitry Mozulyov                                      }
+{ Copyright (c) 2011 Dmitry Mozulyov                                           }
 {                                                                              }
 { Permission is hereby granted, free of charge, to any person obtaining a copy }
 { of this software and associated documentation files (the "Software"), to deal}
@@ -33,8 +33,8 @@ unit CrystalPathFinding;
 
 // compiler directives
 {$ifdef FPC}
-  {$mode Delphi}
-  {$asmmode Intel}
+  {$mode delphi}
+  {$asmmode intel}
   {$define INLINESUPPORT}
   {$ifdef CPU386}
     {$define CPUX86}
@@ -51,11 +51,13 @@ unit CrystalPathFinding;
     {$WARN UNSAFE_TYPE OFF}
     {$WARN UNSAFE_CAST OFF}
   {$ifend}
-  {$if (CompilerVersion < 23)}
-    {$define CPUX86}
-  {$ifend}
-  {$if (CompilerVersion >= 17)}
+  {$if CompilerVersion >= 17}
     {$define INLINESUPPORT}
+  {$ifend}
+  {$if CompilerVersion < 23}
+    {$define CPUX86}
+  {$else}
+    {$define UNITSCOPENAMES}
   {$ifend}
   {$if CompilerVersion >= 21}
     {$WEAKLINKRTTI ON}
@@ -103,13 +105,15 @@ unit CrystalPathFinding;
 {$ifend}
 
 interface
-  uses Types
+  uses {$ifdef UNITSCOPENAMES}System.Types{$else}Types{$endif}
        {$ifNdef CPFLIB}
          {$ifdef KOL}
            , KOL, err
          {$else}
-           , SysUtils
-           {$if Defined(CPFDBG) or Defined(CPF_GENERATE_LOOKUPS)}, Classes{$ifend}
+           , {$ifdef UNITSCOPENAMES}System.SysUtils{$else}SysUtils{$endif}
+           {$if Defined(CPFDBG) or Defined(CPF_GENERATE_LOOKUPS)}
+              , {$ifdef UNITSCOPENAMES}System.Classes{$else}Classes{$endif}
+           {$ifend}
          {$endif}
        {$endif};
 
@@ -563,7 +567,7 @@ type
 
 implementation
 {$ifNdef CPFLIB}
-  {$ifNdef KOL}uses SysConst{$endif};
+  {$ifNdef KOL}uses {$ifdef UNITSCOPENAMES}System.SysConst{$else}SysConst{$endif}{$endif};
 
 var
   MemoryManager: {$if Defined(FPC) or (CompilerVersion < 18)}TMemoryManager{$else}TMemoryManagerEx{$ifend};

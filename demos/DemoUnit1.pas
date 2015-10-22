@@ -3,15 +3,15 @@ unit DemoUnit1;
 
 // compiler directives
 {$ifdef FPC}
-  {$mode Delphi}
-  {$asmmode Intel}
+  {$mode delphi}
+  {$asmmode intel}
   {$define INLINESUPPORT}
   {$ifdef CPU386}
     {$define CPUX86}
   {$endif}
   {$ifdef CPUX86_64}
     {$define CPUX64}
-  {$endif}  
+  {$endif}
 {$else}
   {$if CompilerVersion >= 24}
     {$LEGACYIFEND ON}
@@ -21,11 +21,13 @@ unit DemoUnit1;
     {$WARN UNSAFE_TYPE OFF}
     {$WARN UNSAFE_CAST OFF}
   {$ifend}
-  {$if (CompilerVersion < 23)}
-    {$define CPUX86}
-  {$ifend}
-  {$if (CompilerVersion >= 17)}
+  {$if CompilerVersion >= 17}
     {$define INLINESUPPORT}
+  {$ifend}
+  {$if CompilerVersion < 23}
+    {$define CPUX86}
+  {$else}
+    {$define UNITSCOPENAMES}
   {$ifend}
   {$if CompilerVersion >= 21}
     {$WEAKLINKRTTI ON}
@@ -40,7 +42,7 @@ unit DemoUnit1;
 {$if Defined(CPUX86) or Defined(CPUX64)}
   {$define CPUINTEL}
 {$ifend}
-{$if SizeOf(Pointer) = 8}
+{$if Defined(CPUX64) or Defined(CPUARM64)}
   {$define LARGEINT}
 {$else}
   {$define SMALLINT}
@@ -52,10 +54,17 @@ unit DemoUnit1;
 
 interface
 
-uses
-  Windows, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
-  Types, Dialogs, Math, ExtCtrls, StdCtrls, Spin, JPEG,
-  {$ifdef USECPFDLL}cpf{$else}CrystalPathFinding{$endif};
+uses {$ifdef UNITSCOPENAMES}
+       System.Types, Winapi.Windows, Winapi.Messages, System.SysUtils, System.Math,
+       System.Variants, System.Classes, Vcl.Graphics, Vcl.Imaging.JPEG,
+       Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.ExtCtrls, Vcl.StdCtrls, Vcl.Samples.Spin,
+     {$else}
+       Types, Windows, Messages, SysUtils,
+       Variants, Classes, Graphics, JPEG,
+       Controls, Forms, Dialogs, Math, ExtCtrls, StdCtrls, Spin,
+     {$endif}
+     {$ifdef USECPFDLL}cpf{$else}CrystalPathFinding{$endif};
+
 
 {$R xp_manifest.res}
 
@@ -1103,7 +1112,7 @@ procedure TMainForm.SetTileMode(const Value: Byte);
 begin
   if (FTileMode = Value) then Exit;
   FTileMode := Value;
-  Windows.SetFocus(TScrollBar(FindComponent('sbTile' + IntToStr(TileMode))).Handle);
+  {$ifdef UNITSCOPENAMES}Winapi.{$endif}Windows.SetFocus(TScrollBar(FindComponent('sbTile' + IntToStr(TileMode))).Handle);
   RepaintBoxes([pbTile1, pbTile2, pbTile3, pbTile4]);
 end;
 
@@ -1144,7 +1153,7 @@ begin
   sbTile2.Enabled := Value;
   sbTile3.Enabled := Value;
   sbTile4.Enabled := Value;
-  Windows.SetFocus(TScrollBar(FindComponent('sbTile' + IntToStr(TileMode))).Handle);
+  {$ifdef UNITSCOPENAMES}Winapi.{$endif}Windows.SetFocus(TScrollBar(FindComponent('sbTile' + IntToStr(TileMode))).Handle);
   RepaintBoxes([pbTile1, pbTile2, pbTile3, pbTile4]);
   TryUpdate;
 end;
@@ -1243,7 +1252,7 @@ begin
   if (Button = mbMiddle) or (FMousePressed = Button) or (ssDouble in Shift) then Exit;
 
   // unfocus controls
-  Windows.SetFocus(0);
+  {$ifdef UNITSCOPENAMES}Winapi.{$endif}Windows.SetFocus(0);
 
   // store button
   FMousePressed := Button;

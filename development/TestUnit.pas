@@ -3,17 +3,13 @@ unit TestUnit;
 {$i crystal_options.inc}
 
 interface
-  uses
-    Types,
-    {$ifdef MSWINDOWS}
-      {$if Defined(FPC) or (CompilerVersion < 23)}
-        Windows, ClipBrd,
-      {$else}
-        Winapi.Windows, Vcl.ClipBrd,
-      {$ifend}
-    {$endif}
-    SysUtils,
-    CrystalPathFinding;
+  uses {$ifdef MSWINDOWS}{$ifdef UNITSCOPENAMES}Winapi.Windows{$else}Windows{$endif}{$endif},
+       {$ifdef UNITSCOPENAMES}
+         System.Types, System.SysUtils, Vcl.ClipBrd,
+       {$else}
+         SysUtils, ClipBrd,
+       {$endif}
+       CrystalPathFinding;
 
 
 
