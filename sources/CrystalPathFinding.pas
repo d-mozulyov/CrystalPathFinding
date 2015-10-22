@@ -1113,7 +1113,7 @@ begin
     if (not CPFCallbacks.Free(P)) then
       RaiseInvalidPointer(Address);
   {$else}
-    if (MemoryManager.FreeMem(P) <> 0) then
+    if (MemoryManager.FreeMem(P) {$ifdef FPC}={$else}<>{$endif} 0) then
       RaiseInvalidPointer(Address);
   {$endif}
   end;
@@ -5895,7 +5895,6 @@ begin
 
     // node information
     NodeFlags := Cardinal(Node.NodeInfo);
-    if (NodeFlags and FLAGS_KNOWN_ATTAINABLE <> 0) then Break;
     Node.NodeInfo := NodeFlags and Integer($ff00ffff);
 
     // coordinates
