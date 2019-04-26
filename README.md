@@ -12,10 +12,10 @@ Library features:
 * Up to 255 types of tiles, weight is from 0.1 to 100.0 
 * Contains demonstration projects
 
-[Demo_x86.zip](http://dmozulyov.ucoz.net/CrystalPathFind/Demo_x86.zip), [Demo_x64.zip](http://dmozulyov.ucoz.net/CrystalPathFind/Demo_x64.zip)
-![](http://dmozulyov.ucoz.net/CrystalPathFind/screenshot.png)
-![](http://dmozulyov.ucoz.net/CrystalPathFind/excluded.png)
-![](http://dmozulyov.ucoz.net/CrystalPathFind/ways.png)
+[Demo_x86.zip](https://github.com/d-mozulyov/CrystalPathFinding/raw/master/data/Demo_x86.zip), [Demo_x64.zip](https://github.com/d-mozulyov/CrystalPathFinding/raw/master/data/Demo_x64.zip)
+![](https://github.com/d-mozulyov/CrystalPathFinding/raw/master/data/screenshot.png)
+![](https://github.com/d-mozulyov/CrystalPathFinding/raw/master/data/excluded.png)
+![](https://github.com/d-mozulyov/CrystalPathFinding/raw/master/data/ways.png)
 
 # Help
 The library contains 2 main objects: `TTileMap` (map of tiles) and `TTileMapWeights` (tile weights array). The tile can take any value from 1 till 255. The tile’s weight is indicated in the range from 0.1 to 100.0, if the tile weight is from 0.0 to 0.1 then the tile is considered to be impassable. If the `TTileMapWeights` is not indicated during the searching then all the weights are considered to be 1. The tile with number 0 (`TILE_BARRIER`) is considered to be a barrier, passing through which is impossible. The modes of the maps `mkDiagonal` and `mkDiagonalEx` are different in a way how the paths round the tile-barriers. 
